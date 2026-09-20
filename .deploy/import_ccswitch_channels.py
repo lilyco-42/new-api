@@ -78,7 +78,7 @@ TARGETS = [
         "secret_path": "auth.OPENAI_API_KEY",
         "name": "cc-switch · b.ai",
         "type": 1,
-        "base_url": "https://api.b.ai/v1",
+        "base_url": "https://api.b.ai",
         "models": "deepseek-v4-flash,deepseek-v4-pro",
         "status": 2,
     },
