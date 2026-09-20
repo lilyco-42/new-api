@@ -173,7 +173,13 @@ def apply(base: str, envelope: dict[str, Any]) -> int:
         return 2
 
     status, listing = api(base, "GET", "/api/channel/?p=1&page_size=200", token=token)
-    existing = listing.get("data", {}).get("data", []) if isinstance(listing.get("data"), dict) else []
+    page = listing.get("data")
+    if isinstance(page, dict):
+        existing = page.get("items") or page.get("data") or []
+    elif isinstance(page, list):
+        existing = page
+    else:
+        existing = []
     existing_keys = {(item.get("name"), item.get("base_url")) for item in existing}
     failures = 0
     for provider in envelope.get("providers", []):
