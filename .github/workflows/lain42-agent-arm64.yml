@@ -6,6 +6,9 @@ on:
       - agent-ui
     paths:
       - 'tauri/agent-companion/**'
+      - 'tauri/src/**'
+      - 'tauri/Cargo.toml'
+      - 'tauri/Cargo.lock'
       - '.github/workflows/lain42-agent-arm64.yml'
   workflow_dispatch:
 
