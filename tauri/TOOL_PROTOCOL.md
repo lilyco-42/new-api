@@ -16,20 +16,27 @@ The web Agent owns presentation metadata in
 - `command`, `installCommand`, and `url` are display-only instructions.
 - capabilities can be added to the manifest without changing the workspace UI.
 
-The Tauri shell owns the execution allowlist in `tauri/src/tool_runtime.rs`.
-It maps a stable id to an executable and refuses unknown ids. The webview
-cannot supply an arbitrary executable path. `main.rs` only owns Tauri commands
-and profile wiring; it does not contain tool-specific process policy.
+The Tauri shell owns the execution allowlist and operation schemas in
+`tauri/src/tool_runtime.rs`. It maps a stable operation id to an executable
+and refuses unknown ids. The webview cannot supply an arbitrary executable,
+shell fragment, or argument vector. `main.rs` only owns Tauri commands and
+profile wiring; it does not contain tool-specific process policy.
 
 ## CLI adapter
 
 `tool_status` probes a list of registered ids with `--version`.
-`cli_exec` accepts a Tauri request payload `{ request: { tool_id, args } }`,
-executes the registered binary without a shell, caps argument and output sizes,
-and returns `{ tool_id, exit_code, stdout, stderr }`.
+`cli_exec` accepts a Tauri request payload such as
+`{ request: { operation: "github.issues.list", params: { repo: "owner/name" } } }`.
+The runtime validates the operation's typed parameters, constructs the fixed
+argv without a shell, enforces a 30-second deadline and a 64 KiB streaming
+output limit, and returns the operation, status, bounded output, and truncation
+flag. The accepted operations are deliberately read-only in v1:
+`github.auth.status`, `github.issues.list`, `github.repositories.search`, and
+`github.pull_requests.list`.
 
 `gh` uses the same adapter and automatically receives the current desktop
-profile's `GH_CONFIG_DIR`, so each desktop user keeps an isolated GitHub login.
+profile's `GH_CONFIG_DIR` after inherited token environment variables are
+cleared, so each desktop user keeps an isolated GitHub login.
 The existing structured GitHub commands remain as compatibility helpers and
 delegate to the same adapter.
 
