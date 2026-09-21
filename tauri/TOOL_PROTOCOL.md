@@ -53,8 +53,11 @@ normal platform session and names a device it owns. The service forwards only
 bounded structured `tool_request` / `tool_result` envelopes and never executes
 the user's CLI on the server. The bridge does not grant a browser access to a
 credential, and it rejects requests after the device is offline or the request
-deadline expires. Pairing UI, durable task recovery, and MCP transport remain
-separate follow-up work.
+deadline expires. The Agent workspace exposes the pairing action in the desktop
+shell and automatically connects an authenticated browser to its first active
+device. Durable task recovery and MCP transport remain separate follow-up work.
+The current desktop credential is held in process memory and must be paired
+again after the shell exits until OS keychain storage lands.
 
 ## Adding a tool
 

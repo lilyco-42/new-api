@@ -93,7 +93,7 @@ func AgentBridgeDesktop(c *gin.Context) {
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 		switch envelope.Type {
-		case service.AgentBridgeMessageToolResult:
+		case service.AgentBridgeMessageToolResult, service.AgentBridgeMessageToolError:
 			if err := hub.ForwardToolResult(peer, envelope); err != nil {
 				_ = hub.Send(peer, service.AgentBridgeEnvelope{
 					Type:      service.AgentBridgeMessageToolError,

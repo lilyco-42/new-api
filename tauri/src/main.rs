@@ -1,9 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, path::PathBuf, sync::Mutex};
 
 use serde::Serialize;
-use tauri::{webview::WebviewWindowBuilder, AppHandle, Manager, WebviewUrl};
+use tauri::{webview::WebviewWindowBuilder, AppHandle, Manager, State, WebviewUrl};
 use url::Url;
 
 mod tool_runtime;
@@ -14,6 +14,14 @@ use tool_runtime::{
 };
 
 const DEFAULT_AGENT_URL: &str = "https://api.lain42.top/agent";
+
+#[derive(Default)]
+struct AgentDeviceState(Mutex<Option<AgentDeviceSession>>);
+
+struct AgentDeviceSession {
+    device_id: i64,
+    credential: String,
+}
 
 fn agent_url() -> Url {
     env::var("LAIN42_DESKTOP_URL")
@@ -59,6 +67,55 @@ fn cli_exec(app: AppHandle, request: CliExecRequest) -> Result<CliExecResult, St
         timeout_ms: request.timeout_ms,
     };
     execute_operation(&request, credentials.as_ref(), &CancellationToken::new())
+}
+
+#[tauri::command]
+fn agent_device_credential_get(state: State<'_, AgentDeviceState>) -> Option<String> {
+    state
+        .0
+        .lock()
+        .ok()
+        .and_then(|session| session.as_ref().map(|value| value.credential.clone()))
+}
+
+#[tauri::command]
+fn agent_device_id_get(state: State<'_, AgentDeviceState>) -> Option<i64> {
+    state
+        .0
+        .lock()
+        .ok()
+        .and_then(|session| session.as_ref().map(|value| value.device_id))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn agent_device_credential_set(
+    state: State<'_, AgentDeviceState>,
+    credential: String,
+    device_id: i64,
+) -> Result<(), String> {
+    let credential = credential.trim().to_string();
+    if !(32..=256).contains(&credential.len()) || device_id <= 0 {
+        return Err("Invalid agent device credential.".to_string());
+    }
+    let mut current = state
+        .0
+        .lock()
+        .map_err(|_| "Agent device state is unavailable.".to_string())?;
+    *current = Some(AgentDeviceSession {
+        device_id,
+        credential,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn agent_device_credential_clear(state: State<'_, AgentDeviceState>) -> Result<(), String> {
+    let mut current = state
+        .0
+        .lock()
+        .map_err(|_| "Agent device state is unavailable.".to_string())?;
+    *current = None;
+    Ok(())
 }
 
 fn validate_profile_id(profile_id: &str) -> Result<(), String> {
@@ -302,6 +359,7 @@ fn gh_list_pull_requests(
 
 fn main() {
     tauri::Builder::default()
+        .manage(AgentDeviceState::default())
         .setup(|app| {
             let app_handle = app.handle().clone();
             let webview_data_dir =
@@ -323,7 +381,11 @@ fn main() {
             gh_list_issues,
             gh_list_pull_requests,
             tool_status,
-            cli_exec
+            cli_exec,
+            agent_device_credential_get,
+            agent_device_id_get,
+            agent_device_credential_set,
+            agent_device_credential_clear
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lain42 Agent");

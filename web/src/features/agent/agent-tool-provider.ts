@@ -134,8 +134,9 @@ async function invokeWithAbort(
   args: Record<string, unknown>,
   signal: AbortSignal
 ): Promise<unknown> {
-  if (signal.aborted)
+  if (signal.aborted) {
     throw new DOMException('The tool was cancelled.', 'AbortError')
+  }
 
   let removeAbortListener: () => void = () => {}
   const abort = new Promise<never>((_, reject) => {

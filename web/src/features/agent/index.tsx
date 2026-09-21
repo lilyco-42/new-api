@@ -45,9 +45,19 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Playground } from '@/features/playground'
+import type { LocalToolProvider } from '@/features/playground/types'
 import { useMediaQuery } from '@/hooks'
 
+import {
+  createBrowserAgentBridge,
+  createBrowserBridgeProvider,
+  listAgentDevices,
+  pairCurrentDesktop,
+  startDesktopAgentBridge,
+  type AgentBridgeStatus,
+} from './agent-bridge'
 import { localAgentToolProvider } from './agent-tool-provider'
+import { AgentBridgeCard } from './components/agent-bridge-card'
 import { AgentSidebar, type AgentPreset } from './components/agent-sidebar'
 import { DeveloperToolkitCard } from './components/developer-toolkit-card'
 import { GithubCliCard } from './components/github-cli-card'
@@ -98,9 +108,28 @@ const PRESETS: AgentPreset[] = [
   },
 ]
 
-function WorkspaceToolsCards() {
+function WorkspaceToolsCards({
+  bridgeStatus,
+  deviceName,
+  isDesktop,
+  onPair,
+  onReconnect,
+}: {
+  bridgeStatus: AgentBridgeStatus
+  deviceName?: string
+  isDesktop: boolean
+  onPair?: () => Promise<void>
+  onReconnect?: () => Promise<void>
+}) {
   return (
     <div className='grid gap-3'>
+      <AgentBridgeCard
+        deviceName={deviceName}
+        isDesktop={isDesktop}
+        onPair={onPair}
+        onReconnect={onReconnect}
+        status={bridgeStatus}
+      />
       <DeveloperToolkitCard />
       <PlatformAccessCard />
       <ResearchSourcesCard />
@@ -210,10 +239,90 @@ export function AgentWorkspace() {
   const [toolsOpen, setToolsOpen] = useState(false)
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('tools')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [bridgeStatus, setBridgeStatus] =
+    useState<AgentBridgeStatus>('unavailable')
+  const [bridgeProvider, setBridgeProvider] =
+    useState<LocalToolProvider | null>(null)
+  const [bridgeDeviceName, setBridgeDeviceName] = useState<string>()
+  const [bridgeEpoch, setBridgeEpoch] = useState(0)
+  const isDesktop = localAgentToolProvider.isAvailable()
 
   useEffect(() => {
     setToolsOpen(!useToolsSheet)
   }, [useToolsSheet])
+
+  useEffect(() => {
+    let disposed = false
+    let cleanup: (() => void) | null = null
+    setBridgeProvider(null)
+    setBridgeDeviceName(undefined)
+    setBridgeStatus(isDesktop ? 'unavailable' : 'connecting')
+
+    if (isDesktop) {
+      void startDesktopAgentBridge(setBridgeStatus)
+        .then((dispose) => {
+          if (disposed) {
+            dispose?.()
+            return
+          }
+          cleanup = dispose
+          if (!dispose) setBridgeStatus('unavailable')
+        })
+        .catch(() => {
+          if (!disposed) setBridgeStatus('error')
+        })
+      return () => {
+        disposed = true
+        cleanup?.()
+      }
+    }
+
+    void listAgentDevices()
+      .then(async (devices) => {
+        if (disposed) return
+        const device = devices[0]
+        if (!device) {
+          setBridgeStatus('unavailable')
+          return
+        }
+        setBridgeDeviceName(device.device_name)
+        const client = createBrowserAgentBridge(device.id)
+        if (!client) {
+          setBridgeStatus('unavailable')
+          return
+        }
+        cleanup = () => client.close()
+        const removeStatus = client.onStatus(setBridgeStatus)
+        const provider = createBrowserBridgeProvider(client)
+        setBridgeProvider(provider)
+        try {
+          await client.connect()
+        } catch {
+          if (!disposed) setBridgeStatus('offline')
+        }
+        if (disposed) {
+          removeStatus()
+          cleanup?.()
+        }
+      })
+      .catch(() => {
+        if (!disposed) setBridgeStatus('unavailable')
+      })
+
+    return () => {
+      disposed = true
+      cleanup?.()
+    }
+  }, [bridgeEpoch, isDesktop])
+
+  const pairDesktop = async () => {
+    await pairCurrentDesktop()
+    setBridgeEpoch((value) => value + 1)
+  }
+
+  const reconnectDesktop = async () => {
+    setBridgeEpoch((value) => value + 1)
+  }
 
   const handlePresetChange = (nextPreset: AgentPreset) => {
     setPreset(nextPreset)
@@ -349,7 +458,9 @@ export function AgentWorkspace() {
             emptyStateTitle={t('How can I help you today?')}
             storageNamespace={`agent-${preset.id}-chat-${chatId}`}
             systemPrompt={preset.prompt}
-            localToolProvider={localAgentToolProvider}
+            localToolProvider={
+              isDesktop ? localAgentToolProvider : (bridgeProvider ?? undefined)
+            }
           />
         </main>
       </div>
@@ -363,7 +474,13 @@ export function AgentWorkspace() {
           />
           <div className='min-h-0 flex-1 overflow-y-auto p-4'>
             {workspaceView === 'tools' ? (
-              <WorkspaceToolsCards />
+              <WorkspaceToolsCards
+                bridgeStatus={bridgeStatus}
+                deviceName={bridgeDeviceName}
+                isDesktop={isDesktop}
+                onPair={isDesktop ? pairDesktop : undefined}
+                onReconnect={isDesktop ? reconnectDesktop : undefined}
+              />
             ) : (
               <WorkspaceViewPlaceholder view={workspaceView} />
             )}
@@ -383,7 +500,13 @@ export function AgentWorkspace() {
                 {t('One workspace for web, desktop and mobile')}
               </SheetDescription>
             </SheetHeader>
-            <WorkspaceToolsCards />
+            <WorkspaceToolsCards
+              bridgeStatus={bridgeStatus}
+              deviceName={bridgeDeviceName}
+              isDesktop={isDesktop}
+              onPair={isDesktop ? pairDesktop : undefined}
+              onReconnect={isDesktop ? reconnectDesktop : undefined}
+            />
           </SheetContent>
         </Sheet>
       )}

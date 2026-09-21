@@ -189,7 +189,7 @@ func (hub *AgentBridgeHub) ForwardToolResult(desktop *AgentBridgePeer, envelope 
 	if desktop == nil || desktop.role != "desktop" || desktop.deviceID <= 0 {
 		return ErrAgentBridgeUnauthorized
 	}
-	if envelope.Type != AgentBridgeMessageToolResult || envelope.RequestID == "" {
+	if (envelope.Type != AgentBridgeMessageToolResult && envelope.Type != AgentBridgeMessageToolError) || envelope.RequestID == "" {
 		return ErrAgentBridgeInvalid
 	}
 	if err := validateAgentBridgeEnvelope(envelope); err != nil {

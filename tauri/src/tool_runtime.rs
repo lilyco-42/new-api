@@ -749,19 +749,23 @@ fn run_process(
     loop {
         if termination.is_none() {
             if cancellation.is_cancelled() {
+                #[cfg(unix)]
+                let child_pid = child.id();
                 kill_tree(
                     &mut child,
                     #[cfg(unix)]
-                    child.id(),
+                    child_pid,
                     #[cfg(windows)]
                     &job,
                 );
                 termination = Some(ExecutionStatus::Cancelled);
             } else if started.elapsed() >= policy.timeout {
+                #[cfg(unix)]
+                let child_pid = child.id();
                 kill_tree(
                     &mut child,
                     #[cfg(unix)]
-                    child.id(),
+                    child_pid,
                     #[cfg(windows)]
                     &job,
                 );
@@ -786,10 +790,12 @@ fn run_process(
             }
             Ok(ReaderEvent::Overflow) => {
                 if termination.is_none() {
+                    #[cfg(unix)]
+                    let child_pid = child.id();
                     kill_tree(
                         &mut child,
                         #[cfg(unix)]
-                        child.id(),
+                        child_pid,
                         #[cfg(windows)]
                         &job,
                     );
@@ -798,10 +804,12 @@ fn run_process(
             }
             Ok(ReaderEvent::Error(error)) => {
                 if termination.is_none() {
+                    #[cfg(unix)]
+                    let child_pid = child.id();
                     kill_tree(
                         &mut child,
                         #[cfg(unix)]
-                        child.id(),
+                        child_pid,
                         #[cfg(windows)]
                         &job,
                     );
@@ -817,10 +825,12 @@ fn run_process(
         }
         if started.elapsed() > policy.timeout + Duration::from_secs(1) {
             if termination.is_none() {
+                #[cfg(unix)]
+                let child_pid = child.id();
                 kill_tree(
                     &mut child,
                     #[cfg(unix)]
-                    child.id(),
+                    child_pid,
                     #[cfg(windows)]
                     &job,
                 );
