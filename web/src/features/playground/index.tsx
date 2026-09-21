@@ -25,7 +25,23 @@ import {
   usePlaygroundState,
 } from './hooks'
 
-export function Playground() {
+export interface PlaygroundProps {
+  /** Optional instruction message for a focused agent workspace. */
+  systemPrompt?: string
+  /** Isolate agent history/config from the normal playground. */
+  storageNamespace?: string
+  /** Optional empty-state heading for branded agent workspaces. */
+  emptyStateTitle?: string
+  /** Optional empty-state description for branded agent workspaces. */
+  emptyStateDescription?: string
+}
+
+export function Playground({
+  systemPrompt,
+  storageNamespace = '',
+  emptyStateTitle,
+  emptyStateDescription,
+}: PlaygroundProps = {}) {
   const {
     config,
     parameterEnabled,
@@ -39,7 +55,7 @@ export function Playground() {
     updateConfig,
     updateParameterEnabled,
     clearMessages,
-  } = usePlaygroundState()
+  } = usePlaygroundState({ storageNamespace, systemPrompt })
 
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
     config,
@@ -79,6 +95,8 @@ export function Playground() {
       {/* Full-width scroll container: scrolling works even over side whitespace */}
       <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
         <PlaygroundChat
+          emptyStateDescription={emptyStateDescription}
+          emptyStateTitle={emptyStateTitle}
           messages={messages}
           isLoadingMessages={isLoadingMessages}
           onRegenerateMessage={handleRegenerateMessage}
@@ -94,7 +112,7 @@ export function Playground() {
       </div>
 
       {/* Input area: center content and constrain to the same container width */}
-      <div className='mx-auto w-full max-w-4xl'>
+      <div className='mx-auto w-full max-w-3xl'>
         <PlaygroundInput
           config={config}
           disabled={isGenerating}

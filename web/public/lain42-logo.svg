@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title">
+  <title>Lain42</title>
+  <defs>
+    <linearGradient id="lain42-gradient" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4f6ef7" />
+      <stop offset="1" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#lain42-gradient)" />
+  <path d="M144 336c56-224 152 64 224-160" stroke="#fff" stroke-width="42" fill="none" stroke-linecap="round" />
+  <circle cx="144" cy="336" r="30" fill="#fff" />
+</svg>

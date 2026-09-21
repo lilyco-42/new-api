@@ -23,7 +23,6 @@ import { describe, test } from 'vitest'
 import {
   deriveInstallState,
   findMarketplaceVersion,
-  GITHUB_MARKETPLACE_INDEX_URL,
   indexHasIntegrityHashes,
   isDefaultMarketplaceSource,
   parseMarketplaceIndex,
@@ -35,7 +34,7 @@ import type {
   TaskPluginListItem,
 } from '../types'
 
-const OFFICIAL_INDEX_URL = 'https://www.newapi.ai/api/v1/plugins/index.json'
+const OFFICIAL_INDEX_URL = 'https://api.lain42.top/marketplace/index.json'
 
 function marketplacePlugin(
   overrides: Partial<MarketplacePlugin> = {}
@@ -88,7 +87,7 @@ describe('marketplace source path resolution', () => {
   test('resolves against a root index without dropping the path', () => {
     assert.equal(
       resolvePluginSourceUrl(OFFICIAL_INDEX_URL, 'x/1.0.0/plugin.js'),
-      'https://www.newapi.ai/api/v1/plugins/x/1.0.0/plugin.js'
+      'https://api.lain42.top/marketplace/x/1.0.0/plugin.js'
     )
   })
 
@@ -456,10 +455,9 @@ describe('source integrity and trust labels', () => {
     assert.equal(indexHasIntegrityHashes(index([])), false)
   })
 
-  test('labels both built-in index URLs as official sources', () => {
+  test('labels the first-party index URL as an official source', () => {
     assert.equal(isDefaultMarketplaceSource(OFFICIAL_INDEX_URL), true)
     assert.equal(isDefaultMarketplaceSource(` ${OFFICIAL_INDEX_URL} `), true)
-    assert.equal(isDefaultMarketplaceSource(GITHUB_MARKETPLACE_INDEX_URL), true)
   })
 
   test('labels any other index URL as third-party', () => {

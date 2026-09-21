@@ -49,7 +49,7 @@ export function Hero(props: HeroProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
   const docsUrl =
-    (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
+    (status?.docs_link as string | undefined) || 'https://lain42.top/'
 
   const renderDocsButton = () => {
     const isExternal = docsUrl.startsWith('http')
@@ -146,6 +146,13 @@ export function Hero(props: HeroProps) {
                   {t('Go to Dashboard')}
                   <ArrowRight className='ml-1.5 size-4 transition-transform duration-200 group-hover:translate-x-0.5' />
                 </Button>
+                <Button
+                  variant='outline'
+                  className='border-border/50 hover:border-border hover:bg-muted/50 h-11 rounded-lg px-5 text-sm font-medium'
+                  render={<Link to='/agent' />}
+                >
+                  {t('Try Agent')}
+                </Button>
                 {renderDocsButton()}
               </>
             ) : (
@@ -164,6 +171,13 @@ export function Hero(props: HeroProps) {
                 >
                   {t('View Pricing')}
                 </Button>
+                <Button
+                  variant='outline'
+                  className='border-border/50 hover:border-border hover:bg-muted/50 h-11 rounded-lg px-5 text-sm font-medium'
+                  render={<Link to='/agent' />}
+                >
+                  {t('Try Agent')}
+                </Button>
                 {renderDocsButton()}
               </>
             )}
@@ -179,9 +193,7 @@ export function Hero(props: HeroProps) {
                 {t('Supported Applications')}
               </span>
               <p className='text-muted-foreground/60 text-xs leading-relaxed'>
-                {t(
-                  'Supports one-click configuration and perfectly adapts to NewAPI multi-protocol configuration.'
-                )}
+                {t('支持一键配置，兼容主流 AI 客户端与多协议 API。')}
               </p>
             </div>
             <div className='flex flex-wrap items-center gap-3'>

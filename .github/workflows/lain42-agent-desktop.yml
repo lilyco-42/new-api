@@ -1,0 +1,103 @@
+name: Build Lain42 Agent desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the bundles to a GitHub release when this run is for a tag
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'agent-v*'
+
+concurrency:
+  group: lain42-agent-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            bundles: nsis,msi
+          - name: linux-x64
+            os: ubuntu-24.04
+            bundles: appimage,deb
+          - name: macos
+            os: macos-latest
+            bundles: dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf
+
+      - name: Install Tauri CLI
+        shell: bash
+        run: cargo install tauri-cli --version 2.11.5 --locked
+
+      - name: Build desktop bundles
+        shell: bash
+        working-directory: tauri
+        env:
+          RUST_BACKTRACE: '1'
+        run: cargo tauri build --bundles "${{ matrix.bundles }}"
+
+      - name: Upload desktop bundles
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lain42-agent-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            tauri/target/release/bundle/**/*.msi
+            tauri/target/release/bundle/**/*.exe
+            tauri/target/release/bundle/**/*.dmg
+            tauri/target/release/bundle/**/*.AppImage
+            tauri/target/release/bundle/**/*.deb
+
+  release:
+    name: Attach desktop bundles to release
+    if: startsWith(github.ref, 'refs/tags/') && (github.event_name == 'push' || inputs.publish_release == true)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: lain42-agent-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          files: release-assets/**/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

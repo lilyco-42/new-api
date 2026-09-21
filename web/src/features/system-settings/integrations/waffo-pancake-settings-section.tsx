@@ -66,8 +66,8 @@ interface Props {
 }
 
 const PANCAKE_DASHBOARD_URL = 'https://pancake.waffo.ai/merchant/dashboard'
-const DEFAULT_NEW_STORE_NAME = 'new-api-store'
-const DEFAULT_NEW_PRODUCT_NAME = 'new-api-charge-product'
+const DEFAULT_NEW_STORE_NAME = 'lain42-store'
+const DEFAULT_NEW_PRODUCT_NAME = 'lain42-charge-product'
 const DEFAULT_NEW_PAIR_NAME = `${DEFAULT_NEW_STORE_NAME} + ${DEFAULT_NEW_PRODUCT_NAME}`
 
 export function WaffoPancakeSettingsSection({
@@ -481,12 +481,12 @@ export function WaffoPancakeSettingsSection({
             <ul className='list-inside list-disc space-y-1'>
               <li>
                 {t(
-                  'The bound Store is the parent container for every Pancake product new-api creates from this admin — both the wallet top-up product and any subscription-plan products. One store is enough; pin a different one only if you genuinely run separate Pancake catalogs.'
+                  '绑定的 Store 是平台从此管理端创建的所有 Pancake 商品的父容器，包括钱包充值与订阅套餐。通常一个店铺即可。'
                 )}
               </li>
               <li>
                 {t(
-                  'The bound Product powers wallet top-ups: when a user enters any amount, new-api runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create $1 / $5 / $10 SKUs.'
+                  '绑定的 Product 用于钱包充值：用户输入金额后，平台会按当前会话覆盖价格，无需预先创建多个固定面额 SKU。'
                 )}
               </li>
               <li>

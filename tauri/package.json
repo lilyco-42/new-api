@@ -1,0 +1,12 @@
+{
+  "name": "lain42-agent-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Lain42 Agent desktop shell built with Tauri",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build",
+    "check": "cargo check",
+    "fmt": "cargo fmt --check"
+  }
+}

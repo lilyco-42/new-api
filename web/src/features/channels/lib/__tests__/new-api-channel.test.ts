@@ -46,7 +46,7 @@ describe('New API channel', () => {
 
     expect(option).toEqual({
       value: CHANNEL_TYPE_NEW_API,
-      label: 'New API',
+      label: 'Lain42 API',
     })
     expect(
       CHANNEL_TYPE_OPTIONS.findIndex(
@@ -54,11 +54,11 @@ describe('New API channel', () => {
       ) + 1
     ).toBe(CHANNEL_TYPE_OPTIONS.findIndex((item) => item.value === 58))
     expect(MODEL_FETCHABLE_TYPES.has(CHANNEL_TYPE_NEW_API)).toBe(true)
-    expect(getChannelTypeIcon(CHANNEL_TYPE_NEW_API)).toBe('NewAPI')
+    expect(getChannelTypeIcon(CHANNEL_TYPE_NEW_API)).toBe('OpenAI')
     expect(getKeyPromptForType(CHANNEL_TYPE_NEW_API)).toBe(
       'Enter API key for this channel'
     )
-    expect(getChannelTypeConfig(CHANNEL_TYPE_NEW_API).icon).toBe('NewAPI')
+    expect(getChannelTypeConfig(CHANNEL_TYPE_NEW_API).icon).toBe('OpenAI')
   })
 
   test('requires a non-blank Base URL', () => {

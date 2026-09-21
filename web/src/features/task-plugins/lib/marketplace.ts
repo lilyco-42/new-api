@@ -248,19 +248,16 @@ export function indexHasIntegrityHashes(index: MarketplaceIndex): boolean {
 }
 
 export const DEFAULT_MARKETPLACE_INDEX_URL =
-  'https://www.newapi.ai/api/v1/plugins/index.json'
+  'https://api.lain42.top/marketplace/index.json'
 
 export const GITHUB_MARKETPLACE_INDEX_URL =
-  'https://raw.githubusercontent.com/QuantumNous/new-api-plugins/main/index.json'
+  DEFAULT_MARKETPLACE_INDEX_URL
 
 /**
- * Both built-in indexes are maintained by the project. Other configured
- * sources get an explicit at-your-own-risk label.
+ * The first-party index is maintained by the Lain42 deployment. Other
+ * configured sources get an explicit at-your-own-risk label.
  */
 export function isDefaultMarketplaceSource(indexUrl: string): boolean {
   const normalized = indexUrl.trim()
-  return (
-    normalized === DEFAULT_MARKETPLACE_INDEX_URL ||
-    normalized === GITHUB_MARKETPLACE_INDEX_URL
-  )
+  return normalized === DEFAULT_MARKETPLACE_INDEX_URL
 }

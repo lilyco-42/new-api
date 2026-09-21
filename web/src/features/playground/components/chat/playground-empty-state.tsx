@@ -29,6 +29,8 @@ import { Button } from '@/components/ui/button'
 
 type PlaygroundEmptyStateProps = {
   onSelectPrompt: (prompt: string) => void
+  title?: string
+  description?: string
 }
 
 const starterPrompts = [
@@ -40,6 +42,8 @@ const starterPrompts = [
 
 export function PlaygroundEmptyState({
   onSelectPrompt,
+  title,
+  description,
 }: PlaygroundEmptyStateProps) {
   const { t } = useTranslation()
 
@@ -52,12 +56,13 @@ export function PlaygroundEmptyState({
 
         <div className='grid gap-2'>
           <h2 className='text-xl font-semibold tracking-tight text-balance md:text-2xl'>
-            {t('Start a playground chat')}
+            {title ?? t('Start a playground chat')}
           </h2>
           <p className='text-muted-foreground mx-auto max-w-lg text-sm leading-6 text-balance'>
-            {t(
-              'Test a model with a starter prompt, or write your own request below.'
-            )}
+            {description ??
+              t(
+                'Test a model with a starter prompt, or write your own request below.'
+              )}
           </p>
         </div>
 

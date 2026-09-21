@@ -192,7 +192,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeCodex:          "ChatGPT Subscription (Codex)",
 	ChannelTypeAdvancedCustom: "Advanced Custom",
 	ChannelTypeSub2API:        "Sub2API",
-	ChannelTypeNewAPI:         "New API",
+	ChannelTypeNewAPI:         "Lain42 API",
 	ChannelTypeTaskPlugin:     "Task Plugin",
 }
 

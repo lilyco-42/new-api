@@ -27,15 +27,15 @@ export function getMessageContentStyles() {
     'group-[.is-assistant]:max-w-[78ch]',
     'group-[.is-user]:w-fit',
 
-    // User bubble: compact surface that stays calm in both light and dark themes.
+    // User bubble: compact accent surface matching the focused ChatGPT-style flow.
     'group-[.is-user]:rounded-2xl',
     'group-[.is-user]:rounded-br-md',
     'group-[.is-user]:border',
-    'group-[.is-user]:border-border/70',
-    'group-[.is-user]:bg-muted/70',
+    'group-[.is-user]:border-primary/30',
+    'group-[.is-user]:bg-primary',
     'group-[.is-user]:px-4',
     'group-[.is-user]:py-2.5',
-    'group-[.is-user]:text-foreground',
+    'group-[.is-user]:text-primary-foreground',
     'group-[.is-user]:shadow-sm',
     'group-[.is-user]:shadow-black/5',
 

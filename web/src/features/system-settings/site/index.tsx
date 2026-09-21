@@ -26,7 +26,7 @@ import {
 
 const defaultSiteSettings: SiteSettings = {
   Notice: '',
-  SystemName: 'New API',
+  SystemName: '云枢智创 AI Gateway',
   Logo: '',
   Footer: '',
   About: '',

@@ -48,6 +48,8 @@ const MAX_RENDERED_HISTORY_MESSAGES = 24
 
 interface PlaygroundChatProps {
   messages: MessageType[]
+  emptyStateTitle?: string
+  emptyStateDescription?: string
   onCopyMessage?: (message: MessageType) => void
   onRegenerateMessage?: (message: MessageType) => void
   onEditMessage?: (message: MessageType) => void
@@ -64,6 +66,8 @@ interface PlaygroundChatProps {
 
 export function PlaygroundChat({
   messages,
+  emptyStateTitle,
+  emptyStateDescription,
   onCopyMessage,
   onRegenerateMessage,
   onEditMessage,
@@ -83,11 +87,14 @@ export function PlaygroundChat({
   const [sourceMessageKeys, setSourceMessageKeys] = useState<
     ReadonlySet<string>
   >(() => new Set())
+  const renderableMessages = messages
+    .map((message, messageIndex) => ({ message, messageIndex }))
+    .filter(({ message }) => message.from !== 'system')
   const visibleMessageOffset = Math.max(
     0,
-    messages.length - MAX_RENDERED_HISTORY_MESSAGES
+    renderableMessages.length - MAX_RENDERED_HISTORY_MESSAGES
   )
-  const visibleMessages = messages.slice(visibleMessageOffset)
+  const visibleMessages = renderableMessages.slice(visibleMessageOffset)
 
   function handleToggleMessageSource(message: MessageType): void {
     setSourceMessageKeys((currentKeys) => {
@@ -112,8 +119,7 @@ export function PlaygroundChat({
     setOriginalText(content)
   }, [editingKey, messages])
 
-  let chatContent = visibleMessages.map((message, visibleMessageIndex) => {
-    const messageIndex = visibleMessageOffset + visibleMessageIndex
+  let chatContent = visibleMessages.map(({ message, messageIndex }) => {
     const { alwaysShowActions, content, isEditing } = getChatMessageRenderState(
       messages,
       message,
@@ -195,7 +201,12 @@ export function PlaygroundChat({
 
   if (visibleMessages.length === 0 && onSelectPrompt) {
     chatContent = [
-      <PlaygroundEmptyState key='empty' onSelectPrompt={onSelectPrompt} />,
+      <PlaygroundEmptyState
+        description={emptyStateDescription}
+        key='empty'
+        onSelectPrompt={onSelectPrompt}
+        title={emptyStateTitle}
+      />,
     ]
   }
 
@@ -215,7 +226,9 @@ export function PlaygroundChat({
     <Conversation>
       {/* Remove outer padding; apply padding to inner centered container to align with input */}
       <ConversationContent className='p-0'>
-        <div className='mx-auto w-full max-w-4xl px-4 py-4'>{chatContent}</div>
+        <div className='mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-7'>
+          {chatContent}
+        </div>
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
