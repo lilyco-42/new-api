@@ -39,10 +39,10 @@ func SetApiRouter(router *gin.Engine) {
 			platformAgentRoute := agentRoute.Group("")
 			platformAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
 			{
-				platformAgentRoute.POST("/pairings", controller.CreateAgentPairing)
-				platformAgentRoute.POST("/pairings/:id/confirm", controller.ConfirmAgentPairing)
+				platformAgentRoute.POST("/pairings", middleware.SessionCookieOriginGuard(), controller.CreateAgentPairing)
+				platformAgentRoute.POST("/pairings/:id/confirm", middleware.SessionCookieOriginGuard(), controller.ConfirmAgentPairing)
 				platformAgentRoute.GET("/devices", controller.ListAgentDevices)
-				platformAgentRoute.DELETE("/devices/:id", controller.RevokeAgentDevice)
+				platformAgentRoute.DELETE("/devices/:id", middleware.SessionCookieOriginGuard(), controller.RevokeAgentDevice)
 			}
 			desktopAgentRoute := agentRoute.Group("")
 			desktopAgentRoute.Use(middleware.CriticalRateLimit(), middleware.DisableCache())
