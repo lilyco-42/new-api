@@ -9,6 +9,7 @@ the Free Software Foundation, either version 3 of the License, or
 import {
   Cable,
   Check,
+  Clipboard,
   Laptop,
   Link2,
   RefreshCw,
@@ -36,6 +37,10 @@ type AgentBridgeCardProps = {
   deviceName?: string
   onPair?: () => Promise<void>
   onReconnect?: () => Promise<void>
+  onCreatePairing?: () => Promise<void>
+  onConfirmPairing?: (ticket: string) => Promise<void>
+  pairingId?: number
+  pairingTicket?: string
 }
 
 function statusVariant(status: AgentBridgeStatus) {
@@ -50,9 +55,15 @@ export function AgentBridgeCard({
   deviceName,
   onPair,
   onReconnect,
+  onCreatePairing,
+  onConfirmPairing,
+  pairingId,
+  pairingTicket,
 }: AgentBridgeCardProps) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
+  const [confirmationTicket, setConfirmationTicket] = useState('')
+  const [copied, setCopied] = useState(false)
 
   const action = async () => {
     const callback = status === 'connected' ? onReconnect : onPair
@@ -73,6 +84,55 @@ export function AgentBridgeCard({
       )
     } finally {
       setBusy(false)
+    }
+  }
+
+  const createPairing = async () => {
+    if (!onCreatePairing) return
+    setBusy(true)
+    try {
+      await onCreatePairing()
+      toast.success(t('Pairing ticket created.'))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('Pairing failed.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const confirmPairing = async () => {
+    if (!onConfirmPairing || !confirmationTicket.trim()) return
+    setBusy(true)
+    try {
+      await onConfirmPairing(confirmationTicket)
+      setConfirmationTicket('')
+      toast.success(t('Desktop pairing confirmed.'))
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Pairing confirmation failed.')
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyPairingTicket = async () => {
+    if (!pairingTicket) return
+    try {
+      if (!navigator.clipboard) {
+        throw new Error('Clipboard access is unavailable.')
+      }
+      await navigator.clipboard.writeText(pairingTicket)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Could not copy pairing ticket.')
+      )
     }
   }
 
@@ -135,13 +195,71 @@ export function AgentBridgeCard({
               : t('Pair this desktop')}
           </Button>
         ) : (
-          <p className='text-muted-foreground text-xs leading-5'>
-            {status === 'connected'
-              ? t('GitHub tools from this device are ready for the Agent.')
-              : t(
-                  'Open the Lain42 desktop app, sign in, and pair it before asking for local CLI work.'
-                )}
-          </p>
+          <div className='grid gap-2'>
+            <p className='text-muted-foreground text-xs leading-5'>
+              {status === 'connected'
+                ? t('GitHub tools from this device are ready for the Agent.')
+                : t(
+                    'Create a short-lived ticket, claim it on Radxa, then paste the confirmation ticket here.'
+                  )}
+            </p>
+            {status !== 'connected' && onCreatePairing && !pairingTicket && (
+              <Button
+                disabled={busy}
+                onClick={() => void createPairing()}
+                size='sm'
+                variant='outline'
+              >
+                {busy ? <RefreshCw className='animate-spin' /> : <Link2 />}
+                {t('Create Radxa pairing ticket')}
+              </Button>
+            )}
+            {pairingTicket && (
+              <div className='grid gap-2 rounded-lg border border-dashed p-2'>
+                <span className='text-muted-foreground text-[11px]'>
+                  {t(
+                    'Copy this ticket to the Radxa pairing API. It expires soon; after claiming it, paste the confirmation ticket here.'
+                  )}
+                </span>
+                <div className='flex items-center gap-1.5'>
+                  <code className='bg-muted min-w-0 flex-1 truncate rounded px-2 py-1 text-[10px]'>
+                    {pairingTicket}
+                  </code>
+                  <Button
+                    aria-label={t('Copy pairing ticket')}
+                    onClick={() => void copyPairingTicket()}
+                    size='icon-xs'
+                    variant='ghost'
+                  >
+                    {copied ? (
+                      <Check className='text-emerald-500' />
+                    ) : (
+                      <Clipboard />
+                    )}
+                  </Button>
+                </div>
+                <div className='flex gap-2'>
+                  <input
+                    aria-label={t('Confirmation ticket')}
+                    className='bg-background h-8 min-w-0 flex-1 rounded-md border px-2 text-xs'
+                    onChange={(event) =>
+                      setConfirmationTicket(event.target.value)
+                    }
+                    placeholder={t('Paste confirmation ticket')}
+                    value={confirmationTicket}
+                  />
+                  <Button
+                    disabled={busy || !pairingId || !confirmationTicket.trim()}
+                    onClick={() => void confirmPairing()}
+                    size='sm'
+                    variant='secondary'
+                  >
+                    {t('Confirm')}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

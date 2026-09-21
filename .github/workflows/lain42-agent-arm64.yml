@@ -38,10 +38,14 @@ jobs:
           cargo fmt --all --check
           cargo test --locked
           cargo test --manifest-path agent-session/Cargo.toml --locked
+          cargo test --manifest-path agent-companion/Cargo.toml --locked
 
       - name: Build Debian package
         working-directory: tauri
         run: cargo tauri build --bundles deb
+
+      - name: Build headless Radxa companion
+        run: cargo build --release --manifest-path tauri/agent-companion/Cargo.toml --locked
 
       - name: Upload ARM64 package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -50,3 +54,9 @@ jobs:
           if-no-files-found: error
           path: tauri/target/release/bundle/**/*.deb
 
+      - name: Upload headless companion
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lain42-agent-companion-linux-arm64
+          if-no-files-found: error
+          path: tauri/agent-companion/target/release/lain42-agent-companion

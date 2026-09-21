@@ -1,8 +1,8 @@
 # Lain42 Agent：需求与执行架构规划
 
-日期：2026-09-21。基线：`d74fd44`，分支 `agent-ui`。状态：预研完成，P0-A/P0-B 正在实现；本文不代表功能已经上线。
+日期：2026-09-22。基线：`2abeeba`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion；本文仍不代表全部功能已经上线。
 
-## 0. 实现进度（2026-09-21）
+## 0. 实现进度（2026-09-22）
 
 已落地并通过本地回归的部分：
 
@@ -11,7 +11,8 @@
 - Agent 网页的桌面桥接：仅在 Tauri 中公开 `github.issues.list`，通过 `cli_exec` 调用本机 `gh`；普通浏览器不会获得本机执行权限。
 - Go 配对模型、服务、路由和迁移：一次性配对票据、确认票据、兑换票据、设备撤销和凭证摘要存储。
 - 配对设备桥接：桌面凭证认证、同源 WebSocket、按设备归属转发结构化请求/结果，服务端不执行用户 CLI；网页与 Tauri 页面已有桥接客户端和配对入口。
-- `tauri/agent-companion`：无桌面 Linux ARM64/Radxa 连接器，主动 WSS、固定 `gh` 操作、断线退避和同一输出/超时边界；手机和互联网只访问网页/API。
+- `tauri/agent-companion`：无桌面 Linux ARM64/Radxa 连接器，主动 WSS、固定 `gh` 操作、断线退避和同一输出/超时边界；ARM64 workflow 会单独构建并上传该二进制；手机和互联网只访问网页/API。
+- Agent 工具侧栏已有网页配对入口：创建短时 pairing ticket，Radxa claim 后把 confirmation ticket 粘回网页，确认后再由 Radxa redeem 并启动 companion。
 
 仍未宣称完成的部分：跨页面断线任务恢复、MCP stdio/HTTPS、写操作批准与全链路 A1–A11 验收。当前 Tauri 配对凭证只保存在本次桌面进程内存，退出后需要重新配对；在引入系统密钥库之前不把它称为持久设备登录。
 

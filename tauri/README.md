@@ -66,6 +66,22 @@ cargo tauri build --bundles deb
 在板端执行 `uname -m` 应看到 `aarch64`；产物位于
 `tauri/target/release/bundle/deb/`。如果该架构的 `cargo-binstall` 没有对应
 预编译 CLI，改用 `cargo install tauri-cli --version 2.11.5 --locked`，只影响
-构建时间，不影响运行时。没有图形桌面时，使用浏览器/PWA 访问 Agent，并让
-一台已配对的 Tauri 桌面执行本机 CLI；纯 ARM headless companion 会在下一阶段
-复用同一 `agent-session` 与配对协议。
+构建时间，不影响运行时。没有图形桌面时，使用浏览器/PWA 访问 Agent，并让一台
+已配对的 Tauri 桌面或 `lain42-agent-companion` 执行本机 CLI。无头连接器只接受
+出站 WSS，不开放公网 shell 端口；它与网页共用同一配对协议和受控操作边界。
+
+### Radxa 无头连接器
+
+```bash
+sudo apt update
+sudo apt install -y build-essential pkg-config libssl-dev
+gh auth login
+cargo build --release --manifest-path tauri/agent-companion/Cargo.toml --locked
+```
+
+在网页 Agent 的「CLI desktop bridge」卡片创建短时票据。Radxa 调用
+`POST /api/agent/pairings/claim` 领取票据，把返回的 `confirmation_ticket`
+粘回网页；网页确认后，Radxa 调用 `POST /api/agent/pairings/redeem`，仅将返回
+的设备编号和一次性凭证写入权限为 `0600` 的环境文件，再启动
+`tauri/agent-companion/target/release/lain42-agent-companion`。完整环境变量和
+systemd 模板见 [`tauri/agent-companion/README.md`](agent-companion/README.md)。

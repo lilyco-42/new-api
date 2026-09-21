@@ -78,6 +78,9 @@ jobs:
       - name: Test model tool-call loop
         run: cargo test --manifest-path tauri/agent-session/Cargo.toml --locked
 
+      - name: Test headless companion
+        run: cargo test --manifest-path tauri/agent-companion/Cargo.toml --locked
+
       - name: Build desktop bundles
         shell: bash
         working-directory: tauri

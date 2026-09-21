@@ -51,10 +51,13 @@ import { useMediaQuery } from '@/hooks'
 import {
   createBrowserAgentBridge,
   createBrowserBridgeProvider,
+  confirmAgentPairing,
+  createAgentPairing,
   listAgentDevices,
   pairCurrentDesktop,
   startDesktopAgentBridge,
   type AgentBridgeStatus,
+  type AgentPairingSession,
 } from './agent-bridge'
 import { localAgentToolProvider } from './agent-tool-provider'
 import { AgentBridgeCard } from './components/agent-bridge-card'
@@ -114,20 +117,32 @@ function WorkspaceToolsCards({
   isDesktop,
   onPair,
   onReconnect,
+  onCreatePairing,
+  onConfirmPairing,
+  pairingId,
+  pairingTicket,
 }: {
   bridgeStatus: AgentBridgeStatus
   deviceName?: string
   isDesktop: boolean
   onPair?: () => Promise<void>
   onReconnect?: () => Promise<void>
+  onCreatePairing?: () => Promise<void>
+  onConfirmPairing?: (ticket: string) => Promise<void>
+  pairingId?: number
+  pairingTicket?: string
 }) {
   return (
     <div className='grid gap-3'>
       <AgentBridgeCard
         deviceName={deviceName}
         isDesktop={isDesktop}
+        onConfirmPairing={onConfirmPairing}
+        onCreatePairing={onCreatePairing}
         onPair={onPair}
         onReconnect={onReconnect}
+        pairingId={pairingId}
+        pairingTicket={pairingTicket}
         status={bridgeStatus}
       />
       <DeveloperToolkitCard />
@@ -245,6 +260,8 @@ export function AgentWorkspace() {
     useState<LocalToolProvider | null>(null)
   const [bridgeDeviceName, setBridgeDeviceName] = useState<string>()
   const [bridgeEpoch, setBridgeEpoch] = useState(0)
+  const [pairingSession, setPairingSession] =
+    useState<AgentPairingSession | null>(null)
   const isDesktop = localAgentToolProvider.isAvailable()
 
   useEffect(() => {
@@ -321,6 +338,20 @@ export function AgentWorkspace() {
   }
 
   const reconnectDesktop = async () => {
+    setBridgeEpoch((value) => value + 1)
+  }
+
+  const createWebPairing = async () => {
+    const session = await createAgentPairing()
+    setPairingSession(session)
+  }
+
+  const confirmWebPairing = async (ticket: string) => {
+    if (!pairingSession) {
+      throw new Error('Create a pairing ticket first.')
+    }
+    await confirmAgentPairing(pairingSession.id, ticket)
+    setPairingSession(null)
     setBridgeEpoch((value) => value + 1)
   }
 
@@ -480,6 +511,10 @@ export function AgentWorkspace() {
                 isDesktop={isDesktop}
                 onPair={isDesktop ? pairDesktop : undefined}
                 onReconnect={isDesktop ? reconnectDesktop : undefined}
+                onCreatePairing={isDesktop ? undefined : createWebPairing}
+                onConfirmPairing={isDesktop ? undefined : confirmWebPairing}
+                pairingId={pairingSession?.id}
+                pairingTicket={pairingSession?.pairing_ticket}
               />
             ) : (
               <WorkspaceViewPlaceholder view={workspaceView} />
@@ -506,6 +541,10 @@ export function AgentWorkspace() {
               isDesktop={isDesktop}
               onPair={isDesktop ? pairDesktop : undefined}
               onReconnect={isDesktop ? reconnectDesktop : undefined}
+              onCreatePairing={isDesktop ? undefined : createWebPairing}
+              onConfirmPairing={isDesktop ? undefined : confirmWebPairing}
+              pairingId={pairingSession?.id}
+              pairingTicket={pairingSession?.pairing_ticket}
             />
           </SheetContent>
         </Sheet>

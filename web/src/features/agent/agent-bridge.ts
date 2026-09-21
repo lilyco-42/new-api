@@ -41,6 +41,12 @@ type AgentDevice = {
   revoked_at?: string | null
 }
 
+export type AgentPairingSession = {
+  id: number
+  pairing_ticket: string
+  expires_at: string
+}
+
 type BridgeListener = (status: AgentBridgeStatus) => void
 type EnvelopeListener = (envelope: BridgeEnvelope) => void
 
@@ -319,6 +325,31 @@ export async function listAgentDevices(): Promise<AgentDevice[]> {
   })
   return responseData<AgentDevice[]>(response.data).filter(
     (device) => device && device.id > 0 && !device.revoked_at
+  )
+}
+
+export async function createAgentPairing(): Promise<AgentPairingSession> {
+  const response = await api.post('/api/agent/pairings', undefined, {
+    skipErrorHandler: true,
+  })
+  return responseData<AgentPairingSession>(response.data)
+}
+
+export async function confirmAgentPairing(
+  pairingId: number,
+  confirmationTicket: string
+): Promise<void> {
+  if (!Number.isInteger(pairingId) || pairingId <= 0) {
+    throw new Error('The pairing id is invalid.')
+  }
+  const ticket = confirmationTicket.trim()
+  if (ticket.length < 16 || ticket.length > 256) {
+    throw new Error('The confirmation ticket is invalid.')
+  }
+  await api.post(
+    `/api/agent/pairings/${pairingId}/confirm`,
+    { confirmation_ticket: ticket },
+    { skipErrorHandler: true }
   )
 }
 
