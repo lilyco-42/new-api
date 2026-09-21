@@ -64,6 +64,14 @@ jobs:
         shell: bash
         run: cargo install tauri-cli --version 2.11.5 --locked
 
+      - name: Check Rust formatting
+        working-directory: tauri
+        run: cargo fmt --all --check
+
+      - name: Test desktop runtime
+        working-directory: tauri
+        run: cargo test --locked
+
       - name: Build desktop bundles
         shell: bash
         working-directory: tauri

@@ -21,6 +21,7 @@
     "shortDescription": "云枢智创 Agent 桌面工作台",
     "longDescription": "在 Windows、macOS 和 Linux 上快速使用云枢智创 Agent。",
     "icon": [
+      "icons/icon.icns",
       "icons/icon.ico",
       "icons/lain42-logo-192.png",
       "icons/lain42-logo-512.png"
