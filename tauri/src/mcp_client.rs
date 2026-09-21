@@ -471,6 +471,8 @@ pub async fn mcp_call(
         Ok(result) => result.map_err(|_| "MCP tools/call failed.".to_string())?,
         Err(_) => {
             session.client.cancellation_token().cancel();
+            drop(session);
+            state.sessions.lock().await.remove(&server_id);
             return Err("MCP tools/call timed out; the session was disconnected.".to_string());
         }
     };
