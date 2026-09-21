@@ -6,8 +6,8 @@
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone"],
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#202123",
+  "theme_color": "#202123",
   "icons": [
     {
       "src": "/lain42-logo-192.png",
