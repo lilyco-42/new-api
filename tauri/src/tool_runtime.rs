@@ -716,7 +716,11 @@ fn run_process(
         .spawn()
         .map_err(|error| format!("Unable to start {}: {error}", tool.id))?;
     #[cfg(windows)]
-    job.assign(&child)?;
+    if let Err(error) = job.assign(&child) {
+        let _ = child.kill();
+        job.terminate();
+        return Err(error);
+    }
     let stdout = child
         .stdout
         .take()
