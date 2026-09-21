@@ -1,6 +1,12 @@
 name: Build Lain42 Agent ARM64
 
 on:
+  push:
+    branches:
+      - agent-ui
+    paths:
+      - 'tauri/agent-companion/**'
+      - '.github/workflows/lain42-agent-arm64.yml'
   workflow_dispatch:
 
 permissions:
