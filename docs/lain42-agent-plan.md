@@ -10,8 +10,9 @@
 - 独立 Rust `tauri/agent-session`：结构化 `assistant.tool_calls` 续轮、调用 ID 配对、预算、取消和有界模型响应。
 - Agent 网页的桌面桥接：仅在 Tauri 中公开 `github.issues.list`，通过 `cli_exec` 调用本机 `gh`；普通浏览器不会获得本机执行权限。
 - Go 配对模型、服务、路由和迁移骨架：一次性配对票据、确认票据、兑换票据、设备撤销和凭证摘要存储。
+- 配对设备桥接协议骨架：桌面凭证认证、同源 WebSocket、按设备归属转发结构化请求/结果，服务端不执行用户 CLI。
 
-仍未宣称完成的部分：配对后的任务队列/WSS、网页进度事件、MCP stdio/HTTPS、写操作批准与全链路 A1–A11 验收。GitHub Actions 构建成功也不能替代这些验收。
+仍未宣称完成的部分：桌面/网页桥接的配对 UI 与断线任务恢复、MCP stdio/HTTPS、写操作批准与全链路 A1–A11 验收。GitHub Actions 构建成功也不能替代这些验收。
 
 ## 1. 产品目标与首个验收
 

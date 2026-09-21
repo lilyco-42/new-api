@@ -1,0 +1,236 @@
+package service
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+const (
+	AgentBridgeMessageHello       = "hello"
+	AgentBridgeMessageHelloAck    = "hello_ack"
+	AgentBridgeMessageToolRequest = "tool_request"
+	AgentBridgeMessageToolResult  = "tool_result"
+	AgentBridgeMessageToolError   = "tool_error"
+	AgentBridgeMessagePing        = "ping"
+	AgentBridgeMessagePong        = "pong"
+	AgentBridgeMaxMessageBytes    = 128 * 1024
+	AgentBridgeRequestTTL         = 45 * time.Second
+)
+
+var (
+	ErrAgentBridgeOffline       = errors.New("agent device is offline")
+	ErrAgentBridgeInvalid       = errors.New("invalid agent bridge message")
+	ErrAgentBridgeUnauthorized  = errors.New("agent bridge device is not authorized")
+	ErrAgentBridgeRequestExists = errors.New("agent bridge request id is already in use")
+)
+
+// AgentBridgeEnvelope is the transport envelope between a browser and a
+// paired desktop. Params and Result are opaque structured JSON; credentials
+// are intentionally not fields in envelopes sent by the browser.
+type AgentBridgeEnvelope struct {
+	Type       string          `json:"type"`
+	RequestID  string          `json:"request_id,omitempty"`
+	DeviceID   int64           `json:"device_id,omitempty"`
+	Credential string          `json:"credential,omitempty"`
+	Operation  string          `json:"operation,omitempty"`
+	Params     json.RawMessage `json:"params,omitempty"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Error      string          `json:"error,omitempty"`
+}
+
+type AgentBridgePeer struct {
+	conn     *websocket.Conn
+	deviceID int64
+	userID   int
+	role     string
+	writeMu  sync.Mutex
+}
+
+type pendingAgentBridgeRequest struct {
+	browser  *AgentBridgePeer
+	deviceID int64
+	expires  time.Time
+}
+
+type AgentBridgeHub struct {
+	mu       sync.Mutex
+	desktops map[int64]*AgentBridgePeer
+	pending  map[string]pendingAgentBridgeRequest
+}
+
+func NewAgentBridgeHub() *AgentBridgeHub {
+	return &AgentBridgeHub{
+		desktops: make(map[int64]*AgentBridgePeer),
+		pending:  make(map[string]pendingAgentBridgeRequest),
+	}
+}
+
+var defaultAgentBridgeHub = NewAgentBridgeHub()
+
+func DefaultAgentBridgeHub() *AgentBridgeHub {
+	return defaultAgentBridgeHub
+}
+
+func validateAgentBridgeEnvelope(envelope AgentBridgeEnvelope) error {
+	if len(envelope.Type) == 0 || len(envelope.Type) > 32 {
+		return ErrAgentBridgeInvalid
+	}
+	if len(envelope.RequestID) > 128 || strings.ContainsAny(envelope.RequestID, "\r\n") {
+		return ErrAgentBridgeInvalid
+	}
+	if len(envelope.Operation) > 128 || strings.ContainsAny(envelope.Operation, "\r\n") {
+		return ErrAgentBridgeInvalid
+	}
+	if len(envelope.Params) > AgentBridgeMaxMessageBytes || len(envelope.Result) > AgentBridgeMaxMessageBytes {
+		return ErrAgentBridgeInvalid
+	}
+	if envelope.Type == AgentBridgeMessageToolRequest {
+		switch envelope.Operation {
+		case "github.auth.status", "github.issues.list", "github.repositories.search", "github.pull_requests.list":
+		default:
+			return ErrAgentBridgeInvalid
+		}
+		if len(envelope.Params) == 0 || !json.Valid(envelope.Params) {
+			return ErrAgentBridgeInvalid
+		}
+	}
+	return nil
+}
+
+func bridgeRequestKey(deviceID int64, requestID string) string {
+	return fmt.Sprintf("%d:%s", deviceID, requestID)
+}
+
+func (hub *AgentBridgeHub) write(peer *AgentBridgePeer, envelope AgentBridgeEnvelope) error {
+	peer.writeMu.Lock()
+	defer peer.writeMu.Unlock()
+	return peer.conn.WriteJSON(envelope)
+}
+
+func (hub *AgentBridgeHub) Send(peer *AgentBridgePeer, envelope AgentBridgeEnvelope) error {
+	if peer == nil || peer.conn == nil {
+		return ErrAgentBridgeOffline
+	}
+	return hub.write(peer, envelope)
+}
+
+func (hub *AgentBridgeHub) RegisterDesktop(deviceID int64, userID int, conn *websocket.Conn) (*AgentBridgePeer, error) {
+	if deviceID <= 0 || userID <= 0 || conn == nil {
+		return nil, ErrAgentBridgeUnauthorized
+	}
+	peer := &AgentBridgePeer{conn: conn, deviceID: deviceID, userID: userID, role: "desktop"}
+	hub.mu.Lock()
+	previous := hub.desktops[deviceID]
+	hub.desktops[deviceID] = peer
+	hub.mu.Unlock()
+	if previous != nil {
+		_ = previous.conn.Close()
+	}
+	return peer, nil
+}
+
+func (hub *AgentBridgeHub) RegisterBrowser(userID int, deviceID int64, conn *websocket.Conn) (*AgentBridgePeer, error) {
+	if userID <= 0 || deviceID <= 0 || conn == nil {
+		return nil, ErrAgentBridgeUnauthorized
+	}
+	peer := &AgentBridgePeer{conn: conn, deviceID: deviceID, userID: userID, role: "browser"}
+	return peer, nil
+}
+
+func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope AgentBridgeEnvelope) error {
+	if browser == nil || browser.role != "browser" || browser.userID <= 0 || browser.deviceID <= 0 {
+		return ErrAgentBridgeUnauthorized
+	}
+	if envelope.Type != AgentBridgeMessageToolRequest || envelope.RequestID == "" || envelope.Operation == "" {
+		return ErrAgentBridgeInvalid
+	}
+	if err := validateAgentBridgeEnvelope(envelope); err != nil {
+		return err
+	}
+	key := bridgeRequestKey(browser.deviceID, envelope.RequestID)
+	hub.mu.Lock()
+	for pendingKey, pending := range hub.pending {
+		if !pending.expires.After(time.Now()) {
+			delete(hub.pending, pendingKey)
+		}
+	}
+	desktop := hub.desktops[browser.deviceID]
+	if desktop == nil || desktop.userID != browser.userID {
+		hub.mu.Unlock()
+		return ErrAgentBridgeOffline
+	}
+	if _, exists := hub.pending[key]; exists {
+		hub.mu.Unlock()
+		return ErrAgentBridgeRequestExists
+	}
+	hub.pending[key] = pendingAgentBridgeRequest{
+		browser:  browser,
+		deviceID: browser.deviceID,
+		expires:  time.Now().Add(AgentBridgeRequestTTL),
+	}
+	hub.mu.Unlock()
+
+	if err := hub.write(desktop, envelope); err != nil {
+		hub.mu.Lock()
+		delete(hub.pending, key)
+		hub.mu.Unlock()
+		return ErrAgentBridgeOffline
+	}
+	return nil
+}
+
+func (hub *AgentBridgeHub) ForwardToolResult(desktop *AgentBridgePeer, envelope AgentBridgeEnvelope) error {
+	if desktop == nil || desktop.role != "desktop" || desktop.deviceID <= 0 {
+		return ErrAgentBridgeUnauthorized
+	}
+	if envelope.Type != AgentBridgeMessageToolResult || envelope.RequestID == "" {
+		return ErrAgentBridgeInvalid
+	}
+	if err := validateAgentBridgeEnvelope(envelope); err != nil {
+		return err
+	}
+	key := bridgeRequestKey(desktop.deviceID, envelope.RequestID)
+	hub.mu.Lock()
+	pending, exists := hub.pending[key]
+	if exists {
+		delete(hub.pending, key)
+	}
+	hub.mu.Unlock()
+	if !exists || pending.deviceID != desktop.deviceID || !pending.expires.After(time.Now()) {
+		return ErrAgentBridgeInvalid
+	}
+	if err := hub.write(pending.browser, envelope); err != nil {
+		return ErrAgentBridgeOffline
+	}
+	return nil
+}
+
+func (hub *AgentBridgeHub) Unregister(peer *AgentBridgePeer) {
+	if peer == nil {
+		return
+	}
+	hub.mu.Lock()
+	currentDesktop := peer.role == "desktop" && hub.desktops[peer.deviceID] == peer
+	if currentDesktop {
+		delete(hub.desktops, peer.deviceID)
+	}
+	for key, pending := range hub.pending {
+		if pending.browser == peer || (currentDesktop && pending.deviceID == peer.deviceID) {
+			delete(hub.pending, key)
+			if pending.browser != peer {
+				_ = hub.write(pending.browser, AgentBridgeEnvelope{
+					Type:      AgentBridgeMessageToolError,
+					RequestID: strings.TrimPrefix(key, fmt.Sprintf("%d:", peer.deviceID)),
+					Error:     ErrAgentBridgeOffline.Error(),
+				})
+			}
+		}
+	}
+	hub.mu.Unlock()
+}

@@ -49,7 +49,11 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				desktopAgentRoute.POST("/pairings/claim", anonymousRequestBodyLimit, controller.ClaimAgentPairing)
 				desktopAgentRoute.POST("/pairings/redeem", anonymousRequestBodyLimit, controller.RedeemAgentPairing)
+				desktopAgentRoute.GET("/bridge/desktop", controller.AgentBridgeDesktop)
 			}
+			browserAgentRoute := agentRoute.Group("")
+			browserAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
+			browserAgentRoute.GET("/bridge/browser", middleware.SessionCookieOriginGuard(), controller.AgentBridgeBrowser)
 		}
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")

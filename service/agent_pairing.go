@@ -78,6 +78,21 @@ func ListAgentDevices(userID int) ([]model.AgentDevice, error) {
 	return model.ListAgentDevices(userID)
 }
 
+func GetAgentDeviceByCredential(credential string) (*model.AgentDevice, error) {
+	return model.GetAgentDeviceByCredential(credential)
+}
+
+func GetAgentDevice(userID int, deviceID int64) (*model.AgentDevice, error) {
+	if userID <= 0 || deviceID <= 0 {
+		return nil, ErrAgentDeviceNotFound
+	}
+	var device model.AgentDevice
+	if err := model.DB.Where("id = ? AND user_id = ? AND revoked_at IS NULL", deviceID, userID).First(&device).Error; err != nil {
+		return nil, ErrAgentDeviceNotFound
+	}
+	return &device, nil
+}
+
 func RevokeAgentDevice(userID int, deviceID int64) error {
 	return model.RevokeAgentDevice(userID, deviceID, time.Now().UTC())
 }

@@ -44,6 +44,18 @@ MCP entries stay in the catalog until an MCP session adapter is enabled. They
 must never be passed to `cli_exec`; an MCP adapter will get its own transport,
 session lifetime, permission prompt, and server allowlist.
 
+## Paired browser bridge
+
+The Go service exposes a separate WebSocket bridge for a paired desktop and an
+authenticated browser. The desktop authenticates its one-time-redeemed device
+credential in the first `hello` message; the browser authenticates with its
+normal platform session and names a device it owns. The service forwards only
+bounded structured `tool_request` / `tool_result` envelopes and never executes
+the user's CLI on the server. The bridge does not grant a browser access to a
+credential, and it rejects requests after the device is offline or the request
+deadline expires. Pairing UI, durable task recovery, and MCP transport remain
+separate follow-up work.
+
 ## Adding a tool
 
 1. Add one manifest entry with a stable id and protocol.
