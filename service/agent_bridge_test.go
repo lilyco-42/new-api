@@ -25,6 +25,28 @@ func TestValidateAgentBridgeEnvelopeKeepsOperationsBounded(t *testing.T) {
 	require.ErrorIs(t, validateAgentBridgeEnvelope(malformed), ErrAgentBridgeInvalid)
 }
 
+func TestValidateAgentBridgeEnvelopeAcceptsReadonlyGithubOperations(t *testing.T) {
+	for _, operation := range []string{
+		"github.auth.status",
+		"github.repositories.search",
+		"github.pull_requests.list",
+	} {
+		envelope := AgentBridgeEnvelope{
+			Type:      AgentBridgeMessageToolRequest,
+			RequestID: "request-" + operation,
+			Operation: operation,
+			Params:    json.RawMessage(`{}`),
+		}
+		require.NoError(t, validateAgentBridgeEnvelope(envelope))
+	}
+	result := AgentBridgeEnvelope{
+		Type:      AgentBridgeMessageToolError,
+		RequestID: "request-error",
+		Error:     "tool failed",
+	}
+	require.NoError(t, validateAgentBridgeEnvelope(result))
+}
+
 func TestAgentBridgeRequestKeyScopesDevice(t *testing.T) {
 	require.NotEqual(t, bridgeRequestKey(1, "same"), bridgeRequestKey(2, "same"))
 }

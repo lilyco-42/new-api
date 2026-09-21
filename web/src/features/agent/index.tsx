@@ -71,7 +71,7 @@ const LYCO_DEFAULT_SYSTEM_PROMPT = `你是云枢智创 Agent，默认采用 lyco
 本机 gh CLI 只使用用户自己的登录状态，token 留在本机，不读取浏览器 Cookie；任何外部写入、发送消息或敏感操作都先请求明确授权。`
 
 const AGENT_TOOL_PROMPT = `
-当用户要求读取 GitHub 仓库最近 Issue 时，如果工具列表中有 github.issues.list，必须使用结构化工具调用，并传入 owner/name；不要把“Tool: …”之类的文字当成工具调用，也不要猜测仓库内容。工具返回后引用其中的标题、状态、更新时间和链接；如果工具不可用，明确说明需要在 Lain42 桌面版完成 gh 登录。`
+当用户要求检查 GitHub 登录、搜索仓库、读取 Issue 或 Pull Request 时，如果工具列表中有对应的 github.* 工具，必须使用结构化工具调用；仓库参数必须传 owner/name。不要把“Tool: …”之类的文字当成工具调用，也不要猜测仓库内容。工具返回后引用其中的标题、状态、更新时间和链接；如果工具不可用，明确说明需要在 Lain42 桌面版完成 gh 登录。`
 
 const PRESETS: AgentPreset[] = [
   {

@@ -332,7 +332,9 @@ export function createBrowserBridgeProvider(
     // back to a model response that pretends the local tool was unavailable.
     isAvailable: () => client.getStatus() !== 'unavailable',
     invoke: async (call: ChatCompletionToolCall, signal: AbortSignal) => {
-      if (call.function.name !== 'github.issues.list') {
+      if (
+        !BRIDGE_TOOLS.some((tool) => tool.function.name === call.function.name)
+      ) {
         throw new Error(`Tool is not allowed: ${call.function.name}.`)
       }
       let params: unknown
@@ -380,7 +382,16 @@ export async function startDesktopAgentBridge(
   const removeEnvelope = client.onEnvelope(async (envelope) => {
     if (envelope.type !== 'tool_request') return
     const operation = envelope.operation
-    if (operation !== 'github.issues.list' || !envelope.request_id) {
+    if (
+      !operation ||
+      ![
+        'github.auth.status',
+        'github.issues.list',
+        'github.repositories.search',
+        'github.pull_requests.list',
+      ].includes(operation) ||
+      !envelope.request_id
+    ) {
       await client.send({
         type: 'tool_error',
         request_id: envelope.request_id,
