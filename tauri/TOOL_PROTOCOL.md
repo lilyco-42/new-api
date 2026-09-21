@@ -40,9 +40,29 @@ cleared, so each desktop user keeps an isolated GitHub login.
 The existing structured GitHub commands remain as compatibility helpers and
 delegate to the same adapter.
 
-MCP entries stay in the catalog until an MCP session adapter is enabled. They
-must never be passed to `cli_exec`; an MCP adapter will get its own transport,
-session lifetime, permission prompt, and server allowlist.
+## MCP adapter
+
+The desktop shell now has a separate `rmcp` adapter in
+`tauri/src/mcp_client.rs`; MCP calls never pass through `cli_exec`. The web
+workspace exposes explicit Connect/Disconnect controls and supports:
+
+- `mcp_connect({ request: { server_id, name, transport, command, args, url, bearer_token } })`
+  for user-selected `stdio` or HTTPS Streamable HTTP servers;
+- `mcp_list()` for bounded, schema-bearing tool descriptors;
+- `mcp_call({ request: { server_id, tool_name, arguments, timeout_ms } })`;
+- `mcp_disconnect({ server_id })` for session cleanup.
+
+The adapter starts no shell, accepts no URL credentials or HTTP redirects,
+limits server/tool/schema/argument/result sizes, bounds connection and call
+deadlines, and keeps bearer tokens in the transport session rather than any
+response. All MCP calls require an exact-parameter confirmation in the webview;
+paired browser calls are confirmed again by the paired desktop. Connections
+are process-memory sessions and must be recreated after the desktop exits.
+
+The paired WebSocket bridge also accepts only `mcp.list` and `mcp.call` in
+addition to the four read-only GitHub operations. A browser receives the
+already-connected tool descriptors but never receives the stdio command or
+bearer token. The desktop remains the execution and approval boundary.
 
 ## Paired browser bridge
 
@@ -66,7 +86,8 @@ again after the shell exits until OS keychain storage lands.
    profile policy.
 3. Do not add a new Tauri command or a tool-specific React component.
 4. Add an adapter only when a future protocol needs different transport, such
-   as an MCP session or a remote worker.
+   as a new MCP transport or a remote worker; do not grow `cli_exec` into an
+   arbitrary command runner.
 
 This keeps the UI and transport stable as the tool catalog grows over time.
 

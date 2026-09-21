@@ -6,6 +6,7 @@ use serde::Serialize;
 use tauri::{webview::WebviewWindowBuilder, AppHandle, Manager, State, WebviewUrl};
 use url::Url;
 
+mod mcp_client;
 mod tool_runtime;
 
 use tool_runtime::{
@@ -360,6 +361,7 @@ fn gh_list_pull_requests(
 fn main() {
     tauri::Builder::default()
         .manage(AgentDeviceState::default())
+        .manage(mcp_client::McpState::default())
         .setup(|app| {
             let app_handle = app.handle().clone();
             let webview_data_dir =
@@ -385,7 +387,11 @@ fn main() {
             agent_device_credential_get,
             agent_device_id_get,
             agent_device_credential_set,
-            agent_device_credential_clear
+            agent_device_credential_clear,
+            mcp_client::mcp_connect,
+            mcp_client::mcp_list,
+            mcp_client::mcp_call,
+            mcp_client::mcp_disconnect
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lain42 Agent");

@@ -92,7 +92,7 @@ func validateAgentBridgeEnvelope(envelope AgentBridgeEnvelope) error {
 	}
 	if envelope.Type == AgentBridgeMessageToolRequest {
 		switch envelope.Operation {
-		case "github.auth.status", "github.issues.list", "github.repositories.search", "github.pull_requests.list":
+		case "github.auth.status", "github.issues.list", "github.repositories.search", "github.pull_requests.list", "mcp.list", "mcp.call":
 		default:
 			return ErrAgentBridgeInvalid
 		}

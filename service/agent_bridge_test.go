@@ -47,6 +47,18 @@ func TestValidateAgentBridgeEnvelopeAcceptsReadonlyGithubOperations(t *testing.T
 	require.NoError(t, validateAgentBridgeEnvelope(result))
 }
 
+func TestValidateAgentBridgeEnvelopeAcceptsBoundedMcpOperations(t *testing.T) {
+	for _, operation := range []string{"mcp.list", "mcp.call"} {
+		envelope := AgentBridgeEnvelope{
+			Type:      AgentBridgeMessageToolRequest,
+			RequestID: "request-" + operation,
+			Operation: operation,
+			Params:    json.RawMessage(`{"server_id":"local","tool_name":"echo","arguments":{}}`),
+		}
+		require.NoError(t, validateAgentBridgeEnvelope(envelope))
+	}
+}
+
 func TestAgentBridgeRequestKeyScopesDevice(t *testing.T) {
 	require.NotEqual(t, bridgeRequestKey(1, "same"), bridgeRequestKey(2, "same"))
 }

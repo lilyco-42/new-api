@@ -42,7 +42,7 @@ cargo tauri build
 
 安装包会写入 `tauri/target/release/bundle/`。Tauri 会根据当前平台生成 Windows 安装包、macOS 应用包和 Linux AppImage/deb；跨平台发布应在对应平台或 CI runner 上分别构建。
 
-桌面壳只保存 WebView 的会话数据，不复制服务端密钥，也不会读取浏览器 Cookie。GitHub 能力只调用本机已安装的 `gh` CLI，当前仅开放登录状态、仓库搜索、Issue 列表和 Pull Request 列表四类命令；不会把 GitHub token 回传给网页。远端地址可以通过 `LAIN42_DESKTOP_URL` 覆盖，便于内测和私有化部署。
+桌面壳只保存 WebView 的会话数据，不复制服务端密钥，也不会读取浏览器 Cookie。GitHub 能力只调用本机已安装的 `gh` CLI，当前仅开放登录状态、仓库搜索、Issue 列表和 Pull Request 列表四类命令；不会把 GitHub token 回传给网页。Agent 工具侧栏还可以显式连接本地 stdio 或 HTTPS Streamable HTTP MCP 服务。MCP 工具会先列出受限 schema，每次调用都要求确认精确参数；远程浏览器通过配对桌面使用这些工具时，桌面会再次确认。MCP 会话和令牌只在当前桌面进程内存中有效，退出后需要重新连接。远端地址可以通过 `LAIN42_DESKTOP_URL` 覆盖，便于内测和私有化部署。
 
 ## GitHub Actions 远端构建
 

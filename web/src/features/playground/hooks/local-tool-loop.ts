@@ -158,6 +158,15 @@ export async function runLocalToolLoop(
     for (const call of calls) {
       assertSignal(signal)
       onEvent?.({ type: 'requested', call })
+      if (provider.requiresApproval) {
+        const approved = await provider.requiresApproval(call, signal)
+        assertSignal(signal)
+        if (!approved) {
+          throw new LocalToolLoopError(
+            `Tool call ${call.function.name} was not approved.`
+          )
+        }
+      }
       onEvent?.({ type: 'running', call })
       const result = boundedResult(await provider.invoke(call, signal))
       onEvent?.({ type: 'completed', call, result })

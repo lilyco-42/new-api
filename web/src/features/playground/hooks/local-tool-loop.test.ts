@@ -149,4 +149,43 @@ describe('local structured tool loop', () => {
       )
     ).rejects.toMatchObject({ name: 'AbortError' })
   })
+
+  test('requires approval before invoking a guarded tool', async () => {
+    let invoked = false
+    const guarded: LocalToolProvider = {
+      tools: [tool],
+      isAvailable: () => true,
+      requiresApproval: () => false,
+      invoke: async () => {
+        invoked = true
+        return 'should not run'
+      },
+    }
+    const request = async () =>
+      response({
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'call-approval',
+            type: 'function',
+            function: {
+              name: 'github.issues.list',
+              arguments: '{"repo":"lilyco-42/new-api"}',
+            },
+          },
+        ],
+      })
+
+    await expect(
+      runLocalToolLoop(
+        initialPayload,
+        guarded,
+        new AbortController().signal,
+        undefined,
+        request
+      )
+    ).rejects.toThrow('was not approved')
+    expect(invoked).toBe(false)
+  })
 })

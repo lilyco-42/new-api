@@ -83,6 +83,14 @@ export interface ChatCompletionTool {
 export interface LocalToolProvider {
   tools: ChatCompletionTool[]
   isAvailable: () => boolean
+  /**
+   * Optional approval gate for tools that can affect external systems. The
+   * loop must wait for a user decision before invoking the tool.
+   */
+  requiresApproval?: (
+    call: ChatCompletionToolCall,
+    signal: AbortSignal
+  ) => boolean | Promise<boolean>
   invoke: (call: ChatCompletionToolCall, signal: AbortSignal) => Promise<string>
 }
 

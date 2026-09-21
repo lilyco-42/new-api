@@ -420,6 +420,8 @@ export async function startDesktopAgentBridge(
         'github.issues.list',
         'github.repositories.search',
         'github.pull_requests.list',
+        'mcp.list',
+        'mcp.call',
       ].includes(operation) ||
       !envelope.request_id
     ) {
@@ -431,23 +433,41 @@ export async function startDesktopAgentBridge(
       return
     }
     try {
-      const call: ChatCompletionToolCall = {
-        id: envelope.request_id,
-        type: 'function',
-        function: {
-          name: operation,
-          arguments: JSON.stringify(envelope.params ?? {}),
-        },
-      }
-      const result = await localAgentToolProvider.invoke(
-        call,
-        new AbortController().signal
-      )
-      let structured: unknown = result
-      try {
-        structured = JSON.parse(result)
-      } catch {
-        // A bounded string is still returned as an opaque tool result.
+      let structured: unknown
+      if (operation === 'mcp.list') {
+        structured = await invoke('mcp_list')
+      } else if (operation === 'mcp.call') {
+        const params = envelope.params ?? {}
+        const display = JSON.stringify(params, null, 2).slice(0, 4000)
+        if (
+          typeof window === 'undefined' ||
+          typeof window.confirm !== 'function' ||
+          !window.confirm(
+            `Allow paired browser MCP call with these exact parameters?\n\n${display}`
+          )
+        ) {
+          throw new Error('MCP call was not approved on the paired desktop.')
+        }
+        structured = await invoke('mcp_call', { request: params })
+      } else {
+        const call: ChatCompletionToolCall = {
+          id: envelope.request_id,
+          type: 'function',
+          function: {
+            name: operation,
+            arguments: JSON.stringify(envelope.params ?? {}),
+          },
+        }
+        const result = await localAgentToolProvider.invoke(
+          call,
+          new AbortController().signal
+        )
+        try {
+          structured = JSON.parse(result)
+        } catch {
+          // A bounded string is still returned as an opaque tool result.
+          structured = result
+        }
       }
       await client.send({
         type: 'tool_result',

@@ -77,3 +77,5 @@ export LAIN42_GH_CONFIG_DIR="$HOME/.config/lain42/gh/radxa-a7a"
 
 当前共享执行器开放登录状态、仓库搜索、Issue 列表和 Pull Request 列表，仍有
 30 秒超时、64 KiB 输出上限和固定操作参数校验；写操作和任意 shell 尚未开放。
+MCP stdio/HTTPS 会话目前由有桌面的 Tauri 客户端管理；Radxa companion 会对
+`mcp.list` / `mcp.call` 返回不支持错误，直到共享 MCP 连接器抽取为无头运行时。
