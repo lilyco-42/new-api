@@ -72,6 +72,9 @@ jobs:
         working-directory: tauri
         run: cargo test --locked
 
+      - name: Test model tool-call loop
+        run: cargo test --manifest-path tauri/agent-session/Cargo.toml --locked
+
       - name: Build desktop bundles
         shell: bash
         working-directory: tauri

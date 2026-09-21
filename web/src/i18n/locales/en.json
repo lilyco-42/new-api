@@ -5600,6 +5600,8 @@
     "Your GitHub CLI": "Your GitHub CLI",
     "Use the local gh CLI and your own token. The Agent never receives the token.": "Use the local gh CLI and your own token. The Agent never receives the token.",
     "GitHub CLI actions are available in the Tauri desktop app.": "GitHub CLI actions are available in the Tauri desktop app.",
+    "Running local tool: {{tool}}": "Running local tool: {{tool}}",
+    "Tool completed: {{tool}}": "Tool completed: {{tool}}",
     "GitHub CLI check failed.": "GitHub CLI check failed.",
     "GitHub search failed.": "GitHub search failed.",
     "Enter a repository such as owner/name first.": "Enter a repository such as owner/name first.",

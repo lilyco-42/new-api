@@ -5596,6 +5596,8 @@
     "Your GitHub CLI": "你的 GitHub CLI",
     "Use the local gh CLI and your own token. The Agent never receives the token.": "使用本机 gh CLI 和你自己的 Token。Agent 不会接收 Token。",
     "GitHub CLI actions are available in the Tauri desktop app.": "GitHub CLI 操作仅在 Tauri 桌面应用中可用。",
+    "Running local tool: {{tool}}": "正在运行本机工具：{{tool}}",
+    "Tool completed: {{tool}}": "工具已完成：{{tool}}",
     "GitHub CLI check failed.": "GitHub CLI 检查失败。",
     "GitHub search failed.": "GitHub 搜索失败。",
     "Enter a repository such as owner/name first.": "请先输入类似 owner/name 的仓库。",

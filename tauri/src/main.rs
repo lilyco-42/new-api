@@ -9,8 +9,8 @@ use url::Url;
 mod tool_runtime;
 
 use tool_runtime::{
-    bounded_text, cli_output, cli_tool_spec, detect_cli_tool, CliExecRequest, CliExecResult,
-    DeveloperToolStatus, CLI_TOOL_REGISTRY,
+    cli_tool_spec, detect_cli_tool, execute_operation, CancellationToken, CliExecRequest,
+    CliExecResult, DeveloperToolStatus, OperationRequest, ProfileCredentials, CLI_TOOL_REGISTRY,
 };
 
 const DEFAULT_AGENT_URL: &str = "https://api.lain42.top/agent";
@@ -43,33 +43,22 @@ fn tool_status(app: AppHandle, tool_ids: Option<Vec<String>>) -> Vec<DeveloperTo
             .map(|spec| spec.id.to_string())
             .collect()
     });
+    let credentials = profile_credentials(&app).ok();
     ids.into_iter()
         .filter_map(|id| cli_tool_spec(&id).ok())
-        .map(|spec| {
-            let profile_dir = spec
-                .profile_scoped
-                .then(|| gh_config_dir(&app).ok())
-                .flatten();
-            detect_cli_tool(spec.id, profile_dir.as_deref())
-        })
+        .map(|spec| detect_cli_tool(spec.id, credentials.as_ref()))
         .collect()
 }
 
 #[tauri::command]
 fn cli_exec(app: AppHandle, request: CliExecRequest) -> Result<CliExecResult, String> {
-    let tool_id = request.tool_id.trim().to_string();
-    let spec = cli_tool_spec(&tool_id)?;
-    let profile_dir = spec
-        .profile_scoped
-        .then(|| gh_config_dir(&app))
-        .transpose()?;
-    let output = cli_output(&tool_id, &request.args, profile_dir.as_deref())?;
-    Ok(CliExecResult {
-        tool_id,
-        exit_code: output.status.code(),
-        stdout: bounded_text(&output.stdout),
-        stderr: bounded_text(&output.stderr),
-    })
+    let credentials = profile_credentials(&app).ok();
+    let request = OperationRequest {
+        operation: request.operation,
+        params: request.params,
+        timeout_ms: request.timeout_ms,
+    };
+    execute_operation(&request, credentials.as_ref(), &CancellationToken::new())
 }
 
 fn validate_profile_id(profile_id: &str) -> Result<(), String> {
@@ -93,6 +82,12 @@ fn gh_config_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let path = base.join("profiles").join(profile_id).join("gh");
     fs::create_dir_all(&path).map_err(|error| format!("Unable to create CLI profile: {error}"))?;
     Ok(path)
+}
+
+fn profile_credentials(app: &AppHandle) -> Result<ProfileCredentials, String> {
+    let profile_id = desktop_profile_id();
+    let config_dir = gh_config_dir(app)?;
+    Ok(ProfileCredentials::new(profile_id, config_dir))
 }
 
 fn desktop_profile_id() -> String {
@@ -160,13 +155,18 @@ fn validate_limit(limit: u8) -> Result<u8, String> {
     }
 }
 
-fn gh_output(app: &AppHandle, args: &[&str]) -> Result<std::process::Output, String> {
-    let args = args
-        .iter()
-        .map(|argument| (*argument).to_string())
-        .collect::<Vec<_>>();
-    let profile_dir = gh_config_dir(app)?;
-    cli_output("gh", &args, Some(&profile_dir))
+fn gh_operation(
+    app: &AppHandle,
+    operation: &str,
+    params: serde_json::Value,
+) -> Result<CliExecResult, String> {
+    let credentials = profile_credentials(app)?;
+    let request = OperationRequest {
+        operation: operation.to_string(),
+        params,
+        timeout_ms: None,
+    };
+    execute_operation(&request, Some(&credentials), &CancellationToken::new())
 }
 
 #[tauri::command]
@@ -196,7 +196,7 @@ fn gh_auth_status(app: AppHandle) -> GhAuthStatus {
         "GH_CONFIG_DIR=\"{}\" gh auth login",
         config.replace('"', "")
     );
-    let output = match gh_output(&app, &["auth", "status", "--hostname", "github.com"]) {
+    let output = match gh_operation(&app, "github.auth.status", serde_json::json!({})) {
         Ok(output) => output,
         Err(message) => {
             return GhAuthStatus {
@@ -212,8 +212,8 @@ fn gh_auth_status(app: AppHandle) -> GhAuthStatus {
         }
     };
 
-    let text = String::from_utf8_lossy(&output.stdout);
-    let error_text = String::from_utf8_lossy(&output.stderr);
+    let text = output.stdout.as_str();
+    let error_text = output.stderr.as_str();
     let account = text.lines().chain(error_text.lines()).find_map(|line| {
         let marker = "account ";
         let start = line.find(marker)? + marker.len();
@@ -228,9 +228,9 @@ fn gh_auth_status(app: AppHandle) -> GhAuthStatus {
         profile_id,
         gh_config_dir: config,
         installed: true,
-        authenticated: output.status.success(),
+        authenticated: matches!(output.status, tool_runtime::ExecutionStatus::Succeeded),
         account,
-        message: if output.status.success() {
+        message: if matches!(output.status, tool_runtime::ExecutionStatus::Succeeded) {
             "GitHub CLI is authenticated for this desktop profile.".to_string()
         } else {
             "Run the profile-specific login command in a terminal to connect your own GitHub account."
@@ -252,56 +252,31 @@ fn gh_search_repositories(
         return Err("Search text must contain 1–200 characters.".to_string());
     }
     let limit = validate_limit(limit)?;
-    let limit_value = limit.to_string();
-    let query_arg = format!("q={query}");
-    let page_arg = format!("per_page={limit_value}");
-    let output = gh_output(
+    let output = gh_operation(
         &app,
-        &[
-            "api",
-            "search/repositories",
-            "--method",
-            "GET",
-            "-f",
-            &query_arg,
-            "-f",
-            &page_arg,
-            "-f",
-            "sort=stars",
-            "-f",
-            "order=desc",
-        ],
+        "github.repositories.search",
+        serde_json::json!({"query": query, "limit": limit}),
     )?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    if !matches!(output.status, tool_runtime::ExecutionStatus::Succeeded) {
+        return Err(output.stderr.trim().to_string());
     }
-    serde_json::from_slice(&output.stdout)
+    serde_json::from_str(&output.stdout)
         .map_err(|error| format!("Invalid GitHub response: {error}"))
 }
 
 #[tauri::command]
 fn gh_list_issues(app: AppHandle, repo: String, limit: u8) -> Result<serde_json::Value, String> {
     validate_repo(repo.trim())?;
-    let limit = validate_limit(limit)?.to_string();
-    let output = gh_output(
+    validate_limit(limit)?;
+    let output = gh_operation(
         &app,
-        &[
-            "issue",
-            "list",
-            "--repo",
-            repo.trim(),
-            "--state",
-            "all",
-            "--limit",
-            &limit,
-            "--json",
-            "number,title,url,state,updatedAt,author",
-        ],
+        "github.issues.list",
+        serde_json::json!({"repo": repo.trim(), "state": "open", "limit": limit, "sort": "updated"}),
     )?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    if !matches!(output.status, tool_runtime::ExecutionStatus::Succeeded) {
+        return Err(output.stderr.trim().to_string());
     }
-    serde_json::from_slice(&output.stdout)
+    serde_json::from_str(&output.stdout)
         .map_err(|error| format!("Invalid GitHub response: {error}"))
 }
 
@@ -312,26 +287,16 @@ fn gh_list_pull_requests(
     limit: u8,
 ) -> Result<serde_json::Value, String> {
     validate_repo(repo.trim())?;
-    let limit = validate_limit(limit)?.to_string();
-    let output = gh_output(
+    validate_limit(limit)?;
+    let output = gh_operation(
         &app,
-        &[
-            "pr",
-            "list",
-            "--repo",
-            repo.trim(),
-            "--state",
-            "all",
-            "--limit",
-            &limit,
-            "--json",
-            "number,title,url,state,updatedAt,author",
-        ],
+        "github.pull_requests.list",
+        serde_json::json!({"repo": repo.trim(), "state": "open", "limit": limit, "sort": "updated"}),
     )?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    if !matches!(output.status, tool_runtime::ExecutionStatus::Succeeded) {
+        return Err(output.stderr.trim().to_string());
     }
-    serde_json::from_slice(&output.stdout)
+    serde_json::from_str(&output.stdout)
         .map_err(|error| format!("Invalid GitHub response: {error}"))
 }
 

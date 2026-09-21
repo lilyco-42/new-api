@@ -29,6 +29,7 @@ import {
 import {
   getCurrentVersion,
   hasMessageContent,
+  getTextContent,
   updateCurrentVersionContent,
 } from './message-utils'
 
@@ -188,9 +189,17 @@ export function applyChatCompletionChoice(
   message: Message,
   choice: ChatCompletionChoice
 ): Message {
+  const content = choice.message?.content
+  const textContent =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? getTextContent(content)
+        : ''
+
   return completeAssistantTiming({
     ...finalizeMessage(
-      updateCurrentVersionContent(message, choice.message?.content || ''),
+      updateCurrentVersionContent(message, textContent),
       choice.message?.reasoning_content
     ),
     status: MESSAGE_STATUS.COMPLETE,

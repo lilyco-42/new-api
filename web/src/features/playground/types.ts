@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 // Message types
 export type MessageRole = 'user' | 'assistant' | 'system'
+export type ChatCompletionMessageRole = MessageRole | 'tool'
 
 export type MessageStatus = 'loading' | 'streaming' | 'complete' | 'error'
 
@@ -53,8 +54,36 @@ export interface Message {
 
 // API payload types
 export interface ChatCompletionMessage {
-  role: MessageRole
-  content: string | ContentPart[]
+  role: ChatCompletionMessageRole
+  content: string | ContentPart[] | null
+  reasoning_content?: string
+  name?: string
+  tool_calls?: ChatCompletionToolCall[]
+  tool_call_id?: string
+}
+
+export interface ChatCompletionToolCall {
+  id: string
+  type: 'function'
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
+export interface ChatCompletionTool {
+  type: 'function'
+  function: {
+    name: string
+    description?: string
+    parameters: Record<string, unknown>
+  }
+}
+
+export interface LocalToolProvider {
+  tools: ChatCompletionTool[]
+  isAvailable: () => boolean
+  invoke: (call: ChatCompletionToolCall, signal: AbortSignal) => Promise<string>
 }
 
 export interface ContentPart {
@@ -76,6 +105,8 @@ export interface ChatCompletionRequest {
   frequency_penalty?: number
   presence_penalty?: number
   seed?: number
+  tools?: ChatCompletionTool[]
+  tool_choice?: 'auto' | 'none' | 'required'
 }
 
 export interface ChatCompletionChunk {
@@ -86,9 +117,10 @@ export interface ChatCompletionChunk {
   choices: Array<{
     index: number
     delta: {
-      role?: MessageRole
+      role?: ChatCompletionMessageRole
       content?: string
       reasoning_content?: string
+      tool_calls?: ChatCompletionToolCall[]
     }
     finish_reason: string | null
   }>
@@ -102,9 +134,10 @@ export interface ChatCompletionResponse {
   choices: Array<{
     index: number
     message: {
-      role: MessageRole
-      content: string
+      role: ChatCompletionMessageRole
+      content: string | null
       reasoning_content?: string
+      tool_calls?: ChatCompletionToolCall[]
     }
     finish_reason: string
   }>

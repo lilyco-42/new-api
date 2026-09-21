@@ -47,6 +47,7 @@ import {
 import { Playground } from '@/features/playground'
 import { useMediaQuery } from '@/hooks'
 
+import { localAgentToolProvider } from './agent-tool-provider'
 import { AgentSidebar, type AgentPreset } from './components/agent-sidebar'
 import { DeveloperToolkitCard } from './components/developer-toolkit-card'
 import { GithubCliCard } from './components/github-cli-card'
@@ -59,12 +60,15 @@ const LYCO_DEFAULT_SYSTEM_PROMPT = `你是云枢智创 Agent，默认采用 lyco
 
 本机 gh CLI 只使用用户自己的登录状态，token 留在本机，不读取浏览器 Cookie；任何外部写入、发送消息或敏感操作都先请求明确授权。`
 
+const AGENT_TOOL_PROMPT = `
+当用户要求读取 GitHub 仓库最近 Issue 时，如果工具列表中有 github.issues.list，必须使用结构化工具调用，并传入 owner/name；不要把“Tool: …”之类的文字当成工具调用，也不要猜测仓库内容。工具返回后引用其中的标题、状态、更新时间和链接；如果工具不可用，明确说明需要在 Lain42 桌面版完成 gh 登录。`
+
 const PRESETS: AgentPreset[] = [
   {
     id: 'general',
     title: '通用助手',
     description: '整理信息、写作、计划与日常问答',
-    prompt: LYCO_DEFAULT_SYSTEM_PROMPT,
+    prompt: `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}`,
     icon: Bot,
     tone: 'text-sky-500',
   },
@@ -72,7 +76,7 @@ const PRESETS: AgentPreset[] = [
     id: 'coding',
     title: '代码 Agent',
     description: '读代码、定位问题、设计实现与复盘',
-    prompt: `${LYCO_DEFAULT_SYSTEM_PROMPT}\n\n你当前承担代码 Agent 角色：优先阅读现有实现，给出最小可行改动、验证方法与回滚点。除非用户明确授权，不执行破坏性操作。`,
+    prompt: `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}\n\n你当前承担代码 Agent 角色：优先阅读现有实现，给出最小可行改动、验证方法与回滚点。除非用户明确授权，不执行破坏性操作。`,
     icon: Code2,
     tone: 'text-violet-500',
   },
@@ -80,7 +84,7 @@ const PRESETS: AgentPreset[] = [
     id: 'research',
     title: '研究 Agent',
     description: '拆解问题、比较方案、输出带来源结论',
-    prompt: `${LYCO_DEFAULT_SYSTEM_PROMPT}\n\n你当前承担研究 Agent 角色：把问题拆成可验证的子问题，区分事实、推断和未知，并为关键结论提供来源链接。`,
+    prompt: `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}\n\n你当前承担研究 Agent 角色：把问题拆成可验证的子问题，区分事实、推断和未知，并为关键结论提供来源链接。`,
     icon: Globe2,
     tone: 'text-emerald-500',
   },
@@ -88,7 +92,7 @@ const PRESETS: AgentPreset[] = [
     id: 'content',
     title: '内容 Agent',
     description: '产品文案、教程、脚本和多语言改写',
-    prompt: `${LYCO_DEFAULT_SYSTEM_PROMPT}\n\n你当前承担内容 Agent 角色：先确认受众和使用场景，再输出可直接发布的版本；保留事实边界，避免空泛营销语。`,
+    prompt: `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}\n\n你当前承担内容 Agent 角色：先确认受众和使用场景，再输出可直接发布的版本；保留事实边界，避免空泛营销语。`,
     icon: PenLine,
     tone: 'text-amber-500',
   },
@@ -345,6 +349,7 @@ export function AgentWorkspace() {
             emptyStateTitle={t('How can I help you today?')}
             storageNamespace={`agent-${preset.id}-chat-${chatId}`}
             systemPrompt={preset.prompt}
+            localToolProvider={localAgentToolProvider}
           />
         </main>
       </div>

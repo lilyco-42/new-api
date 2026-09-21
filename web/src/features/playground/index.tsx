@@ -24,6 +24,7 @@ import {
   usePlaygroundOptions,
   usePlaygroundState,
 } from './hooks'
+import type { LocalToolProvider } from './types'
 
 export interface PlaygroundProps {
   /** Optional instruction message for a focused agent workspace. */
@@ -34,6 +35,8 @@ export interface PlaygroundProps {
   emptyStateTitle?: string
   /** Optional empty-state description for branded agent workspaces. */
   emptyStateDescription?: string
+  /** Optional desktop-only tool bridge. It is unavailable in a normal browser. */
+  localToolProvider?: LocalToolProvider
 }
 
 export function Playground({
@@ -41,6 +44,7 @@ export function Playground({
   storageNamespace = '',
   emptyStateTitle,
   emptyStateDescription,
+  localToolProvider,
 }: PlaygroundProps = {}) {
   const {
     config,
@@ -61,6 +65,7 @@ export function Playground({
     config,
     parameterEnabled,
     onMessageUpdate: updateMessages,
+    localToolProvider,
   })
 
   const {

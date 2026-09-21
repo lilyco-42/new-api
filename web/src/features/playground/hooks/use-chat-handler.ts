@@ -33,14 +33,22 @@ import {
   hasChatCompletionChoice,
   isAssistantMessageFinal,
   isAssistantMessagePending,
+  updateCurrentVersionContent,
 } from '../lib'
-import type { Message, PlaygroundConfig, ParameterEnabled } from '../types'
+import type {
+  LocalToolProvider,
+  Message,
+  PlaygroundConfig,
+  ParameterEnabled,
+} from '../types'
+import { runLocalToolLoop, type LocalToolLoopEvent } from './local-tool-loop'
 import { useStreamRequest } from './use-stream-request'
 
 interface UseChatHandlerOptions {
   config: PlaygroundConfig
   parameterEnabled: ParameterEnabled
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
+  localToolProvider?: LocalToolProvider
 }
 
 const KNOWN_ERROR_MESSAGES = new Set<string>(Object.values(ERROR_MESSAGES))
@@ -50,6 +58,32 @@ type PendingStreamChunks = {
   generation: number
   content: string
   reasoning: string
+}
+
+function sourcesFromToolResult(result: string) {
+  try {
+    const value = JSON.parse(result) as { data?: unknown }
+    if (!Array.isArray(value.data)) return []
+    return value.data
+      .flatMap((item) => {
+        if (!item || typeof item !== 'object') return []
+        const record = item as Record<string, unknown>
+        if (
+          typeof record.url !== 'string' ||
+          !/^https?:\/\//i.test(record.url)
+        ) {
+          return []
+        }
+        const number =
+          typeof record.number === 'number' ? `#${record.number} ` : ''
+        const title =
+          typeof record.title === 'string' ? record.title : 'GitHub issue'
+        return [{ href: record.url, title: `${number}${title}` }]
+      })
+      .slice(0, 20)
+  } catch {
+    return []
+  }
 }
 
 function mergePendingStreamChunk(
@@ -70,6 +104,7 @@ export function useChatHandler({
   config,
   parameterEnabled,
   onMessageUpdate,
+  localToolProvider,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
   const { sendStreamRequest, stopStream, isStreaming } = useStreamRequest()
@@ -291,10 +326,43 @@ export function useChatHandler({
 
       try {
         setIsRequesting(true)
-        const response = await sendChatCompletion(
-          payload,
-          abortController.signal
-        )
+        const onToolEvent = (event: LocalToolLoopEvent) => {
+          if (event.type === 'running') {
+            onMessageUpdate((prev) =>
+              updateLastAssistantMessage(prev, (message) =>
+                updateCurrentVersionContent(
+                  message,
+                  t('Running local tool: {{tool}}', {
+                    tool: event.call.function.name,
+                  })
+                )
+              )
+            )
+          } else if (event.type === 'completed') {
+            onMessageUpdate((prev) =>
+              updateLastAssistantMessage(prev, (message) => {
+                const sources = sourcesFromToolResult(event.result)
+                return {
+                  ...updateCurrentVersionContent(
+                    message,
+                    t('Tool completed: {{tool}}', {
+                      tool: event.call.function.name,
+                    })
+                  ),
+                  ...(sources.length > 0 ? { sources } : {}),
+                }
+              })
+            )
+          }
+        }
+        const response = localToolProvider?.isAvailable()
+          ? await runLocalToolLoop(
+              payload,
+              localToolProvider,
+              abortController.signal,
+              onToolEvent
+            )
+          : await sendChatCompletion(payload, abortController.signal)
         if (
           abortController.signal.aborted ||
           requestGenerationRef.current !== generation
@@ -338,23 +406,27 @@ export function useChatHandler({
     [
       config,
       parameterEnabled,
+      localToolProvider,
       stopStream,
       discardPendingStreamUpdates,
       onMessageUpdate,
       handleStreamError,
+      t,
     ]
   )
 
   // Send chat request (stream or non-stream based on config)
   const sendChat = useCallback(
     (messages: Message[]) => {
-      if (config.stream) {
+      if (localToolProvider?.isAvailable()) {
+        void sendNonStreamingChat(messages)
+      } else if (config.stream) {
         sendStreamingChat(messages)
       } else {
         sendNonStreamingChat(messages)
       }
     },
-    [config.stream, sendStreamingChat, sendNonStreamingChat]
+    [config.stream, localToolProvider, sendStreamingChat, sendNonStreamingChat]
   )
 
   // Stop generation

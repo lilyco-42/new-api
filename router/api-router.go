@@ -32,6 +32,25 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/about", controller.GetAbout)
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
+		// Agent device pairing. Platform actions require the current dashboard
+		// identity; claim/redeem are short-lived desktop ceremony endpoints.
+		agentRoute := apiRouter.Group("/agent")
+		{
+			platformAgentRoute := agentRoute.Group("")
+			platformAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
+			{
+				platformAgentRoute.POST("/pairings", controller.CreateAgentPairing)
+				platformAgentRoute.POST("/pairings/:id/confirm", controller.ConfirmAgentPairing)
+				platformAgentRoute.GET("/devices", controller.ListAgentDevices)
+				platformAgentRoute.DELETE("/devices/:id", controller.RevokeAgentDevice)
+			}
+			desktopAgentRoute := agentRoute.Group("")
+			desktopAgentRoute.Use(middleware.CriticalRateLimit(), middleware.DisableCache())
+			{
+				desktopAgentRoute.POST("/pairings/claim", anonymousRequestBodyLimit, controller.ClaimAgentPairing)
+				desktopAgentRoute.POST("/pairings/redeem", anonymousRequestBodyLimit, controller.RedeemAgentPairing)
+			}
+		}
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
 		perfMetricsRoute.Use(middleware.HeaderNavModulePublicOrUserAuth("pricing"))
