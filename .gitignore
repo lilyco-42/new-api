@@ -50,3 +50,6 @@ go.work.sum
 .deploy/
 .agents/state/
 .design-context.md
+
+# Build output for the desktop runtime and its independent Rust crates.
+tauri/**/target/
