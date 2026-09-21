@@ -60,9 +60,12 @@ jobs:
             libssl-dev \
             patchelf
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@34d2323c40447f79d77146d8269c123a27f4ced5 # main 2026-09-21
+
       - name: Install Tauri CLI
         shell: bash
-        run: cargo install tauri-cli --version 2.11.5 --locked
+        run: cargo binstall --no-confirm --locked tauri-cli@2.11.5
 
       - name: Check Rust formatting
         working-directory: tauri
