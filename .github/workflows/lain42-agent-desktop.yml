@@ -9,6 +9,11 @@ on:
         default: false
         type: boolean
   push:
+    branches:
+      - agent-ui
+    paths:
+      - 'tauri/**'
+      - '.github/workflows/lain42-agent-desktop.yml'
     tags:
       - 'agent-v*'
 
