@@ -35,13 +35,37 @@ export LAIN42_GH_CONFIG_DIR="$HOME/.config/lain42/gh/radxa-a7a"
 配对票据只在短时间内有效，长期设备凭证只存 Radxa 的受限环境文件或系统
 密钥服务中：
 
-1. 登录 Lain42 网页，在 Agent 的设备配对入口创建 pairing ticket，保存返回的
-   `id` 和 `pairing_ticket`。
-2. 在 Radxa 上调用 `POST /api/agent/pairings/claim`，提交票据、设备名称和
-   一个公开设备标识；保存返回的 `confirmation_ticket`、`redeem_ticket`。
-3. 把 `confirmation_ticket` 填回网页的确认入口。
-4. 确认成功后在 Radxa 调用 `POST /api/agent/pairings/redeem`，把返回的
-   `credential` 写入仅 root/当前用户可读的环境文件，然后启动 companion。
+1. 登录 Lain42 网页，在 Agent 的「CLI desktop bridge」卡片创建 pairing ticket，
+   复制票据和返回的 `id`。
+2. 在 Radxa 上用下面的命令领取票据。`PAIRING_TICKET` 只在终端内存中短暂存在，
+   不要把它写进 shell history 或日志：
+
+   ```bash
+   export LAIN42_API_URL="https://api.lain42.top"
+   read -r -s PAIRING_TICKET
+   CLAIM_JSON=$(curl --fail-with-body --silent --show-error \
+     -X POST "$LAIN42_API_URL/api/agent/pairings/claim" \
+     -H 'Content-Type: application/json' \
+     --data "{\"pairing_ticket\":\"$PAIRING_TICKET\",\"device_name\":\"radxa-a7a\",\"device_public_key\":\"radxa-a7a-$(hostname)\"}")
+   echo "$CLAIM_JSON"
+   ```
+
+   保存输出中的 `id`、`confirmation_ticket` 和 `redeem_ticket`；不要把完整 JSON
+   贴到公开聊天或 issue。
+3. 把 `confirmation_ticket` 填回网页的确认入口。确认成功后，在 Radxa 上兑换一
+   次性凭证（将网页创建时的 pairing id 作为 `PAIRING_ID`）：
+
+   ```bash
+   export PAIRING_ID="<pairing-id>"
+   read -r -s REDEEM_TICKET
+   curl --fail-with-body --silent --show-error \
+     -X POST "$LAIN42_API_URL/api/agent/pairings/redeem" \
+     -H 'Content-Type: application/json' \
+     --data "{\"pairing_id\":$PAIRING_ID,\"redeem_ticket\":\"$REDEEM_TICKET\"}"
+   ```
+
+   将返回的 `device.id` 和 `credential` 写入仅 root/当前用户可读的环境文件，
+   然后启动 companion。
 
 服务器只保存票据摘要；网页和模型永远不会拿到 Radxa 的 `GH_TOKEN`。撤销设备
 后，现有连接会被服务端拒绝，不能靠重连恢复。
