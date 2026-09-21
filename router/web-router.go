@@ -2,6 +2,7 @@ package router
 
 import (
 	"embed"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -20,6 +21,9 @@ type WebAssets struct {
 }
 
 func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.HandlerFunc) {
+	// Some Linux images do not ship a MIME database entry for .webmanifest.
+	// Register it explicitly so browsers can discover and install the PWA.
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	frontendFS := common.EmbedFolder(assets.BuildFS, "web/dist")
 
 	router.NoRoute(
