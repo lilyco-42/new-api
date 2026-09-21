@@ -1,0 +1,16 @@
+[package]
+name = "lain42-agent-companion"
+version = "0.1.0"
+description = "Headless Lain42 Agent connector for Radxa and other Linux ARM64 devices"
+authors = ["Lain42"]
+license = "AGPL-3.0-or-later"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tungstenite = { version = "0.24", features = ["native-tls"] }
+url = "2.5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

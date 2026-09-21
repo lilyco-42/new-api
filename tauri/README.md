@@ -47,3 +47,25 @@ cargo tauri build
 ## GitHub Actions 远端构建
 
 `.github/workflows/lain42-agent-desktop.yml` 是首选构建入口：手动运行 workflow 会并行生成 Windows x64、Linux x64 和 macOS 安装包；推送 `agent-v*` 标签时会自动构建并把产物附加到对应的 GitHub Release。远端 runner 使用固定版本 `tauri-cli 2.11.5`，本地只用于调试和复现。
+
+## Radxa A7A / ARM64
+
+Radxa A7A 使用 `aarch64` Linux 时可以直接运行同一套 Agent。推荐使用 Debian/Ubuntu 或 Radxa OS 的桌面镜像，并确认 WebKitGTK 能正常工作；Agent 的 CLI 执行仍然在板端完成，`gh` 的登录目录、工具输出上限和超时策略与 x64 相同。
+
+```bash
+sudo apt update
+sudo apt install -y build-essential curl pkg-config \
+  libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+  librsvg2-dev libxdo-dev libssl-dev patchelf
+gh auth login
+cd tauri
+cargo binstall tauri-cli@2.11.5 --no-confirm
+cargo tauri build --bundles deb
+```
+
+在板端执行 `uname -m` 应看到 `aarch64`；产物位于
+`tauri/target/release/bundle/deb/`。如果该架构的 `cargo-binstall` 没有对应
+预编译 CLI，改用 `cargo install tauri-cli --version 2.11.5 --locked`，只影响
+构建时间，不影响运行时。没有图形桌面时，使用浏览器/PWA 访问 Agent，并让
+一台已配对的 Tauri 桌面执行本机 CLI；纯 ARM headless companion 会在下一阶段
+复用同一 `agent-session` 与配对协议。

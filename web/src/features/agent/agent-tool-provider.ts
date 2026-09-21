@@ -293,15 +293,24 @@ export const localAgentToolProvider: LocalToolProvider = {
       )
     )
 
-    if (result.status !== 'succeeded' || typeof result.stdout !== 'string') {
+    if (
+      call.function.name !== AUTH_STATUS_TOOL.function.name &&
+      (result.status !== 'succeeded' || typeof result.stdout !== 'string')
+    ) {
       const detail = result.stderr?.trim()
       throw new Error(detail || 'GitHub CLI could not complete the request.')
     }
 
-    let data: unknown = result.stdout
-    if (call.function.name !== AUTH_STATUS_TOOL.function.name) {
+    let data: unknown = result.stdout ?? ''
+    if (call.function.name === AUTH_STATUS_TOOL.function.name) {
+      data = {
+        authenticated: result.status === 'succeeded',
+        status: result.status,
+        output: result.stdout || result.stderr || '',
+      }
+    } else {
       try {
-        data = JSON.parse(result.stdout)
+        data = JSON.parse(result.stdout ?? '')
       } catch {
         throw new Error('GitHub CLI returned invalid JSON.')
       }

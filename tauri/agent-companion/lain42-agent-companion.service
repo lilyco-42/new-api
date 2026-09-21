@@ -1,0 +1,23 @@
+[Unit]
+Description=Lain42 Agent headless companion
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lain42-agent
+Group=lain42-agent
+WorkingDirectory=/opt/lain42-agent-companion
+EnvironmentFile=/etc/lain42-agent-companion.env
+ExecStart=/opt/lain42-agent-companion/lain42-agent-companion
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=%h/.config/lain42
+
+[Install]
+WantedBy=multi-user.target
+
