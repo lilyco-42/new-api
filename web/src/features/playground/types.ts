@@ -27,6 +27,12 @@ export type PlaygroundMessageLayoutMode = 'alternating' | 'left'
 export interface MessageVersion {
   id: string
   content: string
+  /**
+   * Request-only content parts (for example image attachments). These are
+   * deliberately omitted from localStorage by the storage schema because
+   * data URLs can be much larger than a browser's durable storage budget.
+   */
+  parts?: ContentPart[]
 }
 
 export interface Message {

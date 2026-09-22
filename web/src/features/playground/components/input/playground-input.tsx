@@ -18,15 +18,18 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import {
   PromptInput,
+  PromptInputAttachment,
+  PromptInputAttachments,
   PromptInputFooter,
   PromptInputTextarea,
   type PromptInputMessage,
 } from '@/components/ai-elements/prompt-input'
 
-import { getSubmittableInputText } from '../../lib'
+import { filePartsToContentParts, getSubmittableInputText } from '../../lib'
 import type {
   ModelOption,
   GroupOption,
@@ -38,7 +41,7 @@ import { PlaygroundInputTools } from './playground-input-tools'
 
 interface PlaygroundInputProps {
   config: PlaygroundConfig
-  onSubmit: (text: string) => void
+  onSubmit: (text: string, parts?: import('../../types').ContentPart[]) => void
   onStop?: () => void
   disabled?: boolean
   isGenerating?: boolean
@@ -88,17 +91,30 @@ export function PlaygroundInput({
     const submittableText = getSubmittableInputText(message, disabled)
 
     if (!submittableText) return
-    onSubmit(submittableText)
+    onSubmit(
+      submittableText,
+      message.files ? filePartsToContentParts(message.files) : undefined
+    )
     setText('')
   }
 
   return (
     <div className='grid shrink-0 gap-4 px-3 pb-3 sm:px-4 sm:pb-4'>
       <PromptInput
+        accept='image/*,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
+        maxFileSize={8 * 1024 * 1024}
+        maxFiles={5}
+        multiple
         className='relative'
         groupClassName='bg-background/95 dark:bg-muted/50 border-border/70 shadow-[0_18px_60px_-32px_rgba(0,0,0,0.65)] ring-1 ring-foreground/5 rounded-[1.5rem] overflow-hidden transition-all duration-200 focus-within:border-primary/45 focus-within:ring-primary/15 focus-within:shadow-[0_22px_70px_-34px_rgba(0,0,0,0.75)]'
         onSubmit={handleSubmit}
+        onError={(error) => toast.error(t(error.message))}
       >
+        <div className='flex flex-wrap gap-1.5 px-3 pt-3'>
+          <PromptInputAttachments>
+            {(file) => <PromptInputAttachment data={file} />}
+          </PromptInputAttachments>
+        </div>
         <PromptInputTextarea
           autoComplete='off'
           autoCorrect='off'

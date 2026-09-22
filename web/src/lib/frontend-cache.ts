@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 const FRONTEND_CACHE_VERSION = 'default-v1'
 const FRONTEND_CACHE_VERSION_KEY = 'newapi:default:cache-version'
+const FRONTEND_RECOVERY_PARAM = '__lain42_frontend_recovery'
 const PRESERVED_LOCAL_STORAGE_KEYS = new Set([
   FRONTEND_CACHE_VERSION_KEY,
   'user',
@@ -25,6 +26,59 @@ const PRESERVED_LOCAL_STORAGE_KEYS = new Set([
   'aff',
   'oauth:binding:result',
 ])
+
+/**
+ * Recover once from a stale HTML document that references chunks from an old
+ * build. Hashed chunks are immutable, but browsers can keep an SPA document
+ * alive across deployments; the old document then receives the HTML fallback
+ * for a missing chunk and TanStack Router renders its generic 500 page.
+ */
+export function installChunkLoadRecovery(): void {
+  if (typeof window === 'undefined') return
+
+  let recoveryStarted = false
+  const hasRecoveryMarker = () =>
+    new URL(window.location.href).searchParams.has(FRONTEND_RECOVERY_PARAM)
+
+  const recover = (reason: unknown, target?: EventTarget | null) => {
+    if (recoveryStarted || hasRecoveryMarker()) return
+
+    let message = ''
+    if (typeof reason === 'string') {
+      message = reason
+    } else if (reason instanceof Error) {
+      message = reason.message
+    } else {
+      message = String(reason ?? '')
+    }
+    const targetUrl =
+      target instanceof HTMLScriptElement ? target.src : undefined
+    const isChunkFailure =
+      /ChunkLoadError|Loading (?:chunk|CSS chunk)|Unexpected token ['<']/.test(
+        message
+      ) &&
+      (Boolean(targetUrl?.includes('/static/')) ||
+        /ChunkLoadError|Loading (?:chunk|CSS chunk)/.test(message))
+
+    if (!isChunkFailure) return
+
+    recoveryStarted = true
+    const url = new URL(window.location.href)
+    url.searchParams.set(FRONTEND_RECOVERY_PARAM, String(Date.now()))
+    window.location.replace(url.toString())
+  }
+
+  window.addEventListener(
+    'error',
+    (event) => recover(event.error ?? event.message, event.target),
+    true
+  )
+  window.addEventListener(
+    'unhandledrejection',
+    (event) => recover(event.reason),
+    true
+  )
+}
 
 export function initializeFrontendCache(): void {
   if (typeof window === 'undefined') return

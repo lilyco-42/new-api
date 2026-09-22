@@ -29,10 +29,14 @@ import type {
 /**
  * Create a new message version
  */
-export function createMessageVersion(content: string): MessageVersion {
+export function createMessageVersion(
+  content: string,
+  parts?: ContentPart[]
+): MessageVersion {
   return {
     id: nanoid(),
     content,
+    ...(parts && parts.length > 0 ? { parts } : {}),
   }
 }
 
@@ -76,12 +80,13 @@ export function updateCurrentVersionContent(
  */
 export function createUserMessage(
   content: string,
-  createdAt: number = Date.now()
+  createdAt: number = Date.now(),
+  parts?: ContentPart[]
 ): Message {
   return {
     key: nanoid(),
     from: MESSAGE_ROLES.USER,
-    versions: [createMessageVersion(content)],
+    versions: [createMessageVersion(content, parts)],
     createdAt,
   }
 }
@@ -154,9 +159,19 @@ export function getTextContent(content: string | ContentPart[]): string {
  */
 export function formatMessageForAPI(message: Message): ChatCompletionMessage {
   const currentVersion = getCurrentVersion(message)
+  const content =
+    currentVersion.parts && currentVersion.parts.length > 0
+      ? [
+          ...(currentVersion.content
+            ? [{ type: 'text' as const, text: currentVersion.content }]
+            : []),
+          ...currentVersion.parts,
+        ]
+      : currentVersion.content
+
   return {
     role: message.from,
-    content: currentVersion.content,
+    content,
   }
 }
 

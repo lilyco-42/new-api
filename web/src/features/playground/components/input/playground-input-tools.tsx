@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 
 import {
   PromptInputButton,
+  usePromptInputAttachments,
   PromptInputTools,
 } from '@/components/ai-elements/prompt-input'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -38,11 +39,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
-import {
-  ATTACHMENT_ACTIONS,
-  getAttachmentActionNotice,
-  getSearchActionNotice,
-} from '../../lib'
+import { ATTACHMENT_ACTIONS, getSearchActionNotice } from '../../lib'
 import type { ParameterEnabled, PlaygroundConfig } from '../../types'
 import { PlaygroundParameterPanel } from './playground-parameter-panel'
 
@@ -72,13 +69,22 @@ export function PlaygroundInputTools({
   parameterEnabled,
 }: PlaygroundInputToolsProps) {
   const { t } = useTranslation()
+  const attachments = usePromptInputAttachments()
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
 
   const handleFileAction = (action: string) => {
-    const notice = getAttachmentActionNotice(action)
-    toast.info(t(notice.title), {
-      description: notice.description,
-    })
+    if (action === 'upload-file' || action === 'upload-photo') {
+      attachments.openFileDialog()
+      return
+    }
+
+    toast.info(
+      t(
+        action === 'take-screenshot'
+          ? 'Use Upload file to attach a screenshot.'
+          : 'Use Upload photo to attach a photo.'
+      )
+    )
   }
 
   const handleSearchAction = () => {

@@ -32,7 +32,10 @@ import { getStatus } from '@/lib/api'
 import { installBuildMetadata } from '@/lib/build-metadata'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
-import { initializeFrontendCache } from '@/lib/frontend-cache'
+import {
+  initializeFrontendCache,
+  installChunkLoadRecovery,
+} from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { DirectionProvider } from './context/direction-provider'
@@ -48,6 +51,7 @@ import './styles/index.css'
 // Ensure VChart theme is initialized before any chart mounts (prevents white default theme flash)
 // VChart theme is driven by our ThemeProvider (html.light/html.dark) via per-chart `theme` prop.
 initializeFrontendCache()
+installChunkLoadRecovery()
 installBuildMetadata()
 
 const queryClient = new QueryClient({

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { FileUIPart } from 'ai'
 import {
   CameraIcon,
   FileIcon,
@@ -23,6 +24,8 @@ import {
   ScreenShareIcon,
   type LucideIcon,
 } from 'lucide-react'
+
+import type { ContentPart } from '../../types'
 
 type AttachmentAction = {
   action: string
@@ -45,6 +48,88 @@ export const ATTACHMENT_ACTIONS = [
   },
   { action: 'take-photo', icon: CameraIcon, label: 'Take photo' },
 ] satisfies AttachmentAction[]
+
+const TEXT_ATTACHMENT_TYPES = new Set([
+  'application/json',
+  'application/ld+json',
+  'application/toml',
+  'application/xml',
+  'application/yaml',
+  'text/css',
+  'text/csv',
+  'text/html',
+  'text/markdown',
+  'text/plain',
+  'text/x-c',
+  'text/x-c++',
+  'text/x-java',
+  'text/x-python',
+  'text/x-rust',
+  'text/yaml',
+])
+
+function decodeDataUrl(url: string): string | null {
+  const match = url.match(/^data:[^,]*,([\s\S]*)$/i)
+  if (!match) return null
+
+  try {
+    const metadata = url.slice(5, url.indexOf(','))
+    const encoded = match[1]
+    if (/;base64/i.test(metadata)) {
+      const binary = atob(encoded)
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+      return new TextDecoder().decode(bytes)
+    }
+    return decodeURIComponent(encoded)
+  } catch {
+    return null
+  }
+}
+
+function isTextAttachment(file: FileUIPart): boolean {
+  if (file.mediaType?.startsWith('text/')) return true
+  if (file.mediaType && TEXT_ATTACHMENT_TYPES.has(file.mediaType)) return true
+  return /\.(c|cc|cpp|css|csv|go|h|hpp|html?|java|js|json|md|py|rs|sql|toml|ts|tsx|txt|vue|xml|ya?ml)$/i.test(
+    file.filename ?? ''
+  )
+}
+
+/** Convert PromptInput files into OpenAI-compatible request content parts. */
+export function filePartsToContentParts(files: FileUIPart[]): ContentPart[] {
+  const parts: ContentPart[] = []
+
+  for (const file of files) {
+    const filename = file.filename || 'attachment'
+    const mediaType = file.mediaType || 'application/octet-stream'
+    const url = file.url || ''
+
+    if (mediaType.startsWith('image/') && url.startsWith('data:image/')) {
+      parts.push(
+        { type: 'text', text: `[Attached image: ${filename}]` },
+        { type: 'image_url', image_url: { url } }
+      )
+      continue
+    }
+
+    if (isTextAttachment(file)) {
+      const text = decodeDataUrl(url)
+      if (text !== null) {
+        parts.push({
+          type: 'text',
+          text: `[Attached file: ${filename}]\n${text.slice(0, 120_000)}\n[End attached file]`,
+        })
+        continue
+      }
+    }
+
+    parts.push({
+      type: 'text',
+      text: `[Attached file: ${filename} (${mediaType})]`,
+    })
+  }
+
+  return parts
+}
 
 export function getAttachmentActionNotice(action: string): InputToolNotice {
   return {

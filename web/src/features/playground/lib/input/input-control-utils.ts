@@ -36,17 +36,18 @@ type InputControlState = {
 
 type SubmittableInputMessage = {
   text?: string | null
+  files?: readonly unknown[]
 }
 
 export function getSubmittableInputText(
   message: SubmittableInputMessage,
   disabled?: boolean
 ): string | null {
-  if (disabled || !message.text?.trim()) {
+  if (disabled || (!message.text?.trim() && !message.files?.length)) {
     return null
   }
 
-  return message.text
+  return message.text?.trim() || 'Please analyze the attached files.'
 }
 
 export function getInputControlState({
