@@ -1,6 +1,6 @@
 # Lain42 Agent：需求与执行架构规划
 
-日期：2026-09-22。基线：`d4d3863`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
+日期：2026-09-22。基线：`08100bc`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
 
 ## 0. 实现进度（2026-09-22）
 
@@ -11,7 +11,7 @@
 - Agent 网页的桌面桥接：仅在 Tauri 中公开 `github.issues.list`，通过 `cli_exec` 调用本机 `gh`；普通浏览器不会获得本机执行权限。
 - Go 配对模型、服务、路由和迁移：一次性配对票据、确认票据、兑换票据、设备撤销和凭证摘要存储。
 - 配对设备桥接：桌面凭证认证、同源 WebSocket、按设备归属转发结构化请求/结果，服务端不执行用户 CLI；网页与 Tauri 页面已有桥接客户端和配对入口。
-- `tauri/agent-companion`：面向 Radxa A7A 的纯 CLI/headless Linux ARM64 连接器，主动 WSS、固定 `gh` 操作、受限本地 MCP allowlist、断线退避和同一输出/超时边界；ARM64 workflow 只构建并上传该二进制，不依赖 KDE/WebView；手机和互联网只访问网页/API。
+- `tauri/agent-companion`：面向 Radxa A7A 的纯 CLI/headless Linux ARM64 连接器，主动 WSS、固定 `gh` 操作、受限本地 MCP allowlist、服务端心跳、断线退避和同一输出/超时边界；ARM64 workflow 只构建并上传该二进制，不依赖 KDE/WebView；手机和互联网只访问网页/API。
 - Agent 工具侧栏已有网页配对入口：创建短时 pairing ticket，Radxa claim 后把 confirmation ticket 粘回网页，确认后再由 Radxa redeem 并启动 companion。
 - Tauri `rmcp` 客户端：显式连接 stdio / HTTPS Streamable HTTP、分页发现工具、受限参数与结果、连接/调用超时、断开清理；MCP 调用在本地和配对桌面均要求精确参数确认。
 - 配对桥接已允许 `mcp.list` / `mcp.call` 两个固定操作；浏览器只接收已连接工具的 schema，不接收桌面的命令行参数或 bearer token。Tauri 桌面和 Radxa companion 均支持 MCP，但 Radxa 只加载设备管理员明确允许的本地配置，不能由网页动态注入命令或 token。
