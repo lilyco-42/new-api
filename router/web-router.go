@@ -44,6 +44,7 @@ func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.Han
 				strings.HasPrefix(path, "/assets") ||
 				strings.HasPrefix(path, "/static/") ||
 				strings.Contains(path, ".") {
+				c.Header("Cache-Control", "no-store, no-cache, must-revalidate, private, max-age=0")
 				controller.RelayNotFound(c)
 				return
 			}
