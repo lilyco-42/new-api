@@ -65,11 +65,21 @@ func AgentBridgeDesktop(c *gin.Context) {
 	defer conn.Close()
 
 	hello, err := readAgentBridgeHello(conn)
-	if err != nil || strings.TrimSpace(hello.Credential) == "" {
+	if err != nil {
+		common.SysLog("agent bridge desktop rejected hello: invalid envelope")
+		return
+	}
+	if strings.TrimSpace(hello.Credential) == "" {
+		common.SysLog("agent bridge desktop rejected hello: missing credential")
 		return
 	}
 	device, err := service.GetAgentDeviceByCredential(hello.Credential)
-	if err != nil || device == nil || (hello.DeviceID != 0 && hello.DeviceID != device.Id) {
+	if err != nil || device == nil {
+		common.SysLog("agent bridge desktop rejected hello: unknown credential")
+		return
+	}
+	if hello.DeviceID != 0 && hello.DeviceID != device.Id {
+		common.SysLog("agent bridge desktop rejected hello: device id mismatch")
 		return
 	}
 	hub := service.DefaultAgentBridgeHub()
