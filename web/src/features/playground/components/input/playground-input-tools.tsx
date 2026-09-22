@@ -82,6 +82,7 @@ export function PlaygroundInputTools({
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
+  const [searchFallbackUrl, setSearchFallbackUrl] = useState('')
   const [searchResults, setSearchResults] = useState<
     Array<{ title: string; url: string; snippet?: string }>
   >([])
@@ -151,13 +152,22 @@ export function PlaygroundInputTools({
       return
     }
     setSearching(true)
+    setSearchFallbackUrl('')
     try {
       const response = await api.get('/api/agent/search', {
         params: { q: query, limit: 6 },
         skipErrorHandler: true,
       })
-      setSearchResults(response.data?.data?.items ?? [])
+      const data = response.data?.data
+      setSearchResults(data?.items ?? [])
+      if (data?.items?.length === 0 && typeof data?.search_url === 'string') {
+        setSearchFallbackUrl(data.search_url)
+      }
     } catch (error) {
+      setSearchResults([])
+      setSearchFallbackUrl(
+        `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
+      )
       toast.error(error instanceof Error ? error.message : t('Search failed.'))
     } finally {
       setSearching(false)
@@ -274,9 +284,22 @@ export function PlaygroundInputTools({
               </div>
             )}
             {!searching && searchQuery.trim() && searchResults.length === 0 && (
-              <p className='text-muted-foreground mt-2 text-xs'>
-                {t('No records found')}
-              </p>
+              <>
+                {searchFallbackUrl ? (
+                  <a
+                    className='text-muted-foreground hover:text-foreground mt-2 block text-xs underline underline-offset-2'
+                    href={searchFallbackUrl}
+                    rel='noreferrer'
+                    target='_blank'
+                  >
+                    {t('Open web search results')}
+                  </a>
+                ) : (
+                  <p className='text-muted-foreground mt-2 text-xs'>
+                    {t('No records found')}
+                  </p>
+                )}
+              </>
             )}
           </PopoverContent>
         </Popover>
