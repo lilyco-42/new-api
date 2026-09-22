@@ -1,8 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{env, fs, path::PathBuf, sync::Mutex};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{webview::WebviewWindowBuilder, AppHandle, Manager, State, WebviewUrl};
 use url::Url;
 
@@ -19,7 +23,11 @@ const DEFAULT_AGENT_URL: &str = "https://api.lain42.top/agent";
 #[derive(Default)]
 struct AgentDeviceState(Mutex<Option<AgentDeviceSession>>);
 
+const AGENT_DEVICE_SESSION_FILE: &str = "agent-device.json";
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct AgentDeviceSession {
+    profile_id: String,
     device_id: i64,
     credential: String,
 }
@@ -71,25 +79,21 @@ fn cli_exec(app: AppHandle, request: CliExecRequest) -> Result<CliExecResult, St
 }
 
 #[tauri::command]
-fn agent_device_credential_get(state: State<'_, AgentDeviceState>) -> Option<String> {
-    state
-        .0
-        .lock()
-        .ok()
-        .and_then(|session| session.as_ref().map(|value| value.credential.clone()))
+fn agent_device_credential_get(
+    app: AppHandle,
+    state: State<'_, AgentDeviceState>,
+) -> Option<String> {
+    current_agent_device_session(&app, &state).map(|value| value.credential)
 }
 
 #[tauri::command]
-fn agent_device_id_get(state: State<'_, AgentDeviceState>) -> Option<i64> {
-    state
-        .0
-        .lock()
-        .ok()
-        .and_then(|session| session.as_ref().map(|value| value.device_id))
+fn agent_device_id_get(app: AppHandle, state: State<'_, AgentDeviceState>) -> Option<i64> {
+    current_agent_device_session(&app, &state).map(|value| value.device_id)
 }
 
 #[tauri::command(rename_all = "camelCase")]
 fn agent_device_credential_set(
+    app: AppHandle,
     state: State<'_, AgentDeviceState>,
     credential: String,
     device_id: i64,
@@ -98,24 +102,136 @@ fn agent_device_credential_set(
     if !(32..=256).contains(&credential.len()) || device_id <= 0 {
         return Err("Invalid agent device credential.".to_string());
     }
+    let profile_id = desktop_profile_id();
+    let session = AgentDeviceSession {
+        profile_id,
+        device_id,
+        credential,
+    };
+    persist_agent_device_session(&app, &session)?;
     let mut current = state
         .0
         .lock()
         .map_err(|_| "Agent device state is unavailable.".to_string())?;
-    *current = Some(AgentDeviceSession {
-        device_id,
-        credential,
-    });
+    *current = Some(session);
     Ok(())
 }
 
 #[tauri::command]
-fn agent_device_credential_clear(state: State<'_, AgentDeviceState>) -> Result<(), String> {
+fn agent_device_credential_clear(
+    app: AppHandle,
+    state: State<'_, AgentDeviceState>,
+) -> Result<(), String> {
+    let profile_id = desktop_profile_id();
+    remove_agent_device_session(&app, &profile_id)?;
     let mut current = state
         .0
         .lock()
         .map_err(|_| "Agent device state is unavailable.".to_string())?;
     *current = None;
+    Ok(())
+}
+
+fn agent_device_session_path(app: &AppHandle, profile_id: &str) -> Result<PathBuf, String> {
+    validate_profile_id(profile_id)?;
+    let base = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("Unable to resolve app data directory: {error}"))?;
+    let profile_dir = base.join("profiles").join(profile_id);
+    fs::create_dir_all(&profile_dir)
+        .map_err(|error| format!("Unable to create agent profile: {error}"))?;
+    Ok(profile_dir.join(AGENT_DEVICE_SESSION_FILE))
+}
+
+fn valid_agent_device_session(session: &AgentDeviceSession, profile_id: &str) -> bool {
+    session.profile_id == profile_id
+        && session.device_id > 0
+        && (32..=256).contains(&session.credential.len())
+        && !session
+            .credential
+            .chars()
+            .any(|character| character.is_control())
+}
+
+fn load_agent_device_session(app: &AppHandle, profile_id: &str) -> Option<AgentDeviceSession> {
+    let path = agent_device_session_path(app, profile_id).ok()?;
+    let bytes = fs::read(path).ok()?;
+    let session = serde_json::from_slice::<AgentDeviceSession>(&bytes).ok()?;
+    valid_agent_device_session(&session, profile_id).then_some(session)
+}
+
+fn current_agent_device_session(
+    app: &AppHandle,
+    state: &State<'_, AgentDeviceState>,
+) -> Option<AgentDeviceSession> {
+    let profile_id = desktop_profile_id();
+    let mut current = state.0.lock().ok()?;
+    if current
+        .as_ref()
+        .is_some_and(|session| valid_agent_device_session(session, &profile_id))
+    {
+        return current.clone();
+    }
+    let loaded = load_agent_device_session(app, &profile_id);
+    *current = loaded.clone();
+    loaded
+}
+
+fn persist_agent_device_session(
+    app: &AppHandle,
+    session: &AgentDeviceSession,
+) -> Result<(), String> {
+    if !valid_agent_device_session(session, &session.profile_id) {
+        return Err("Invalid agent device session.".to_string());
+    }
+    let path = agent_device_session_path(app, &session.profile_id)?;
+    let bytes = serde_json::to_vec(session)
+        .map_err(|error| format!("Unable to encode agent device session: {error}"))?;
+    write_agent_device_file(&path, &bytes)?;
+    restrict_agent_device_file(&path)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_agent_device_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut options = fs::OpenOptions::new();
+    options.create(true).truncate(true).write(true).mode(0o600);
+    let mut file = options
+        .open(path)
+        .map_err(|error| format!("Unable to persist agent device session: {error}"))?;
+    file.write_all(bytes)
+        .map_err(|error| format!("Unable to persist agent device session: {error}"))
+}
+
+#[cfg(not(unix))]
+fn write_agent_device_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    fs::write(path, bytes)
+        .map_err(|error| format!("Unable to persist agent device session: {error}"))
+}
+
+fn remove_agent_device_session(app: &AppHandle, profile_id: &str) -> Result<(), String> {
+    let path = agent_device_session_path(app, profile_id)?;
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Unable to remove agent device session: {error}")),
+    }
+}
+
+#[cfg(unix)]
+fn restrict_agent_device_file(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("Unable to restrict agent device session: {error}"))
+}
+
+#[cfg(not(unix))]
+fn restrict_agent_device_file(_path: &Path) -> Result<(), String> {
+    // Windows app-local data inherits the current user's ACL. The file never
+    // leaves that profile directory and is never returned to the web page.
     Ok(())
 }
 
@@ -395,4 +511,41 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lain42 Agent");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(profile_id: &str, credential: &str, device_id: i64) -> AgentDeviceSession {
+        AgentDeviceSession {
+            profile_id: profile_id.to_string(),
+            device_id,
+            credential: credential.to_string(),
+        }
+    }
+
+    #[test]
+    fn device_sessions_are_scoped_to_the_active_profile() {
+        let credential = "c".repeat(32);
+        let current = session("work", &credential, 7);
+        assert!(valid_agent_device_session(&current, "work"));
+        assert!(!valid_agent_device_session(&current, "personal"));
+    }
+
+    #[test]
+    fn device_session_rejects_malformed_credentials() {
+        assert!(!valid_agent_device_session(
+            &session("work", "short", 7),
+            "work"
+        ));
+        assert!(!valid_agent_device_session(
+            &session("work", &"c".repeat(32), 0),
+            "work"
+        ));
+        assert!(!valid_agent_device_session(
+            &session("work", &format!("{}\n", "c".repeat(31)), 7),
+            "work"
+        ));
+    }
 }

@@ -93,8 +93,11 @@ credential, and it rejects requests after the device is offline or the request
 deadline expires. The Agent workspace exposes the pairing action in the desktop
 shell and automatically connects an authenticated browser to its first active
 device. Durable task recovery and MCP transport remain separate follow-up work.
-The current desktop credential is held in process memory and must be paired
-again after the shell exits until OS keychain storage lands.
+The desktop credential is persisted under the active desktop profile and is
+never sent to the browser after the pairing call. MCP sessions remain process
+memory only and must be recreated after the desktop exits. The profile-scoped
+file is an interim storage boundary; a system-keychain backend is required
+before this is described as an enterprise durable-device-login contract.
 
 ## Adding a tool
 

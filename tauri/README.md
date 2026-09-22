@@ -42,7 +42,7 @@ cargo tauri build
 
 安装包会写入 `tauri/target/release/bundle/`。Tauri 会根据当前平台生成 Windows 安装包、macOS 应用包和 Linux AppImage/deb；跨平台发布应在对应平台或 CI runner 上分别构建。
 
-桌面壳只保存 WebView 的会话数据，不复制服务端密钥，也不会读取浏览器 Cookie。GitHub 能力只调用本机已安装的 `gh` CLI，当前仅开放登录状态、仓库搜索、Issue 列表和 Pull Request 列表四类命令；不会把 GitHub token 回传给网页。Agent 工具侧栏还可以显式连接本地 stdio 或 HTTPS Streamable HTTP MCP 服务。MCP 工具会先列出受限 schema，每次调用都要求确认精确参数；远程浏览器通过配对桌面使用这些工具时，桌面会再次确认。MCP 会话和令牌只在当前桌面进程内存中有效，退出后需要重新连接。远端地址可以通过 `LAIN42_DESKTOP_URL` 覆盖，便于内测和私有化部署。
+桌面壳只保存 WebView 的会话数据，不复制服务端密钥，也不会读取浏览器 Cookie。GitHub 能力只调用本机已安装的 `gh` CLI，当前仅开放登录状态、仓库搜索、Issue 列表和 Pull Request 列表四类命令；不会把 GitHub token 回传给网页。Agent 工具侧栏还可以显式连接本地 stdio 或 HTTPS Streamable HTTP MCP 服务。MCP 工具会先列出受限 schema，每次调用都要求确认精确参数；远程浏览器通过配对桌面使用这些工具时，桌面会再次确认。设备凭证按桌面 profile 隔离并持久化，MCP 会话和令牌只在当前桌面进程内存中有效，退出后需要重新连接 MCP。远端地址可以通过 `LAIN42_DESKTOP_URL` 覆盖，便于内测和私有化部署。
 
 ## GitHub Actions 远端构建
 
@@ -77,7 +77,10 @@ cargo build --release --manifest-path tauri/agent-companion/Cargo.toml --locked
 
 在网页 Agent 的「CLI / Radxa bridge」卡片创建短时票据。Radxa 调用
 `POST /api/agent/pairings/claim` 领取票据，把返回的 `confirmation_ticket`
-粘回网页；网页确认后，Radxa 调用 `POST /api/agent/pairings/redeem`，仅将返回
-的设备编号和一次性凭证写入权限为 `0600` 的环境文件，再启动
+粘回网页；网页确认后，Radxa 调用 `POST /api/agent/pairings/redeem`。桌面凭证
+按 `LAIN42_DESKTOP_PROFILE`（默认当前操作系统用户）隔离，保存于该 profile 的
+应用数据目录；重启后只会恢复当前 profile 的凭证，切换 profile 不会复用别人的
+设备授权。清除配对时同时删除本地凭证文件。Radxa 端仍将返回的设备编号和一次性凭证写入
+权限为 `0600` 的环境文件，再启动
 `tauri/agent-companion/target/release/lain42-agent-companion`。完整环境变量和
 systemd 模板见 [`tauri/agent-companion/README.md`](agent-companion/README.md)。
