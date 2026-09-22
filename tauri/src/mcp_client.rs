@@ -52,6 +52,7 @@ const MAX_SCHEMA_BYTES: usize = 16 * 1024;
 const MAX_DESCRIPTION_BYTES: usize = 1000;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 const MAX_TOTAL_TOOLS: usize = 256;
+const MAX_PENDING_CONNECTIONS: usize = 4;
 const MAX_CATALOG_BYTES: usize = 96 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -169,6 +170,30 @@ fn valid_server_id(value: &str) -> Result<String, String> {
     }
 }
 
+fn forbid_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).trim_end_matches('.');
+    host.is_empty()
+        || host.eq_ignore_ascii_case("localhost")
+        || host.to_ascii_lowercase().ends_with(".localhost")
+        || host.parse::<IpAddr>().is_ok_and(forbidden_ip)
+}
+
+fn reserve_connection(
+    session_count: usize,
+    pending_count: usize,
+    already_connected: bool,
+) -> Result<(), String> {
+    if pending_count >= MAX_PENDING_CONNECTIONS {
+        return Err("Too many MCP connections are already in progress.".to_string());
+    }
+    if !already_connected && session_count.saturating_add(pending_count) >= MAX_SERVERS {
+        return Err(format!(
+            "At most {MAX_SERVERS} MCP servers may be connected."
+        ));
+    }
+    Ok(())
+}
+
 fn validate_stdio(request: &McpConnectRequest) -> Result<(String, Vec<String>), String> {
     let command = request
         .command
@@ -217,11 +242,7 @@ fn validate_http(request: &McpConnectRequest) -> Result<(String, Option<String>)
         );
     }
     let host = parsed.host_str().expect("host was checked above");
-    let host_for_ip = host.trim_matches(['[', ']']);
-    if host.eq_ignore_ascii_case("localhost")
-        || host.to_ascii_lowercase().ends_with(".localhost")
-        || host_for_ip.parse::<IpAddr>().is_ok_and(forbidden_ip)
-    {
+    if forbid_host(host) {
         return Err(
             "MCP HTTPS endpoints cannot target local or private network addresses.".to_string(),
         );
@@ -412,6 +433,18 @@ fn ensure_catalog_bounds(servers: &[McpServerDescriptor]) -> Result<(), String> 
     Ok(())
 }
 
+fn append_catalog_descriptor(
+    servers: &mut Vec<McpServerDescriptor>,
+    descriptor: McpServerDescriptor,
+) -> Result<(), String> {
+    servers.push(descriptor);
+    if let Err(error) = ensure_catalog_bounds(servers) {
+        servers.pop();
+        return Err(error);
+    }
+    Ok(())
+}
+
 async fn list_bounded_tools(
     client: &McpClient,
     server_id: &str,
@@ -454,16 +487,14 @@ pub async fn mcp_connect(
         if connecting.contains(&server_id) {
             return Err("MCP server is already connecting.".to_string());
         }
-        if !sessions.contains_key(&server_id)
-            && sessions.len().saturating_add(connecting.len()) >= MAX_SERVERS
-        {
-            return Err(format!(
-                "At most {MAX_SERVERS} MCP servers may be connected."
-            ));
-        }
+        reserve_connection(
+            sessions.len(),
+            connecting.len(),
+            sessions.contains_key(&server_id),
+        )?;
         connecting.insert(server_id.clone());
     }
-    let client = match connect_client(&request).await {
+    let mut client = match connect_client(&request).await {
         Ok(client) => client,
         Err(error) => {
             release_connecting(&state, &server_id).await;
@@ -478,10 +509,12 @@ pub async fn mcp_connect(
     {
         Ok(Ok(tools)) => tools,
         Ok(Err(error)) => {
+            let _ = client.close_with_timeout(CLOSE_TIMEOUT).await;
             release_connecting(&state, &server_id).await;
             return Err(error);
         }
         Err(_) => {
+            let _ = client.close_with_timeout(CLOSE_TIMEOUT).await;
             release_connecting(&state, &server_id).await;
             return Err("MCP tools/list timed out.".to_string());
         }
@@ -493,6 +526,7 @@ pub async fn mcp_connect(
         tools,
     };
     if let Err(error) = ensure_catalog_bounds(std::slice::from_ref(&descriptor)) {
+        let _ = client.close_with_timeout(CLOSE_TIMEOUT).await;
         release_connecting(&state, &server_id).await;
         return Err(error);
     }
@@ -533,7 +567,7 @@ pub async fn mcp_list(state: State<'_, McpState>) -> Result<McpListResponse, Str
         .await
         .map_err(|_| format!("MCP tools/list timed out for {server_id}."))??;
         session.descriptor.tools = tools;
-        descriptors.push(session.descriptor.clone());
+        append_catalog_descriptor(&mut descriptors, session.descriptor.clone())?;
     }
     ensure_catalog_bounds(&descriptors)?;
     Ok(McpListResponse {
@@ -668,8 +702,29 @@ mod tests {
         assert!(validate_http(&request).is_err());
         request.url = Some("https://[::ffff:10.0.0.1]/mcp".to_string());
         assert!(validate_http(&request).is_err());
+        request.url = Some("https://localhost./mcp".to_string());
+        assert!(validate_http(&request).is_err());
+        assert!(forbid_host("[::ffff:10.0.0.1]"));
+        assert!(forbid_host("[::10.0.0.1]"));
         assert!(forbidden_ip("100.64.0.1".parse().unwrap()));
         assert!(forbidden_ip("ff02::1".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn dns_resolution_rejects_embedded_private_ipv6() {
+        assert!(resolve_public_endpoint("https://[::ffff:10.0.0.1]/mcp")
+            .await
+            .is_err());
+        assert!(resolve_public_endpoint("https://[::10.0.0.1]/mcp")
+            .await
+            .is_err());
+    }
+
+    #[test]
+    fn pending_connections_reserve_capacity() {
+        assert!(reserve_connection(MAX_SERVERS - 1, 1, false).is_err());
+        assert!(reserve_connection(MAX_SERVERS, 0, true).is_ok());
+        assert!(reserve_connection(0, MAX_PENDING_CONNECTIONS, false).is_err());
     }
 
     #[test]
@@ -714,5 +769,25 @@ mod tests {
             ..descriptor
         };
         assert!(ensure_catalog_bounds(&vec![oversized_descriptor; MAX_TOTAL_TOOLS + 1]).is_err());
+    }
+
+    #[test]
+    fn catalog_aggregation_stops_before_exceeding_bridge_limit() {
+        let tool = McpToolDescriptor {
+            server_id: "remote".to_string(),
+            server_name: "Remote".to_string(),
+            name: "tool".to_string(),
+            description: None,
+            input_schema: json!({"type":"object"}),
+        };
+        let descriptor = McpServerDescriptor {
+            server_id: "remote".to_string(),
+            name: "Remote".to_string(),
+            transport: "stdio".to_string(),
+            tools: vec![tool],
+        };
+        let mut catalog = vec![descriptor.clone(); MAX_TOTAL_TOOLS];
+        assert!(append_catalog_descriptor(&mut catalog, descriptor).is_err());
+        assert_eq!(catalog.len(), MAX_TOTAL_TOOLS);
     }
 }

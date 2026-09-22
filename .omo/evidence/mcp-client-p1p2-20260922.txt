@@ -1,0 +1,18 @@
+MCP client P1/P2 validation
+Workspace: D:\Code\new-api
+
+Scenario: DNS and parsed-host SSRF rejection, including IPv4-mapped and IPv4-compatible IPv6 plus a localhost trailing-dot variant.
+Invocation: cargo test --manifest-path tauri/Cargo.toml
+Binary observable: mcp_client::tests::accepts_only_safe_https_urls and mcp_client::tests::dns_resolution_rejects_embedded_private_ipv6 passed.
+
+Scenario: bounded tool aggregation for the paired bridge result.
+Invocation: cargo test --manifest-path tauri/Cargo.toml
+Binary observable: mcp_client::tests::catalog_aggregation_stops_before_exceeding_bridge_limit passed; excess descriptor is not retained.
+
+Scenario: reserve logical and in-flight MCP connection capacity.
+Invocation: cargo test --manifest-path tauri/Cargo.toml
+Binary observable: mcp_client::tests::pending_connections_reserve_capacity passed; full logical capacity and four pending connects are rejected.
+
+Scenario: format and full desktop Tauri test suite.
+Invocation: cargo fmt --manifest-path tauri/Cargo.toml -- --check; cargo test --manifest-path tauri/Cargo.toml
+Binary observable: format command exit 0; tauri/target/debug/deps/lain42_agent-812117baa799a22e.exe ran 15 tests, 15 passed, 0 failed.

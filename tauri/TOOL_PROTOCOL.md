@@ -53,9 +53,9 @@ cleared, so each desktop user keeps an isolated GitHub login.
 The existing structured GitHub commands remain as compatibility helpers and
 delegate to the same adapter.
 
-## MCP adapter
+## MCP client
 
-The desktop shell now has a separate `rmcp` adapter in
+The desktop shell now has a separate `rmcp` client in
 `tauri/src/mcp_client.rs`; MCP calls never pass through `cli_exec`. The web
 workspace exposes explicit Connect/Disconnect controls and supports:
 
@@ -65,8 +65,9 @@ workspace exposes explicit Connect/Disconnect controls and supports:
 - `mcp_call({ request: { server_id, tool_name, arguments, timeout_ms } })`;
 - `mcp_disconnect({ server_id })` for session cleanup.
 
-The adapter does not accept shell fragments; it starts the selected executable
-with separate argv arguments. It accepts no URL credentials or HTTP redirects,
+For `stdio`, the client launches the selected executable directly with its
+separate argv vector (`Command::new`), never through a shell or a generic CLI
+adapter. It accepts no URL credentials or HTTP redirects,
 limits server/tool/schema/argument/result sizes, bounds connection and call
 deadlines, and keeps bearer tokens in the transport session rather than any
 response. Tauri desktop MCP calls require an exact-parameter confirmation in
