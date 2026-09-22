@@ -45,12 +45,22 @@ func SetApiRouter(router *gin.Engine) {
 				platformAgentRoute.GET("/events", controller.ListAgentRunEvents)
 				platformAgentRoute.DELETE("/devices/:id", middleware.SessionCookieOriginGuard(), controller.RevokeAgentDevice)
 			}
-			desktopAgentRoute := agentRoute.Group("")
-			desktopAgentRoute.Use(middleware.CriticalRateLimit(), middleware.DisableCache())
+			desktopPairingRoute := agentRoute.Group("")
+			desktopPairingRoute.Use(middleware.CriticalRateLimit(), middleware.DisableCache())
 			{
-				desktopAgentRoute.POST("/pairings/claim", anonymousRequestBodyLimit, controller.ClaimAgentPairing)
-				desktopAgentRoute.POST("/pairings/redeem", anonymousRequestBodyLimit, controller.RedeemAgentPairing)
-				desktopAgentRoute.GET("/bridge/desktop", controller.AgentBridgeDesktop)
+				desktopPairingRoute.POST("/pairings/claim", anonymousRequestBodyLimit, controller.ClaimAgentPairing)
+				desktopPairingRoute.POST("/pairings/redeem", anonymousRequestBodyLimit, controller.RedeemAgentPairing)
+			}
+			// A companion keeps this WebSocket open and may reconnect several
+			// times after a transient network failure. Applying the short-lived
+			// critical-request window here would turn a reconnect storm into a
+			// permanent 429 lockout. Authentication happens immediately after
+			// the upgrade through the one-time device credential, while the hub
+			// owns the active-device and pending-request bounds.
+			desktopBridgeRoute := agentRoute.Group("")
+			desktopBridgeRoute.Use(middleware.DisableCache())
+			{
+				desktopBridgeRoute.GET("/bridge/desktop", controller.AgentBridgeDesktop)
 			}
 			browserAgentRoute := agentRoute.Group("")
 			browserAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
