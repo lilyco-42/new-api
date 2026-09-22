@@ -44,11 +44,13 @@ import { MESSAGE_STATUS } from '../../constants'
 import {
   getMessageAlignmentClass,
   getMessageContentState,
+  getCurrentVersion,
   isErrorMessage,
   type MessageAlignment,
 } from '../../lib'
 import { getMessageContentStyles } from '../../lib/message/message-styles'
 import type { Message } from '../../types'
+import { MessageAttachmentPreview } from './message-attachment-preview'
 import { MessageError } from './message-error'
 import { MessageMetadata } from './message-metadata'
 
@@ -83,6 +85,8 @@ export function PlaygroundMessageContent({
   const isMessageFinal =
     message.status !== MESSAGE_STATUS.LOADING &&
     message.status !== MESSAGE_STATUS.STREAMING
+  const attachmentParts =
+    message.from === 'user' ? getCurrentVersion(message).parts : undefined
 
   return (
     <div
@@ -136,6 +140,7 @@ export function PlaygroundMessageContent({
 
       {!isError && showMessageContent && (
         <>
+          <MessageAttachmentPreview parts={attachmentParts} />
           {isSourceVisible ? (
             <CodeBlock
               code={versionContent}

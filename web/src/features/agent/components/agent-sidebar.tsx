@@ -53,7 +53,7 @@ type AgentSidebarProps = {
   className?: string
   onNewChat: () => void
   onSearchChats: () => void
-  onOpenTools: () => void
+  onOpenTools: (view?: 'tools' | 'files' | 'preview') => void
   onPresetChange: (preset: AgentPreset) => void
 }
 
@@ -84,11 +84,7 @@ export function AgentSidebar({
         <Button
           aria-label={t('Workspace menu')}
           className='h-9 min-w-0 justify-start gap-2 rounded-lg px-2 text-sm font-semibold'
-          onClick={() =>
-            toast.info(
-              t('Workspace settings are available in the account menu.')
-            )
-          }
+          onClick={() => onOpenTools('tools')}
           type='button'
           variant='ghost'
         >
@@ -160,7 +156,7 @@ export function AgentSidebar({
           <Button
             className='text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground h-9 justify-start gap-2.5 rounded-lg px-2.5 text-sm'
             key={label}
-            onClick={onOpenTools}
+            onClick={() => onOpenTools(label === 'Images' ? 'files' : 'tools')}
             type='button'
             variant='ghost'
           >
@@ -221,7 +217,7 @@ export function AgentSidebar({
       <div className='border-sidebar-border/70 grid shrink-0 gap-1 border-t p-2'>
         <Button
           className='text-sidebar-foreground/70 hover:text-sidebar-foreground h-9 justify-start gap-2.5 rounded-lg px-2.5 text-sm'
-          onClick={onOpenTools}
+          onClick={() => onOpenTools('tools')}
           type='button'
           variant='ghost'
         >

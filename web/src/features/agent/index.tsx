@@ -604,10 +604,7 @@ export function AgentWorkspace() {
         arguments: '{}',
       },
     }
-    const raw = await bridgeProvider.invoke(
-      call,
-      new AbortController().signal
-    )
+    const raw = await bridgeProvider.invoke(call, new AbortController().signal)
     try {
       const envelope = JSON.parse(raw)
       const result =
@@ -795,6 +792,29 @@ export function AgentWorkspace() {
     setChatId(selectedChatId)
   }
 
+  const openWorkspaceTools = (view: WorkspaceView = 'tools') => {
+    setWorkspaceView(view)
+    setToolsOpen(true)
+    setSidebarOpen(false)
+  }
+
+  const exportCurrentConversation = () => {
+    const namespace = `agent-${preset.id}-chat-${chatId}`
+    const raw = window.localStorage.getItem(`${namespace}:playground_messages`)
+    if (!raw) {
+      toast.info(t('No conversation to export yet.'))
+      return
+    }
+    const blob = new Blob([raw], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `lain42-agent-${preset.id}-${chatId}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    toast.success(t('Conversation exported.'))
+  }
+
   return (
     <div className='bg-background text-foreground flex size-full min-h-0 overflow-hidden'>
       <AgentSidebar
@@ -802,7 +822,7 @@ export function AgentWorkspace() {
         className='hidden lg:flex'
         onNewChat={handleNewChat}
         onSearchChats={() => setChatSearchOpen(true)}
-        onOpenTools={() => setToolsOpen(true)}
+        onOpenTools={openWorkspaceTools}
         onPresetChange={handlePresetChange}
         presets={PRESETS}
       />
@@ -821,10 +841,7 @@ export function AgentWorkspace() {
             className='h-full w-full border-0'
             onNewChat={handleNewChat}
             onSearchChats={() => setChatSearchOpen(true)}
-            onOpenTools={() => {
-              setSidebarOpen(false)
-              setToolsOpen(true)
-            }}
+            onOpenTools={openWorkspaceTools}
             onPresetChange={handlePresetChange}
             presets={PRESETS}
           />
@@ -869,13 +886,7 @@ export function AgentWorkspace() {
             <Button
               aria-label={t('More conversation actions')}
               className='text-muted-foreground hover:text-foreground'
-              onClick={() =>
-                toast.info(
-                  t(
-                    'Conversation actions are available after the first message.'
-                  )
-                )
-              }
+              onClick={exportCurrentConversation}
               size='icon-sm'
               type='button'
               variant='ghost'
@@ -885,11 +896,27 @@ export function AgentWorkspace() {
             <Button
               aria-label={t('Share conversation')}
               className='text-muted-foreground hover:text-foreground'
-              onClick={() =>
-                toast.info(
-                  t('Share links will be available for saved conversations.')
-                )
-              }
+              onClick={() => {
+                const shareUrl = window.location.href
+                const shareData = {
+                  title: t('Lain42 Agent'),
+                  text: t('Open this Lain42 Agent workspace.'),
+                  url: shareUrl,
+                }
+                if (navigator.share) {
+                  void navigator.share(shareData).catch(() => undefined)
+                  return
+                }
+                if (navigator.clipboard) {
+                  void navigator.clipboard.writeText(shareUrl).then(() => {
+                    toast.success(t('Workspace link copied.'))
+                  })
+                } else {
+                  toast.info(
+                    t('Copy the current page URL to share this workspace.')
+                  )
+                }
+              }}
               size='icon-sm'
               type='button'
               variant='ghost'
