@@ -46,6 +46,10 @@ type ToolStatus = {
   message?: string
 }
 
+type DeveloperToolkitCardProps = {
+  onCheckRemoteTools?: () => Promise<unknown>
+}
+
 type TauriWindow = Window & {
   __TAURI__?: {
     core?: {
@@ -75,7 +79,9 @@ function readStatuses(value: unknown): ToolStatus[] {
   )
 }
 
-export function DeveloperToolkitCard() {
+export function DeveloperToolkitCard({
+  onCheckRemoteTools,
+}: DeveloperToolkitCardProps) {
   const { t } = useTranslation()
   const [statuses, setStatuses] = useState<ToolStatus[]>([])
   const [checking, setChecking] = useState(false)
@@ -83,18 +89,20 @@ export function DeveloperToolkitCard() {
 
   const checkTools = useCallback(async () => {
     const invoke = getInvoke()
-    if (!invoke) {
+    if (!invoke && !onCheckRemoteTools) {
       toast.info(t('Tool detection is available in the Tauri desktop app.'))
       return
     }
 
     setChecking(true)
     try {
-      const result = await invoke('tool_status', {
-        tool_ids: DEVELOPER_TOOLS.filter((tool) => tool.protocol === 'cli').map(
-          (tool) => tool.id
-        ),
-      })
+      const result = invoke
+        ? await invoke('tool_status', {
+            tool_ids: DEVELOPER_TOOLS.filter(
+              (tool) => tool.protocol === 'cli'
+            ).map((tool) => tool.id),
+          })
+        : await onCheckRemoteTools?.()
       setStatuses(readStatuses(result))
     } catch (error) {
       toast.error(
@@ -105,7 +113,7 @@ export function DeveloperToolkitCard() {
     } finally {
       setChecking(false)
     }
-  }, [t])
+  }, [onCheckRemoteTools, t])
 
   useEffect(() => {
     if (getInvoke()) void checkTools()

@@ -56,7 +56,10 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Playground } from '@/features/playground'
-import type { LocalToolProvider } from '@/features/playground/types'
+import type {
+  ChatCompletionToolCall,
+  LocalToolProvider,
+} from '@/features/playground/types'
 import { useMediaQuery } from '@/hooks'
 
 import {
@@ -152,6 +155,7 @@ function WorkspaceToolsCards({
   remoteMcpServers,
   onRemoteMcpRefresh,
   journal,
+  onCheckRemoteTools,
 }: {
   bridgeStatus: AgentBridgeStatus
   deviceName?: string
@@ -168,6 +172,7 @@ function WorkspaceToolsCards({
   remoteMcpServers?: McpServerDescriptor[]
   onRemoteMcpRefresh?: () => Promise<McpServerDescriptor[]>
   journal?: AgentRunEvent[]
+  onCheckRemoteTools?: () => Promise<unknown>
 }) {
   return (
     <div className='grid gap-3'>
@@ -183,7 +188,7 @@ function WorkspaceToolsCards({
         journal={journal}
         status={bridgeStatus}
       />
-      <DeveloperToolkitCard />
+      <DeveloperToolkitCard onCheckRemoteTools={onCheckRemoteTools} />
       <McpServersCard
         controller={mcpController}
         isDesktop={isDesktop}
@@ -587,6 +592,31 @@ export function AgentWorkspace() {
   const remoteMcpProvider = useRef<ReturnType<
     typeof createBrowserMcpToolProvider
   > | null>(null)
+  const checkRemoteTools = async (): Promise<unknown> => {
+    if (!bridgeProvider) {
+      throw new Error('Pair a desktop or Radxa node before checking tools.')
+    }
+    const call: ChatCompletionToolCall = {
+      id: 'developer-tools-status',
+      type: 'function',
+      function: {
+        name: 'developer.tools.status',
+        arguments: '{}',
+      },
+    }
+    const raw = await bridgeProvider.invoke(
+      call,
+      new AbortController().signal
+    )
+    try {
+      const envelope = JSON.parse(raw)
+      return envelope && typeof envelope === 'object' && 'data' in envelope
+        ? envelope.data
+        : envelope
+    } catch {
+      throw new Error('The remote tool status response was invalid.')
+    }
+  }
   const isDesktop = localAgentToolProvider.isAvailable()
   let activeToolProvider: LocalToolProvider
   if (isDesktop) {
@@ -917,6 +947,7 @@ export function AgentWorkspace() {
                 onRemoteMcpRefresh={isDesktop ? undefined : refreshRemoteMcp}
                 remoteMcpServers={isDesktop ? undefined : remoteMcpServers}
                 journal={isDesktop ? undefined : bridgeJournal}
+                onCheckRemoteTools={isDesktop ? undefined : checkRemoteTools}
               />
             ) : (
               <WorkspaceFiles view={workspaceView} />
@@ -953,6 +984,7 @@ export function AgentWorkspace() {
               onRemoteMcpRefresh={isDesktop ? undefined : refreshRemoteMcp}
               remoteMcpServers={isDesktop ? undefined : remoteMcpServers}
               journal={isDesktop ? undefined : bridgeJournal}
+              onCheckRemoteTools={isDesktop ? undefined : checkRemoteTools}
             />
           </SheetContent>
         </Sheet>
