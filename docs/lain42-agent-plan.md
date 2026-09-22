@@ -1,6 +1,6 @@
 # Lain42 Agent：需求与执行架构规划
 
-日期：2026-09-22。基线：`08100bc`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
+日期：2026-09-22。基线：`5559e95`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
 
 ## 0. 实现进度（2026-09-22）
 
@@ -16,9 +16,10 @@
 - Tauri `rmcp` 客户端：显式连接 stdio / HTTPS Streamable HTTP、分页发现工具、受限参数与结果、连接/调用超时、断开清理；MCP 调用在本地和配对桌面均要求精确参数确认。
 - 配对桥接已允许 `mcp.list` / `mcp.call` 两个固定操作；浏览器只接收已连接工具的 schema，不接收桌面的命令行参数或 bearer token。Tauri 桌面和 Radxa companion 均支持 MCP，但 Radxa 只加载设备管理员明确允许的本地配置，不能由网页动态注入命令或 token。
 - Agent bridge 已加入可向后兼容的 v1 握手（协议版本 + 有界 capability list），并发布语言无关的 `docs/lain42-agent-bridge-v1.schema.json`；未来 Lilyco、Android/iOS、WebView 或其他 Rust/Go 客户端只需实现该边界，不需要复制 Go 服务内部实现。
+- 桥接工具请求现在写入隐私最小化的 `agent_run_events` 游标日志：只保存用户/设备归属、操作、状态和 keyed digest，不保存参数、结果或错误正文；网页可通过 `/api/agent/events?device_id=…&after_event_id=…` 同步断线状态，未完成调用不会自动重放。
 - Lilyco framework 通过 `lilyco --mcp` 作为标准 MCP server 接入；Lain42 依赖 MCP/schema 契约，不依赖 Lilyco 内部 crate，因此 CLI/TUI/Web/MCP 后端可独立升级。
 
-仍未宣称完成的部分：跨页面断线任务恢复、MCP 的真实 stdio/HTTPS 服务互操作回归、写操作的持久审批/防重放与全链路 A1–A11 验收。当前 Tauri 配对凭证和 MCP 连接只保存在本次桌面进程内存，退出后需要重新配对/连接；在引入系统密钥库之前不把它称为持久设备登录。
+仍未宣称完成的部分：模型回答级的跨页面断线恢复（当前只恢复工具调用状态，不恢复模型上下文）、MCP 的真实 stdio/HTTPS 服务互操作回归、写操作的持久审批/防重放与全链路 A1–A11 验收。当前 Tauri 配对凭证和 MCP 连接只保存在本次桌面进程内存，退出后需要重新配对/连接；在引入系统密钥库之前不把它称为持久设备登录。
 
 ## 1. 产品目标与首个验收
 

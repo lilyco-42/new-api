@@ -50,6 +50,18 @@ type AgentDevice = {
   revoked_at?: string | null
 }
 
+export type AgentRunEvent = {
+  event_id: number
+  device_id: number
+  request_id: string
+  type: string
+  operation: string
+  input_digest?: string
+  output_digest?: string
+  error_code?: string
+  created_at: string
+}
+
 export type AgentPairingSession = {
   id: number
   pairing_ticket: string
@@ -348,6 +360,30 @@ export async function listAgentDevices(): Promise<AgentDevice[]> {
   })
   return responseData<AgentDevice[]>(response.data).filter(
     (device) => device && device.id > 0 && !device.revoked_at
+  )
+}
+
+export async function listAgentRunEvents(
+  deviceId: number,
+  afterEventId = 0,
+  limit = 100
+): Promise<AgentRunEvent[]> {
+  if (!Number.isInteger(deviceId) || deviceId <= 0) return []
+  const response = await api.get('/api/agent/events', {
+    params: {
+      device_id: deviceId,
+      after_event_id: Math.max(0, Math.trunc(afterEventId)),
+      limit: Math.min(100, Math.max(1, Math.trunc(limit))),
+    },
+    skipErrorHandler: true,
+  })
+  return responseData<AgentRunEvent[]>(response.data).filter(
+    (event) =>
+      event &&
+      Number.isInteger(event.event_id) &&
+      event.event_id > 0 &&
+      typeof event.request_id === 'string' &&
+      typeof event.type === 'string'
   )
 }
 

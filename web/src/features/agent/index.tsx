@@ -54,10 +54,12 @@ import {
   confirmAgentPairing,
   createAgentPairing,
   listAgentDevices,
+  listAgentRunEvents,
   pairCurrentDesktop,
   startDesktopAgentBridge,
   type AgentBridgeStatus,
   type AgentPairingSession,
+  type AgentRunEvent,
 } from './agent-bridge'
 import { localAgentToolProvider } from './agent-tool-provider'
 import { AgentBridgeCard } from './components/agent-bridge-card'
@@ -135,6 +137,7 @@ function WorkspaceToolsCards({
   onMcpChanged,
   remoteMcpServers,
   onRemoteMcpRefresh,
+  journal,
 }: {
   bridgeStatus: AgentBridgeStatus
   deviceName?: string
@@ -150,6 +153,7 @@ function WorkspaceToolsCards({
   onMcpChanged: () => void
   remoteMcpServers?: McpServerDescriptor[]
   onRemoteMcpRefresh?: () => Promise<McpServerDescriptor[]>
+  journal?: AgentRunEvent[]
 }) {
   return (
     <div className='grid gap-3'>
@@ -162,6 +166,7 @@ function WorkspaceToolsCards({
         onReconnect={onReconnect}
         pairingId={pairingId}
         pairingTicket={pairingTicket}
+        journal={journal}
         status={bridgeStatus}
       />
       <DeveloperToolkitCard />
@@ -287,6 +292,7 @@ export function AgentWorkspace() {
     useState<LocalToolProvider | null>(null)
   const [bridgeDeviceName, setBridgeDeviceName] = useState<string>()
   const [bridgeEpoch, setBridgeEpoch] = useState(0)
+  const [bridgeJournal, setBridgeJournal] = useState<AgentRunEvent[]>([])
   const [pairingSession, setPairingSession] =
     useState<AgentPairingSession | null>(null)
   const [mcpController] = useState(() => createMcpToolProvider())
@@ -313,6 +319,7 @@ export function AgentWorkspace() {
     setRemoteMcpServers([])
     remoteMcpProvider.current = null
     setBridgeDeviceName(undefined)
+    setBridgeJournal([])
     setBridgeStatus(isDesktop ? 'unavailable' : 'connecting')
 
     if (isDesktop) {
@@ -356,6 +363,13 @@ export function AgentWorkspace() {
         remoteMcpProvider.current = mcpProvider
         try {
           await client.connect()
+          try {
+            setBridgeJournal(await listAgentRunEvents(device.id))
+          } catch {
+            // Journal support is additive; live bridge tools remain usable on
+            // an older server that does not expose the events endpoint.
+            setBridgeJournal([])
+          }
           try {
             const servers = await mcpProvider.refresh(
               new AbortController().signal
@@ -592,6 +606,7 @@ export function AgentWorkspace() {
                 onMcpChanged={() => setMcpRevision((value) => value + 1)}
                 onRemoteMcpRefresh={isDesktop ? undefined : refreshRemoteMcp}
                 remoteMcpServers={isDesktop ? undefined : remoteMcpServers}
+                journal={isDesktop ? undefined : bridgeJournal}
               />
             ) : (
               <WorkspaceViewPlaceholder view={workspaceView} />
@@ -627,6 +642,7 @@ export function AgentWorkspace() {
               onMcpChanged={() => setMcpRevision((value) => value + 1)}
               onRemoteMcpRefresh={isDesktop ? undefined : refreshRemoteMcp}
               remoteMcpServers={isDesktop ? undefined : remoteMcpServers}
+              journal={isDesktop ? undefined : bridgeJournal}
             />
           </SheetContent>
         </Sheet>

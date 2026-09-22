@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gorilla/websocket"
 )
 
@@ -100,9 +101,12 @@ type AgentBridgePeer struct {
 }
 
 type pendingAgentBridgeRequest struct {
-	browser  *AgentBridgePeer
-	deviceID int64
-	expires  time.Time
+	browser   *AgentBridgePeer
+	deviceID  int64
+	userID    int
+	requestID string
+	operation string
+	expires   time.Time
 }
 
 type AgentBridgeHub struct {
@@ -152,6 +156,22 @@ func validateAgentBridgeEnvelope(envelope AgentBridgeEnvelope) error {
 
 func bridgeRequestKey(deviceID int64, requestID string) string {
 	return fmt.Sprintf("%d:%s", deviceID, requestID)
+}
+
+func recordAgentBridgeEvent(userID int, deviceID int64, requestID, eventType, operation string, input, output []byte, errorCode string) {
+	// Journaling is deliberately best effort: a database hiccup must not turn a
+	// valid local CLI result into a failed bridge request. The next reconnect
+	// still receives the live result or explicit offline state.
+	_, _ = model.AppendAgentRunEvent(model.AgentRunEventInput{
+		UserId:       userID,
+		DeviceId:     deviceID,
+		RequestId:    requestID,
+		EventType:    eventType,
+		Operation:    operation,
+		InputDigest:  model.AgentRunEventDigest(input),
+		OutputDigest: model.AgentRunEventDigest(output),
+		ErrorCode:    errorCode,
+	})
 }
 
 func (hub *AgentBridgeHub) write(peer *AgentBridgePeer, envelope AgentBridgeEnvelope) error {
@@ -217,16 +237,39 @@ func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope
 		return ErrAgentBridgeRequestExists
 	}
 	hub.pending[key] = pendingAgentBridgeRequest{
-		browser:  browser,
-		deviceID: browser.deviceID,
-		expires:  time.Now().Add(AgentBridgeRequestTTL),
+		browser:   browser,
+		deviceID:  browser.deviceID,
+		userID:    browser.userID,
+		requestID: envelope.RequestID,
+		operation: envelope.Operation,
+		expires:   time.Now().Add(AgentBridgeRequestTTL),
 	}
 	hub.mu.Unlock()
+	recordAgentBridgeEvent(
+		browser.userID,
+		browser.deviceID,
+		envelope.RequestID,
+		model.AgentRunEventTypeToolRequested,
+		envelope.Operation,
+		envelope.Params,
+		nil,
+		"",
+	)
 
 	if err := hub.write(desktop, envelope); err != nil {
 		hub.mu.Lock()
 		delete(hub.pending, key)
 		hub.mu.Unlock()
+		recordAgentBridgeEvent(
+			browser.userID,
+			browser.deviceID,
+			envelope.RequestID,
+			model.AgentRunEventTypeToolInterrupted,
+			envelope.Operation,
+			nil,
+			nil,
+			"bridge_offline",
+		)
 		return ErrAgentBridgeOffline
 	}
 	return nil
@@ -252,6 +295,22 @@ func (hub *AgentBridgeHub) ForwardToolResult(desktop *AgentBridgePeer, envelope 
 	if !exists || pending.deviceID != desktop.deviceID || !pending.expires.After(time.Now()) {
 		return ErrAgentBridgeInvalid
 	}
+	eventType := model.AgentRunEventTypeToolSucceeded
+	errorCode := ""
+	if envelope.Type == AgentBridgeMessageToolError {
+		eventType = model.AgentRunEventTypeToolFailed
+		errorCode = "tool_error"
+	}
+	recordAgentBridgeEvent(
+		pending.userID,
+		pending.deviceID,
+		pending.requestID,
+		eventType,
+		pending.operation,
+		nil,
+		envelope.Result,
+		errorCode,
+	)
 	if err := hub.write(pending.browser, envelope); err != nil {
 		return ErrAgentBridgeOffline
 	}
@@ -270,6 +329,16 @@ func (hub *AgentBridgeHub) Unregister(peer *AgentBridgePeer) {
 	for key, pending := range hub.pending {
 		if pending.browser == peer || (currentDesktop && pending.deviceID == peer.deviceID) {
 			delete(hub.pending, key)
+			recordAgentBridgeEvent(
+				pending.userID,
+				pending.deviceID,
+				pending.requestID,
+				model.AgentRunEventTypeToolInterrupted,
+				pending.operation,
+				nil,
+				nil,
+				"bridge_offline",
+			)
 			if pending.browser != peer {
 				_ = hub.write(pending.browser, AgentBridgeEnvelope{
 					Type:      AgentBridgeMessageToolError,

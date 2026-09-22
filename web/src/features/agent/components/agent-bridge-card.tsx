@@ -29,7 +29,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 
-import type { AgentBridgeStatus } from '../agent-bridge'
+import type { AgentBridgeStatus, AgentRunEvent } from '../agent-bridge'
 
 type AgentBridgeCardProps = {
   isDesktop: boolean
@@ -41,6 +41,7 @@ type AgentBridgeCardProps = {
   onConfirmPairing?: (ticket: string) => Promise<void>
   pairingId?: number
   pairingTicket?: string
+  journal?: AgentRunEvent[]
 }
 
 function statusVariant(status: AgentBridgeStatus) {
@@ -59,6 +60,7 @@ export function AgentBridgeCard({
   onConfirmPairing,
   pairingId,
   pairingTicket,
+  journal = [],
 }: AgentBridgeCardProps) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
@@ -182,6 +184,13 @@ export function AgentBridgeCard({
             </span>
           )}
         </div>
+        {!isDesktop && journal.length > 0 && (
+          <p className='text-muted-foreground text-xs leading-5'>
+            {t('Synced {{count}} bridge events. Incomplete tool calls are never replayed automatically.', {
+              count: journal.length,
+            })}
+          </p>
+        )}
         {isDesktop ? (
           <Button
             disabled={busy || status === 'connecting'}

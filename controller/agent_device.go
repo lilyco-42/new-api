@@ -95,6 +95,49 @@ func ListAgentDevices(c *gin.Context) {
 	common.ApiSuccess(c, devices)
 }
 
+// ListAgentRunEvents exposes a cursor-based, metadata-only bridge journal.
+// Tool payloads and raw errors never leave the execution path or enter this
+// response; clients use the cursor to render reconnect/interrupted state.
+func ListAgentRunEvents(c *gin.Context) {
+	deviceID, err := parseAgentQueryInt64(c, "device_id")
+	if err != nil {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid device id")
+		return
+	}
+	afterEventID, err := parseAgentQueryInt64(c, "after_event_id")
+	if err != nil {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid event cursor")
+		return
+	}
+	limit, err := parseAgentQueryInt64(c, "limit")
+	if err != nil {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid event limit")
+		return
+	}
+	events, err := service.ListAgentRunEvents(c.GetInt("id"), deviceID, afterEventID, int(limit))
+	if err != nil {
+		if errors.Is(err, service.ErrAgentRunEventInvalid) {
+			writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid event query")
+			return
+		}
+		writeAgentError(c, http.StatusInternalServerError, "AGENT_EVENT_LIST_FAILED", "unable to list agent events")
+		return
+	}
+	common.ApiSuccess(c, events)
+}
+
+func parseAgentQueryInt64(c *gin.Context, key string) (int64, error) {
+	value := strings.TrimSpace(c.Query(key))
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 {
+		return 0, errors.New("invalid agent query integer")
+	}
+	return parsed, nil
+}
+
 func RevokeAgentDevice(c *gin.Context) {
 	deviceID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
 	if err != nil || deviceID <= 0 {

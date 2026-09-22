@@ -42,6 +42,7 @@ func SetApiRouter(router *gin.Engine) {
 				platformAgentRoute.POST("/pairings", middleware.SessionCookieOriginGuard(), controller.CreateAgentPairing)
 				platformAgentRoute.POST("/pairings/:id/confirm", middleware.SessionCookieOriginGuard(), controller.ConfirmAgentPairing)
 				platformAgentRoute.GET("/devices", controller.ListAgentDevices)
+				platformAgentRoute.GET("/events", controller.ListAgentRunEvents)
 				platformAgentRoute.DELETE("/devices/:id", middleware.SessionCookieOriginGuard(), controller.RevokeAgentDevice)
 			}
 			desktopAgentRoute := agentRoute.Group("")
