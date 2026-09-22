@@ -88,11 +88,16 @@ function readRecentAgentChats(): RecentAgentChat[] {
         }>
       }
       const messages = Array.isArray(parsed.data) ? parsed.data : []
-      const latest = [...messages]
-        .reverse()
-        .find(
+      const reversedMessages = [...messages].reverse()
+      const latest =
+        reversedMessages.find(
           (message) =>
-            (message.from === 'user' || message.from === 'assistant') &&
+            message.from === 'user' &&
+            Boolean(message.versions?.at(-1)?.content?.trim())
+        ) ??
+        reversedMessages.find(
+          (message) =>
+            message.from === 'assistant' &&
             Boolean(message.versions?.at(-1)?.content?.trim())
         )
       const preview = latest?.versions?.at(-1)?.content?.trim()
