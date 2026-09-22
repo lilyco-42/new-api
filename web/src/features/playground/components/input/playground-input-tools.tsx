@@ -168,7 +168,15 @@ export function PlaygroundInputTools({
       setSearchFallbackUrl(
         `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
       )
-      toast.error(error instanceof Error ? error.message : t('Search failed.'))
+      const status =
+        error && typeof error === 'object' && 'response' in error
+          ? (error as { response?: { status?: unknown } }).response?.status
+          : undefined
+      if (status !== 502) {
+        toast.error(
+          error instanceof Error ? error.message : t('Search failed.')
+        )
+      }
     } finally {
       setSearching(false)
     }
