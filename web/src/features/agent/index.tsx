@@ -610,9 +610,19 @@ export function AgentWorkspace() {
     )
     try {
       const envelope = JSON.parse(raw)
-      return envelope && typeof envelope === 'object' && 'data' in envelope
-        ? envelope.data
-        : envelope
+      const result =
+        envelope && typeof envelope === 'object' && 'data' in envelope
+          ? envelope.data
+          : envelope
+      if (
+        result &&
+        typeof result === 'object' &&
+        'stdout' in result &&
+        typeof result.stdout === 'string'
+      ) {
+        return JSON.parse(result.stdout)
+      }
+      return result
     } catch {
       throw new Error('The remote tool status response was invalid.')
     }
