@@ -86,6 +86,9 @@ export function PlaygroundInputTools({
   const [searchResults, setSearchResults] = useState<
     Array<{ title: string; url: string; snippet?: string }>
   >([])
+  const fallbackSearchUrl = searchQuery.trim()
+    ? `https://duckduckgo.com/?q=${encodeURIComponent(searchQuery.trim())}`
+    : ''
 
   const captureMediaFrame = async (kind: 'screen' | 'camera') => {
     const mediaDevices = navigator.mediaDevices
@@ -169,9 +172,7 @@ export function PlaygroundInputTools({
       setSearchResults(items)
       if (items.length === 0) {
         setSearchFallbackUrl(
-          typeof data?.search_url === 'string'
-            ? data.search_url
-            : fallbackUrl
+          typeof data?.search_url === 'string' ? data.search_url : fallbackUrl
         )
       } else {
         setSearchFallbackUrl('')
@@ -301,24 +302,23 @@ export function PlaygroundInputTools({
                 ))}
               </div>
             )}
-            {!searching && searchQuery.trim() && searchResults.length === 0 && (
-              <>
-                {searchFallbackUrl ? (
-                  <a
-                    className='text-muted-foreground hover:text-foreground mt-2 block text-xs underline underline-offset-2'
-                    href={searchFallbackUrl}
-                    rel='noreferrer'
-                    target='_blank'
-                  >
-                    {t('Open web search results')}
-                  </a>
-                ) : (
-                  <p className='text-muted-foreground mt-2 text-xs'>
-                    {t('No records found')}
-                  </p>
-                )}
-              </>
-            )}
+            {!searching &&
+              searchQuery.trim() &&
+              searchResults.length === 0 &&
+              (searchFallbackUrl || fallbackSearchUrl ? (
+                <a
+                  className='text-muted-foreground hover:text-foreground mt-2 block text-xs underline underline-offset-2'
+                  href={searchFallbackUrl || fallbackSearchUrl}
+                  rel='noreferrer'
+                  target='_blank'
+                >
+                  {t('Open web search results')}
+                </a>
+              ) : (
+                <p className='text-muted-foreground mt-2 text-xs'>
+                  {t('No records found')}
+                </p>
+              ))}
           </PopoverContent>
         </Popover>
 
