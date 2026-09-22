@@ -34,7 +34,16 @@ func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.Han
 		middleware.Cache(),
 		static.Serve("/", frontendFS),
 		func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
+			path := c.Request.URL.Path
+			// Never serve the SPA HTML fallback for a missing asset. A stale
+			// document may request an old hashed chunk after a deployment; the
+			// correct response is 404 so the frontend recovery handler can fetch
+			// a fresh document instead of parsing HTML as JavaScript.
+			if strings.HasPrefix(path, "/v1") ||
+				strings.HasPrefix(path, "/api") ||
+				strings.HasPrefix(path, "/assets") ||
+				strings.HasPrefix(path, "/static/") ||
+				strings.Contains(path, ".") {
 				controller.RelayNotFound(c)
 				return
 			}
