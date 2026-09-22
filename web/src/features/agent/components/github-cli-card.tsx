@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Check, Clipboard, ExternalLink, GitBranch, Search } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -139,7 +139,7 @@ export function GithubCliCard() {
     useState<BrowserGitHubStatus | null>(null)
   const [connectingBrowser, setConnectingBrowser] = useState(false)
 
-  const refreshBrowserStatus =
+  const refreshBrowserStatus = useCallback(
     async (): Promise<BrowserGitHubStatus | null> => {
       try {
         const response = await api.get('/api/agent/github/status', {
@@ -156,7 +156,13 @@ export function GithubCliCard() {
         // unavailable, so status refresh is intentionally best-effort.
       }
       return null
-    }
+    },
+    []
+  )
+
+  useEffect(() => {
+    void refreshBrowserStatus()
+  }, [refreshBrowserStatus])
 
   const connectBrowserGitHub = async () => {
     setConnectingBrowser(true)
