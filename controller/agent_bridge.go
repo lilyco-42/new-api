@@ -157,7 +157,18 @@ func AgentBridgeBrowser(c *gin.Context) {
 	if err != nil || hello.DeviceID <= 0 {
 		return
 	}
-	device, err := service.GetAgentDevice(c.GetInt("id"), hello.DeviceID)
+	// Browser WebSockets cannot send an Authorization header. The browser
+	// therefore sends the short-lived dashboard access token in the first
+	// encrypted hello frame; validate it before looking up the paired device.
+	identity, internal, err := service.ParseDashboardAccessToken(hello.AccessToken)
+	if !internal || err != nil {
+		return
+	}
+	_, user, err := service.ValidateLoginSession(identity)
+	if err != nil || user == nil {
+		return
+	}
+	device, err := service.GetAgentDevice(user.Id, hello.DeviceID)
 	if err != nil || device == nil {
 		return
 	}

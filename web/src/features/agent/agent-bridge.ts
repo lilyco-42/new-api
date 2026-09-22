@@ -11,6 +11,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { api } from '@/lib/api'
+import { getFreshAuthHeaders } from '@/lib/auth-session'
 
 import { localAgentToolProvider } from './agent-tool-provider'
 import { formatMcpApprovalArguments } from './mcp-tool-provider'
@@ -37,6 +38,7 @@ type BridgeEnvelope = {
   request_id?: string
   device_id?: number
   credential?: string
+  access_token?: string
   operation?: string
   params?: unknown
   result?: unknown
@@ -175,6 +177,16 @@ export class AgentBridgeClient {
       throw new Error('The agent bridge is unavailable in this environment.')
     }
 
+    let browserAccessToken: string | undefined
+    if (this.role === 'browser') {
+      const headers = await getFreshAuthHeaders()
+      browserAccessToken = headers.Authorization?.replace(/^Bearer\s+/i, '')
+      if (!browserAccessToken) {
+        this.setStatus('error')
+        throw new Error('Sign in before connecting the agent bridge.')
+      }
+    }
+
     this.setStatus('connecting')
     this.connecting = new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(bridgeUrl(this.role))
@@ -195,6 +207,9 @@ export class AgentBridgeClient {
             capabilities: AGENT_BRIDGE_CAPABILITIES,
             device_id: this.deviceId,
             ...(this.role === 'desktop' ? { credential: this.credential } : {}),
+            ...(this.role === 'browser'
+              ? { access_token: browserAccessToken }
+              : {}),
           })
         )
       }

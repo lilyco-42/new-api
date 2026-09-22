@@ -50,19 +50,25 @@ var (
 )
 
 // AgentBridgeEnvelope is the transport envelope between a browser and a
-// paired desktop. Params and Result are opaque structured JSON; credentials
-// are intentionally not fields in envelopes sent by the browser.
+// paired desktop. Params and Result are opaque structured JSON. Desktop
+// credentials never travel in browser envelopes; the browser uses a
+// short-lived dashboard access token only for its initial hello.
 type AgentBridgeEnvelope struct {
-	Type            string          `json:"type"`
-	ProtocolVersion int             `json:"protocol_version,omitempty"`
-	Capabilities    []string        `json:"capabilities,omitempty"`
-	RequestID       string          `json:"request_id,omitempty"`
-	DeviceID        int64           `json:"device_id,omitempty"`
-	Credential      string          `json:"credential,omitempty"`
-	Operation       string          `json:"operation,omitempty"`
-	Params          json.RawMessage `json:"params,omitempty"`
-	Result          json.RawMessage `json:"result,omitempty"`
-	Error           string          `json:"error,omitempty"`
+	Type            string   `json:"type"`
+	ProtocolVersion int      `json:"protocol_version,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+	RequestID       string   `json:"request_id,omitempty"`
+	DeviceID        int64    `json:"device_id,omitempty"`
+	Credential      string   `json:"credential,omitempty"`
+	// AccessToken is only accepted on the first browser hello. It is carried
+	// inside the encrypted WebSocket payload because browsers cannot set an
+	// Authorization header when constructing a WebSocket. Desktop peers keep
+	// using the one-time device credential above.
+	AccessToken string          `json:"access_token,omitempty"`
+	Operation   string          `json:"operation,omitempty"`
+	Params      json.RawMessage `json:"params,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	Error       string          `json:"error,omitempty"`
 }
 
 // ValidateAgentBridgeHello checks only the versioned handshake fields. The
@@ -77,6 +83,9 @@ func ValidateAgentBridgeHello(envelope AgentBridgeEnvelope) error {
 		return ErrAgentBridgeInvalid
 	}
 	if len(envelope.Capabilities) > AgentBridgeMaxCapabilities {
+		return ErrAgentBridgeInvalid
+	}
+	if len(envelope.AccessToken) > 4096 || strings.ContainsAny(envelope.AccessToken, "\r\n\x00") {
 		return ErrAgentBridgeInvalid
 	}
 	seen := make(map[string]struct{}, len(envelope.Capabilities))

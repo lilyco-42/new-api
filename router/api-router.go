@@ -62,9 +62,18 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				desktopBridgeRoute.GET("/bridge/desktop", controller.AgentBridgeDesktop)
 			}
+			// The browser bridge authenticates in its first encrypted WebSocket
+			// hello because WebSocket constructors cannot attach Authorization
+			// headers. Keep its HTTP upgrade route separate from the ordinary
+			// browser APIs, which still require UserAuth below.
+			browserBridgeRoute := agentRoute.Group("")
+			// Like the desktop companion, a browser bridge may reconnect while a
+			// network changes. Do not spend the short-lived critical-request
+			// budget on a long-lived WebSocket handshake.
+			browserBridgeRoute.Use(middleware.DisableCache())
+			browserBridgeRoute.GET("/bridge/browser", middleware.SessionCookieOriginGuard(), controller.AgentBridgeBrowser)
 			browserAgentRoute := agentRoute.Group("")
 			browserAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
-			browserAgentRoute.GET("/bridge/browser", middleware.SessionCookieOriginGuard(), controller.AgentBridgeBrowser)
 			browserAgentRoute.GET("/search", controller.AgentWebSearch)
 			browserAgentRoute.GET("/github/status", controller.AgentGitHubStatus)
 			browserAgentRoute.DELETE("/github/authorization", middleware.SessionCookieOriginGuard(), controller.AgentGitHubDisconnect)
