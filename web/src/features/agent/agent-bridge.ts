@@ -16,6 +16,12 @@ import { localAgentToolProvider } from './agent-tool-provider'
 import { formatMcpApprovalArguments } from './mcp-tool-provider'
 
 const REQUEST_TIMEOUT_MS = 45_000
+export const AGENT_BRIDGE_PROTOCOL_VERSION = 1 as const
+const AGENT_BRIDGE_CAPABILITIES = [
+  'github.read',
+  'mcp.list',
+  'mcp.call',
+] as const
 
 export type AgentBridgeStatus =
   | 'unavailable'
@@ -26,6 +32,8 @@ export type AgentBridgeStatus =
 
 type BridgeEnvelope = {
   type: string
+  protocol_version?: number
+  capabilities?: string[]
   request_id?: string
   device_id?: number
   credential?: string
@@ -171,6 +179,8 @@ export class AgentBridgeClient {
         socket.send(
           JSON.stringify({
             type: 'hello',
+            protocol_version: AGENT_BRIDGE_PROTOCOL_VERSION,
+            capabilities: AGENT_BRIDGE_CAPABILITIES,
             device_id: this.deviceId,
             ...(this.role === 'desktop' ? { credential: this.credential } : {}),
           })
@@ -190,6 +200,18 @@ export class AgentBridgeClient {
         }
         for (const listener of this.envelopeListeners) listener(envelope)
         if (envelope.type === 'hello_ack') {
+          if (
+            envelope.protocol_version !== undefined &&
+            envelope.protocol_version !== AGENT_BRIDGE_PROTOCOL_VERSION
+          ) {
+            fail(
+              new Error(
+                `The agent bridge protocol is incompatible (server v${envelope.protocol_version}, client v${AGENT_BRIDGE_PROTOCOL_VERSION}).`
+              )
+            )
+            socket.close()
+            return
+          }
           if (!settled) {
             settled = true
             this.setStatus('connected')

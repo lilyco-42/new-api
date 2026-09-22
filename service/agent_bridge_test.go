@@ -62,3 +62,22 @@ func TestValidateAgentBridgeEnvelopeAcceptsBoundedMcpOperations(t *testing.T) {
 func TestAgentBridgeRequestKeyScopesDevice(t *testing.T) {
 	require.NotEqual(t, bridgeRequestKey(1, "same"), bridgeRequestKey(2, "same"))
 }
+
+func TestValidateAgentBridgeHelloKeepsVersionAndCapabilitiesAdditive(t *testing.T) {
+	require.NoError(t, ValidateAgentBridgeHello(AgentBridgeEnvelope{
+		Type:         AgentBridgeMessageHello,
+		Capabilities: []string{"github.read", "mcp.list"},
+	}))
+	require.NoError(t, ValidateAgentBridgeHello(AgentBridgeEnvelope{
+		Type:            AgentBridgeMessageHello,
+		ProtocolVersion: AgentBridgeProtocolVersion,
+	}))
+	require.Error(t, ValidateAgentBridgeHello(AgentBridgeEnvelope{
+		Type:            AgentBridgeMessageHello,
+		ProtocolVersion: AgentBridgeProtocolVersion + 1,
+	}))
+	require.Error(t, ValidateAgentBridgeHello(AgentBridgeEnvelope{
+		Type:         AgentBridgeMessageHello,
+		Capabilities: []string{"mcp.list", "mcp.list"},
+	}))
+}

@@ -12,6 +12,10 @@ import (
 )
 
 const (
+	// AgentBridgeProtocolVersion is the wire-contract version. New fields are
+	// additive; a peer that omits the field is treated as version 1 for
+	// backwards compatibility with the first released bridge.
+	AgentBridgeProtocolVersion    = 1
 	AgentBridgeMessageHello       = "hello"
 	AgentBridgeMessageHelloAck    = "hello_ack"
 	AgentBridgeMessageToolRequest = "tool_request"
@@ -21,7 +25,21 @@ const (
 	AgentBridgeMessagePong        = "pong"
 	AgentBridgeMaxMessageBytes    = 128 * 1024
 	AgentBridgeRequestTTL         = 45 * time.Second
+	AgentBridgeMaxCapabilities    = 32
+	AgentBridgeMaxCapabilityBytes = 64
 )
+
+var agentBridgeCapabilities = []string{
+	"github.read",
+	"mcp.list",
+	"mcp.call",
+}
+
+// AgentBridgeCapabilities returns a copy so callers cannot mutate the public
+// capability advertisement shared by concurrent bridge connections.
+func AgentBridgeCapabilities() []string {
+	return append([]string(nil), agentBridgeCapabilities...)
+}
 
 var (
 	ErrAgentBridgeOffline       = errors.New("agent device is offline")
@@ -34,14 +52,43 @@ var (
 // paired desktop. Params and Result are opaque structured JSON; credentials
 // are intentionally not fields in envelopes sent by the browser.
 type AgentBridgeEnvelope struct {
-	Type       string          `json:"type"`
-	RequestID  string          `json:"request_id,omitempty"`
-	DeviceID   int64           `json:"device_id,omitempty"`
-	Credential string          `json:"credential,omitempty"`
-	Operation  string          `json:"operation,omitempty"`
-	Params     json.RawMessage `json:"params,omitempty"`
-	Result     json.RawMessage `json:"result,omitempty"`
-	Error      string          `json:"error,omitempty"`
+	Type            string          `json:"type"`
+	ProtocolVersion int             `json:"protocol_version,omitempty"`
+	Capabilities    []string        `json:"capabilities,omitempty"`
+	RequestID       string          `json:"request_id,omitempty"`
+	DeviceID        int64           `json:"device_id,omitempty"`
+	Credential      string          `json:"credential,omitempty"`
+	Operation       string          `json:"operation,omitempty"`
+	Params          json.RawMessage `json:"params,omitempty"`
+	Result          json.RawMessage `json:"result,omitempty"`
+	Error           string          `json:"error,omitempty"`
+}
+
+// ValidateAgentBridgeHello checks only the versioned handshake fields. The
+// credential and device ownership are validated by the HTTP controller after
+// this structural check. Version zero is accepted for legacy clients and is
+// interpreted as v1.
+func ValidateAgentBridgeHello(envelope AgentBridgeEnvelope) error {
+	if envelope.Type != AgentBridgeMessageHello {
+		return ErrAgentBridgeInvalid
+	}
+	if envelope.ProtocolVersion > AgentBridgeProtocolVersion {
+		return ErrAgentBridgeInvalid
+	}
+	if len(envelope.Capabilities) > AgentBridgeMaxCapabilities {
+		return ErrAgentBridgeInvalid
+	}
+	seen := make(map[string]struct{}, len(envelope.Capabilities))
+	for _, capability := range envelope.Capabilities {
+		if capability == "" || len(capability) > AgentBridgeMaxCapabilityBytes || strings.ContainsAny(capability, "\r\n\x00") {
+			return ErrAgentBridgeInvalid
+		}
+		if _, exists := seen[capability]; exists {
+			return ErrAgentBridgeInvalid
+		}
+		seen[capability] = struct{}{}
+	}
+	return nil
 }
 
 type AgentBridgePeer struct {

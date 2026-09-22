@@ -51,7 +51,7 @@ func readAgentBridgeHello(conn *websocket.Conn) (service.AgentBridgeEnvelope, er
 	if err := conn.ReadJSON(&envelope); err != nil {
 		return envelope, service.ErrAgentBridgeInvalid
 	}
-	if envelope.Type != service.AgentBridgeMessageHello {
+	if err := service.ValidateAgentBridgeHello(envelope); err != nil {
 		return envelope, service.ErrAgentBridgeInvalid
 	}
 	return envelope, nil
@@ -80,8 +80,10 @@ func AgentBridgeDesktop(c *gin.Context) {
 	defer hub.Unregister(peer)
 	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 	if err := hub.Send(peer, service.AgentBridgeEnvelope{
-		Type:     service.AgentBridgeMessageHelloAck,
-		DeviceID: device.Id,
+		Type:            service.AgentBridgeMessageHelloAck,
+		ProtocolVersion: service.AgentBridgeProtocolVersion,
+		Capabilities:    service.AgentBridgeCapabilities(),
+		DeviceID:        device.Id,
 	}); err != nil {
 		return
 	}
@@ -134,8 +136,10 @@ func AgentBridgeBrowser(c *gin.Context) {
 	defer hub.Unregister(peer)
 	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 	if err := hub.Send(peer, service.AgentBridgeEnvelope{
-		Type:     service.AgentBridgeMessageHelloAck,
-		DeviceID: device.Id,
+		Type:            service.AgentBridgeMessageHelloAck,
+		ProtocolVersion: service.AgentBridgeProtocolVersion,
+		Capabilities:    service.AgentBridgeCapabilities(),
+		DeviceID:        device.Id,
 	}); err != nil {
 		return
 	}

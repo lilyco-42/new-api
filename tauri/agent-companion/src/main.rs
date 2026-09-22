@@ -43,6 +43,7 @@ mod tool_runtime;
 use tool_runtime::{execute_operation, CancellationToken, OperationRequest, ProfileCredentials};
 
 const DEFAULT_BRIDGE_URL: &str = "wss://api.lain42.top/api/agent/bridge/desktop";
+const AGENT_BRIDGE_PROTOCOL_VERSION: u32 = 1;
 const MAX_MESSAGE_BYTES: usize = 128 * 1024;
 const MAX_MCP_CONFIG_BYTES: u64 = 64 * 1024;
 const MAX_MCP_SERVERS: usize = 4;
@@ -72,6 +73,10 @@ type BridgeSocket =
 struct BridgeEnvelope {
     #[serde(rename = "type")]
     message_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    protocol_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capabilities: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     request_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -712,6 +717,12 @@ fn run_connection(
         &mut socket,
         BridgeEnvelope {
             message_type: "hello".to_string(),
+            protocol_version: Some(AGENT_BRIDGE_PROTOCOL_VERSION),
+            capabilities: Some(vec![
+                "github.read".to_string(),
+                "mcp.list".to_string(),
+                "mcp.call".to_string(),
+            ]),
             request_id: None,
             device_id: Some(device_id),
             credential: Some(credential.to_string()),
@@ -734,11 +745,21 @@ fn run_connection(
         let envelope: BridgeEnvelope = serde_json::from_str(&text)
             .map_err(|_| "Agent bridge returned invalid JSON".to_string())?;
         match envelope.message_type.as_str() {
-            "hello_ack" => {}
+            "hello_ack" => {
+                if let Some(version) = envelope.protocol_version {
+                    if version != AGENT_BRIDGE_PROTOCOL_VERSION {
+                        return Err(format!(
+                            "Incompatible agent bridge protocol v{version}; expected v{AGENT_BRIDGE_PROTOCOL_VERSION}."
+                        ));
+                    }
+                }
+            }
             "ping" => send(
                 &mut socket,
                 BridgeEnvelope {
                     message_type: "pong".to_string(),
+                    protocol_version: None,
+                    capabilities: None,
                     request_id: None,
                     device_id: Some(device_id),
                     credential: None,
@@ -778,6 +799,8 @@ fn run_connection(
                         &mut socket,
                         BridgeEnvelope {
                             message_type: "tool_result".to_string(),
+                            protocol_version: None,
+                            capabilities: None,
                             request_id: Some(request_id),
                             device_id: Some(device_id),
                             credential: None,
@@ -791,6 +814,8 @@ fn run_connection(
                         &mut socket,
                         BridgeEnvelope {
                             message_type: "tool_error".to_string(),
+                            protocol_version: None,
+                            capabilities: None,
                             request_id: Some(request_id),
                             device_id: Some(device_id),
                             credential: None,

@@ -3,6 +3,19 @@
 The desktop shell exposes one versioned tool boundary instead of one Tauri
 command per executable.
 
+The paired WebSocket handshake carries `protocol_version: 1` and a bounded
+capability list (`github.read`, `mcp.list`, `mcp.call`). Version 1 peers may
+omit these fields for backwards compatibility. A future incompatible wire
+change must use a new version; additive fields and capabilities are ignored by
+older peers. The server advertises the negotiated version in `hello_ack`, so a
+desktop or headless node can fail closed with a useful upgrade message instead
+of attempting a partially compatible execution.
+
+The language-neutral envelope is documented in
+[`docs/lain42-agent-bridge-v1.schema.json`](../docs/lain42-agent-bridge-v1.schema.json).
+It is intentionally additive and can be consumed by Rust, TypeScript, Go,
+Kotlin, Swift, or a Lilyco framework adapter without importing this Go service.
+
 ## Manifest
 
 The web Agent owns presentation metadata in
@@ -106,3 +119,11 @@ This keeps the UI and transport stable as the tool catalog grows over time.
   command must fail closed when the profile directory is unavailable.
 - Prefer capability checks (`issues.read`, `code.graph`, `mcp.tools`) over
   executable-name checks in the web UI so tools can be replaced later.
+- Keep the bridge handshake and tool catalog independently versioned. The
+  stable bridge envelope is the compatibility layer for Tauri, Radxa and
+  future Lilyco clients; do not expose Go service internals or desktop-specific
+  command names as the public contract.
+- A Lilyco framework integration should implement the same `AgentBridgeClient`
+  handshake and `LocalToolProvider`/MCP adapter boundary. That permits a new
+  Rust, Android, iOS, WebView or server-side shell to reuse the model loop
+  without copying credential handling or tool policy.

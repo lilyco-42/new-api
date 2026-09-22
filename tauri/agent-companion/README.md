@@ -111,6 +111,28 @@ export LAIN42_MCP_CONFIG_FILE="$HOME/.config/lain42/mcp.json"
 
 `stdio` 以可执行文件和 argv 启动，不经 shell。Streamable HTTP 只接受公开 `https://` 地址：拒绝用户名、密码、fragment、localhost、私网/IP literal，并在连接前解析 DNS；请求不使用代理或重定向。每次 MCP list/call 使用独立会话，最多 64 个工具/服务、128 个工具总数、32 KiB 参数、64 KiB 结果、10 秒连接和目录超时、30 秒调用超时。超时会取消并关闭会话。
 
+### Lilyco 兼容
+
+Lilyco 的 `lilyco-core` schema 可通过其 `lilyco --mcp` 入口接入，不需要为
+CLI、TUI、Web 和 Agent 分别写一套工具。把它作为本地 stdio server 加入
+上面的配置即可：
+
+```json
+{
+  "server_id": "lilyco",
+  "name": "Lilyco tools",
+  "transport": "stdio",
+  "command": "/usr/local/bin/lilyco",
+  "args": ["--mcp"],
+  "allowed_tools": ["read_file"]
+}
+```
+
+实际工具名仍以 `tools/list` 返回值为准；示例中的 `read_file` 必须替换成
+Lilyco 实际暴露且经过核验的工具名，不能使用通配符。Lain42 只依赖 MCP 的稳定边界和 Agent bridge v1，不依赖
+Lilyco 的内部 Rust 模块，因此未来可替换 Lilyco 版本或接入另一种 MCP
+实现而不改网页模型循环。
+
 ## systemd 常驻运行
 
 将二进制安装到 `/opt/lain42-agent-companion/lain42-agent-companion`，把上面生成的环境文件复制为 `/etc/lain42-agent-companion.env` 并限制权限，再启用仓库提供的 unit：

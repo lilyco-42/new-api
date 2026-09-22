@@ -15,6 +15,8 @@
 - Agent 工具侧栏已有网页配对入口：创建短时 pairing ticket，Radxa claim 后把 confirmation ticket 粘回网页，确认后再由 Radxa redeem 并启动 companion。
 - Tauri `rmcp` 客户端：显式连接 stdio / HTTPS Streamable HTTP、分页发现工具、受限参数与结果、连接/调用超时、断开清理；MCP 调用在本地和配对桌面均要求精确参数确认。
 - 配对桥接已允许 `mcp.list` / `mcp.call` 两个固定操作；浏览器只接收已连接工具的 schema，不接收桌面的命令行参数或 bearer token。Tauri 桌面和 Radxa companion 均支持 MCP，但 Radxa 只加载设备管理员明确允许的本地配置，不能由网页动态注入命令或 token。
+- Agent bridge 已加入可向后兼容的 v1 握手（协议版本 + 有界 capability list），并发布语言无关的 `docs/lain42-agent-bridge-v1.schema.json`；未来 Lilyco、Android/iOS、WebView 或其他 Rust/Go 客户端只需实现该边界，不需要复制 Go 服务内部实现。
+- Lilyco framework 通过 `lilyco --mcp` 作为标准 MCP server 接入；Lain42 依赖 MCP/schema 契约，不依赖 Lilyco 内部 crate，因此 CLI/TUI/Web/MCP 后端可独立升级。
 
 仍未宣称完成的部分：跨页面断线任务恢复、MCP 的真实 stdio/HTTPS 服务互操作回归、写操作的持久审批/防重放与全链路 A1–A11 验收。当前 Tauri 配对凭证和 MCP 连接只保存在本次桌面进程内存，退出后需要重新配对/连接；在引入系统密钥库之前不把它称为持久设备登录。
 

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.lain42.top/schemas/agent-bridge/v1.json",
+  "title": "Lain42 Agent bridge envelope v1",
+  "description": "Versioned, bounded WebSocket envelopes shared by Lain42 web, Tauri, Radxa and future Lilyco clients.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["hello", "hello_ack", "tool_request", "tool_result", "tool_error", "ping", "pong"]
+    },
+    "protocol_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9._-]+$"
+      }
+    },
+    "request_id": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[^\\r\\n]*$"
+    },
+    "device_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "credential": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "github.auth.status",
+        "github.issues.list",
+        "github.repositories.search",
+        "github.pull_requests.list",
+        "mcp.list",
+        "mcp.call"
+      ]
+    },
+    "params": {
+      "type": ["object", "array", "string", "number", "boolean", "null"],
+      "maxLength": 131072
+    },
+    "result": {
+      "type": ["object", "array", "string", "number", "boolean", "null"],
+      "maxLength": 131072
+    },
+    "error": {
+      "type": "string",
+      "maxLength": 4096
+    }
+  },
+  "required": ["type"],
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "hello"}}},
+      "then": {"properties": {"device_id": {"type": "integer", "minimum": 1}}}
+    },
+    {
+      "if": {"properties": {"type": {"const": "tool_request"}}},
+      "then": {
+        "required": ["request_id", "operation", "params"],
+        "properties": {"request_id": {"minLength": 1}, "operation": {"minLength": 1}}
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "tool_result"}}},
+      "then": {"required": ["request_id", "result"]}
+    },
+    {
+      "if": {"properties": {"type": {"const": "tool_error"}}},
+      "then": {"required": ["request_id", "error"]}
+    }
+  ]
+}

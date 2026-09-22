@@ -112,4 +112,15 @@ export const AGENT_TOOL_MANIFEST: AgentToolManifest[] = [
     url: 'https://github.com/ast-grep/ast-grep',
     icon: FileCode2,
   },
+  {
+    id: 'lilyco',
+    protocol: 'mcp',
+    name: 'Lilyco framework',
+    description: '同一份 Rust schema 可渲染 CLI、TUI、Web 和 MCP，适合长期扩展工具。',
+    capabilities: ['mcp.tools', 'schema.shared', 'agent.extensions'],
+    command: 'lilyco --mcp',
+    installCommand: 'cargo binstall lilyco',
+    url: 'https://github.com/lilyco-42/lilyco',
+    icon: Network,
+  },
 ]
