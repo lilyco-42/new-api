@@ -78,6 +78,7 @@ export type McpBridgeRequester = {
 const MAX_SERVERS = 16
 const MAX_TOOLS = 128
 const MAX_RESULT_BYTES = 128 * 1024
+export const MAX_MCP_APPROVAL_BYTES = 4096
 const MCP_CALL_TIMEOUT_MS = 45_000
 
 function getInvoke(): TauriInvoke | null {
@@ -214,14 +215,20 @@ function asJsonObject(argumentsText: string): Record<string, unknown> {
   return object
 }
 
-function approvalMessage(call: ChatCompletionToolCall): string {
-  let formatted = call.function.arguments
-  try {
-    formatted = JSON.stringify(JSON.parse(formatted), null, 2)
-  } catch {
-    // The loop validates JSON before this gate; keep the original for clarity.
+export function formatMcpApprovalArguments(value: unknown): string {
+  const object = asRecord(value)
+  if (!object) throw new Error('MCP tool arguments must be a JSON object.')
+  const formatted = JSON.stringify(object, null, 2)
+  if (new TextEncoder().encode(formatted).byteLength > MAX_MCP_APPROVAL_BYTES) {
+    throw new Error(
+      `MCP tool arguments exceed the ${MAX_MCP_APPROVAL_BYTES}-byte exact approval limit.`
+    )
   }
-  return `Allow MCP tool ${call.function.name} with these exact parameters?\n\n${formatted.slice(0, 4000)}`
+  return formatted
+}
+
+function approvalMessage(call: ChatCompletionToolCall): string {
+  return `Allow MCP tool ${call.function.name} with these exact parameters?\n\n${formatMcpApprovalArguments(asJsonObject(call.function.arguments))}`
 }
 
 async function raceWithAbort<T>(
@@ -289,7 +296,6 @@ export function createMcpToolProvider(): McpToolProviderController {
     },
     requiresApproval: async (call, signal) => {
       if (signal.aborted) return false
-      asJsonObject(call.function.arguments)
       if (
         typeof window === 'undefined' ||
         typeof window.confirm !== 'function'
@@ -337,10 +343,12 @@ export function createMcpToolProvider(): McpToolProviderController {
  */
 export function createBrowserMcpToolProvider(
   bridge: McpBridgeRequester
-): LocalToolProvider & { refresh: (signal: AbortSignal) => Promise<void> } {
+): LocalToolProvider & {
+  refresh: (signal: AbortSignal) => Promise<McpServerDescriptor[]>
+} {
   let servers: McpServerDescriptor[] = []
   const provider: LocalToolProvider & {
-    refresh: (signal: AbortSignal) => Promise<void>
+    refresh: (signal: AbortSignal) => Promise<McpServerDescriptor[]>
   } = {
     tools: [],
     isAvailable: () => true,
@@ -348,10 +356,10 @@ export function createBrowserMcpToolProvider(
       const result = await bridge.request('mcp.list', {}, signal)
       servers = readServers(result)
       provider.tools = servers.flatMap((server) => server.tools.map(toChatTool))
+      return servers
     },
     requiresApproval: async (call, signal) => {
       if (signal.aborted) return false
-      asJsonObject(call.function.arguments)
       if (
         typeof window === 'undefined' ||
         typeof window.confirm !== 'function'

@@ -160,7 +160,7 @@ export function AgentBridgeCard({
       <CardHeader>
         <CardTitle className='flex items-center gap-2 text-sm'>
           <Cable className='text-primary size-4' />
-          {t('CLI desktop bridge')}
+          {t('CLI / Radxa bridge')}
         </CardTitle>
         <CardDescription className='text-xs leading-5'>
           {isDesktop
@@ -168,7 +168,7 @@ export function AgentBridgeCard({
                 'Pair this desktop so the web Agent can run your approved local tools.'
               )
             : t(
-                'Use a paired desktop to run GitHub CLI actions from this browser or phone.'
+                'Use a paired desktop or headless Radxa node to run CLI actions from this browser or phone.'
               )}
         </CardDescription>
       </CardHeader>

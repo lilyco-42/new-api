@@ -13,6 +13,7 @@ the Free Software Foundation, either version 3 of the License, or
 import { api } from '@/lib/api'
 
 import { localAgentToolProvider } from './agent-tool-provider'
+import { formatMcpApprovalArguments } from './mcp-tool-provider'
 
 const REQUEST_TIMEOUT_MS = 45_000
 
@@ -438,7 +439,7 @@ export async function startDesktopAgentBridge(
         structured = await invoke('mcp_list')
       } else if (operation === 'mcp.call') {
         const params = envelope.params ?? {}
-        const display = JSON.stringify(params, null, 2).slice(0, 4000)
+        const display = formatMcpApprovalArguments(params)
         if (
           typeof window === 'undefined' ||
           typeof window.confirm !== 'function' ||

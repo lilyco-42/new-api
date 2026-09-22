@@ -52,12 +52,16 @@ workspace exposes explicit Connect/Disconnect controls and supports:
 - `mcp_call({ request: { server_id, tool_name, arguments, timeout_ms } })`;
 - `mcp_disconnect({ server_id })` for session cleanup.
 
-The adapter starts no shell, accepts no URL credentials or HTTP redirects,
+The adapter does not accept shell fragments; it starts the selected executable
+with separate argv arguments. It accepts no URL credentials or HTTP redirects,
 limits server/tool/schema/argument/result sizes, bounds connection and call
 deadlines, and keeps bearer tokens in the transport session rather than any
-response. All MCP calls require an exact-parameter confirmation in the webview;
-paired browser calls are confirmed again by the paired desktop. Connections
-are process-memory sessions and must be recreated after the desktop exits.
+response. Tauri desktop MCP calls require an exact-parameter confirmation in
+the webview; paired browser calls are confirmed again by the paired desktop.
+The headless Radxa companion has no webview and instead requires an owner-only
+local configuration with an explicit tool allowlist. Connections are
+process-memory sessions and must be recreated after the desktop exits; the
+headless companion recreates its configured MCP session for each request.
 
 The paired WebSocket bridge also accepts only `mcp.list` and `mcp.call` in
 addition to the four read-only GitHub operations. A browser receives the

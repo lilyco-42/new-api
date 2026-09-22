@@ -12,12 +12,16 @@ EnvironmentFile=/etc/lain42-agent-companion.env
 ExecStart=/opt/lain42-agent-companion/lain42-agent-companion
 Restart=always
 RestartSec=5
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectHome=read-only
 ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=%h/.config/lain42
 
 [Install]
 WantedBy=multi-user.target
-

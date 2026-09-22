@@ -11,10 +11,10 @@
 - Agent 网页的桌面桥接：仅在 Tauri 中公开 `github.issues.list`，通过 `cli_exec` 调用本机 `gh`；普通浏览器不会获得本机执行权限。
 - Go 配对模型、服务、路由和迁移：一次性配对票据、确认票据、兑换票据、设备撤销和凭证摘要存储。
 - 配对设备桥接：桌面凭证认证、同源 WebSocket、按设备归属转发结构化请求/结果，服务端不执行用户 CLI；网页与 Tauri 页面已有桥接客户端和配对入口。
-- `tauri/agent-companion`：无桌面 Linux ARM64/Radxa 连接器，主动 WSS、固定 `gh` 操作、断线退避和同一输出/超时边界；ARM64 workflow 会单独构建并上传该二进制；手机和互联网只访问网页/API。
+- `tauri/agent-companion`：面向 Radxa A7A 的纯 CLI/headless Linux ARM64 连接器，主动 WSS、固定 `gh` 操作、受限本地 MCP allowlist、断线退避和同一输出/超时边界；ARM64 workflow 只构建并上传该二进制，不依赖 KDE/WebView；手机和互联网只访问网页/API。
 - Agent 工具侧栏已有网页配对入口：创建短时 pairing ticket，Radxa claim 后把 confirmation ticket 粘回网页，确认后再由 Radxa redeem 并启动 companion。
 - Tauri `rmcp` 客户端：显式连接 stdio / HTTPS Streamable HTTP、分页发现工具、受限参数与结果、连接/调用超时、断开清理；MCP 调用在本地和配对桌面均要求精确参数确认。
-- 配对桥接已允许 `mcp.list` / `mcp.call` 两个固定操作；浏览器只接收已连接工具的 schema，不接收桌面的命令行参数或 bearer token。当前有桌面的 Tauri 设备支持 MCP；Radxa companion 仍只执行 gh，待共享无头 MCP 连接器抽取。
+- 配对桥接已允许 `mcp.list` / `mcp.call` 两个固定操作；浏览器只接收已连接工具的 schema，不接收桌面的命令行参数或 bearer token。Tauri 桌面和 Radxa companion 均支持 MCP，但 Radxa 只加载设备管理员明确允许的本地配置，不能由网页动态注入命令或 token。
 
 仍未宣称完成的部分：跨页面断线任务恢复、MCP 的真实 stdio/HTTPS 服务互操作回归、写操作的持久审批/防重放与全链路 A1–A11 验收。当前 Tauri 配对凭证和 MCP 连接只保存在本次桌面进程内存，退出后需要重新配对/连接；在引入系统密钥库之前不把它称为持久设备登录。
 
@@ -22,8 +22,8 @@
 
 用户在网页或桌面提出任务，Agent 使用该用户授权的 CLI/MCP 工具，展示执行过程，并依据真实结果继续回答。首个完整场景是“查看我的仓库最近的 Issue”。
 
-- 首发验证环境：Windows 桌面 + Chrome/Edge 网页；macOS/Linux 共享运行时并通过各平台验收后开放。
-- 网页和 Android/iOS 浏览器可以控制已配对且在线的电脑；移动浏览器不宣称能直接运行桌面 CLI。
+- 首发验证环境：Windows 桌面 + Chrome/Edge 网页，以及无 KDE 的 Radxa A7A headless 节点；macOS/Linux 共享运行时并通过各平台验收后开放。
+- 网页和 Android/iOS 浏览器可以控制已配对且在线的桌面或 Radxa 节点；移动浏览器负责 UI 和 lain42 网关模型，不在手机上伪装运行本机 CLI。
 - 桌面允许不登录 Lain42，使用本地模型或用户自带模型接口；使用平台模型、跨设备配对时需要平台身份。
 - 工具凭证不进入模型上下文。用户同意后，必要的工具结果会发送给选定模型；本地执行不等于数据绝不出本机。
 - 本轮交付是需求、方案选择、模块契约、实施顺序、验证门槛。实现仍须逐项通过下方验收。
@@ -85,7 +85,7 @@ flowchart LR
   S --> X[stdio / HTTPS MCP 服务]
 ```
 
-- `agent-core`：无 Tauri/React/Go 依赖，持有任务状态机、模型续轮、工具目录、预算、结果关联。桌面和未来 headless companion 共用。
+- `agent-core`：无 Tauri/React/Go 依赖，持有任务状态机、模型续轮、工具目录、预算、结果关联。桌面和 headless companion 逐步共用。
 - `ToolAdapter`：统一 describe/list、invoke、cancel、health；CLI 和 MCP 是适配器，展示目录由运行时发现结果生成。
 - Tauri：薄 IPC、系统密钥库、设备注册、本地授权窗口。React：任务与工具调用卡片，不包含命令拼接和执行权限决策。
 - Go：沿用平台鉴权与计费；新增设备、授权、任务路由和事件持久化，不在网关宿主机执行用户 CLI。

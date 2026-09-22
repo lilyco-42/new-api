@@ -50,24 +50,20 @@ cargo tauri build
 
 ## Radxa A7A / ARM64
 
-Radxa A7A 使用 `aarch64` Linux 时可以直接运行同一套 Agent。推荐使用 Debian/Ubuntu 或 Radxa OS 的桌面镜像，并确认 WebKitGTK 能正常工作；Agent 的 CLI 执行仍然在板端完成，`gh` 的登录目录、工具输出上限和超时策略与 x64 相同。
+Radxa A7A 按纯 CLI、无 KDE/无 WebView 的 headless 节点部署。网页或手机访问
+Agent，模型和计费由 `api.lain42.top` 提供，A7A 只运行 companion，通过出站 WSS
+接收经过配对和授权的结构化工具请求；`gh` 的登录目录、工具输出上限和超时策略与
+桌面端相同。
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential curl pkg-config \
-  libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-  librsvg2-dev libxdo-dev libssl-dev patchelf
+sudo apt install -y build-essential pkg-config libssl-dev
 gh auth login
-cd tauri
-cargo binstall tauri-cli@2.11.5 --no-confirm
-cargo tauri build --bundles deb
+cargo build --release --manifest-path tauri/agent-companion/Cargo.toml --locked
 ```
 
 在板端执行 `uname -m` 应看到 `aarch64`；产物位于
-`tauri/target/release/bundle/deb/`。如果该架构的 `cargo-binstall` 没有对应
-预编译 CLI，改用 `cargo install tauri-cli --version 2.11.5 --locked`，只影响
-构建时间，不影响运行时。没有图形桌面时，使用浏览器/PWA 访问 Agent，并让一台
-已配对的 Tauri 桌面或 `lain42-agent-companion` 执行本机 CLI。无头连接器只接受
+`tauri/agent-companion/target/release/lain42-agent-companion`。无头连接器只接受
 出站 WSS，不开放公网 shell 端口；它与网页共用同一配对协议和受控操作边界。
 
 ### Radxa 无头连接器
@@ -79,7 +75,7 @@ gh auth login
 cargo build --release --manifest-path tauri/agent-companion/Cargo.toml --locked
 ```
 
-在网页 Agent 的「CLI desktop bridge」卡片创建短时票据。Radxa 调用
+在网页 Agent 的「CLI / Radxa bridge」卡片创建短时票据。Radxa 调用
 `POST /api/agent/pairings/claim` 领取票据，把返回的 `confirmation_ticket`
 粘回网页；网页确认后，Radxa 调用 `POST /api/agent/pairings/redeem`，仅将返回
 的设备编号和一次性凭证写入权限为 `0600` 的环境文件，再启动

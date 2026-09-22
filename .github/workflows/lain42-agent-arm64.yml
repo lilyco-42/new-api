@@ -6,9 +6,7 @@ on:
       - agent-ui
     paths:
       - 'tauri/agent-companion/**'
-      - 'tauri/src/**'
-      - 'tauri/Cargo.toml'
-      - 'tauri/Cargo.lock'
+      - 'tauri/src/tool_runtime.rs'
       - '.github/workflows/lain42-agent-arm64.yml'
   workflow_dispatch:
 
@@ -27,41 +25,17 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential curl pkg-config \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev patchelf
-
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@34d2323c40447f79d77146d8269c123a27f4ced5 # main 2026-09-21
-
-      - name: Install Tauri CLI
-        run: |
-          cargo binstall --no-confirm --locked tauri-cli@2.11.5 || \
-            cargo install tauri-cli --version 2.11.5 --locked
+          sudo apt-get install -y build-essential pkg-config libssl-dev
 
       - name: Check and test
-        working-directory: tauri
+        working-directory: tauri/agent-companion
         run: |
           cargo fmt --all --check
           cargo test --locked
-          cargo test --manifest-path agent-session/Cargo.toml --locked
-          cargo test --manifest-path agent-companion/Cargo.toml --locked
-
-      - name: Build Debian package
-        working-directory: tauri
-        run: cargo tauri build --bundles deb
 
       - name: Build headless Radxa companion
-        run: cargo build --release --manifest-path tauri/agent-companion/Cargo.toml --locked
-
-      - name: Upload ARM64 package
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: lain42-agent-linux-arm64
-          if-no-files-found: error
-          path: tauri/target/release/bundle/**/*.deb
+        working-directory: tauri/agent-companion
+        run: cargo build --release --locked
 
       - name: Upload headless companion
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

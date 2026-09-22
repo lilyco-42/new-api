@@ -14,7 +14,12 @@ the Free Software Foundation, either version 3 of the License, or
 //! live only inside rmcp's transport and are deliberately absent from response
 //! types and error messages.
 
-use std::{collections::BTreeMap, net::IpAddr, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 
 use rmcp::{
     model::{
@@ -31,7 +36,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::State;
-use tokio::{sync::Mutex, time::timeout};
+use tokio::{net::lookup_host, sync::Mutex, time::timeout};
 
 const MAX_SERVERS: usize = 16;
 const MAX_TOOLS_PER_SERVER: usize = 128;
@@ -46,6 +51,8 @@ const MAX_ARGUMENT_BYTES: usize = 32 * 1024;
 const MAX_SCHEMA_BYTES: usize = 16 * 1024;
 const MAX_DESCRIPTION_BYTES: usize = 1000;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_TOTAL_TOOLS: usize = 256;
+const MAX_CATALOG_BYTES: usize = 96 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_CALL_TIMEOUT: Duration = Duration::from_secs(45);
@@ -55,14 +62,20 @@ type McpClient = RunningService<RoleClient, ClientConfig>;
 
 pub struct McpState {
     sessions: Mutex<BTreeMap<String, Arc<Mutex<McpSession>>>>,
+    connecting: Mutex<BTreeSet<String>>,
 }
 
 impl Default for McpState {
     fn default() -> Self {
         Self {
             sessions: Mutex::new(BTreeMap::new()),
+            connecting: Mutex::new(BTreeSet::new()),
         }
     }
+}
+
+async fn release_connecting(state: &McpState, server_id: &str) {
+    state.connecting.lock().await.remove(server_id);
 }
 
 struct McpSession {
@@ -204,20 +217,10 @@ fn validate_http(request: &McpConnectRequest) -> Result<(String, Option<String>)
         );
     }
     let host = parsed.host_str().expect("host was checked above");
+    let host_for_ip = host.trim_matches(['[', ']']);
     if host.eq_ignore_ascii_case("localhost")
         || host.to_ascii_lowercase().ends_with(".localhost")
-        || host.parse::<IpAddr>().is_ok_and(|address| match address {
-            IpAddr::V4(address) => {
-                address.is_private()
-                    || address.is_loopback()
-                    || address.is_link_local()
-                    || address.is_broadcast()
-                    || address.is_unspecified()
-            }
-            IpAddr::V6(address) => {
-                address.is_loopback() || address.is_unspecified() || address.is_unique_local()
-            }
-        })
+        || host_for_ip.parse::<IpAddr>().is_ok_and(forbidden_ip)
     {
         return Err(
             "MCP HTTPS endpoints cannot target local or private network addresses.".to_string(),
@@ -235,6 +238,71 @@ fn validate_http(request: &McpConnectRequest) -> Result<(String, Option<String>)
         return Err("Invalid MCP bearer token.".to_string());
     }
     Ok((parsed.into(), token))
+}
+
+fn forbidden_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            let octets = address.octets();
+            address.is_private()
+                || address.is_loopback()
+                || address.is_link_local()
+                || address.is_broadcast()
+                || address.is_unspecified()
+                || address.is_multicast()
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+        }
+        IpAddr::V6(address) => {
+            address.is_loopback()
+                || address.is_unspecified()
+                || address.is_unique_local()
+                || address.is_unicast_link_local()
+                || address.is_multicast()
+                || mapped_ipv4(address).is_some_and(|mapped| forbidden_ip(IpAddr::V4(mapped)))
+        }
+    }
+}
+
+fn mapped_ipv4(address: Ipv6Addr) -> Option<Ipv4Addr> {
+    let segments = address.segments();
+    if segments[..5].iter().all(|segment| *segment == 0) && matches!(segments[5], 0 | 0xffff) {
+        return Some(Ipv4Addr::new(
+            (segments[6] >> 8) as u8,
+            segments[6] as u8,
+            (segments[7] >> 8) as u8,
+            segments[7] as u8,
+        ));
+    }
+    None
+}
+
+async fn resolve_public_endpoint(raw_url: &str) -> Result<(String, SocketAddr), String> {
+    let parsed = url::Url::parse(raw_url).map_err(|_| "Invalid MCP URL.".to_string())?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "MCP URL has no host.".to_string())?
+        .trim_matches(['[', ']'])
+        .to_string();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| "MCP URL has no known HTTPS port.".to_string())?;
+    let mut addresses = lookup_host((host.as_str(), port))
+        .await
+        .map_err(|_| "Unable to resolve the MCP HTTPS host.".to_string())?;
+    let mut selected = None;
+    while let Some(address) = addresses.next() {
+        if forbidden_ip(address.ip()) {
+            return Err(
+                "MCP HTTPS endpoints cannot resolve to local or private network addresses."
+                    .to_string(),
+            );
+        }
+        selected.get_or_insert(address);
+    }
+    drop(addresses);
+    selected
+        .map(|address| (host, address))
+        .ok_or_else(|| "MCP HTTPS host resolved to no addresses.".to_string())
 }
 
 fn client_config() -> ClientConfig {
@@ -271,7 +339,10 @@ async fn connect_client(request: &McpConnectRequest) -> Result<McpClient, String
         }
         "streamable_http" => {
             let (url, token) = validate_http(request)?;
+            let (host, address) = resolve_public_endpoint(&url).await?;
             let http_client = reqwest::Client::builder()
+                .no_proxy()
+                .resolve(&host, address)
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|_| "Unable to create the MCP HTTPS client.".to_string())?;
@@ -321,6 +392,26 @@ fn tool_descriptor(server_id: &str, server_name: &str, tool: Tool) -> Option<Mcp
     })
 }
 
+fn ensure_catalog_bounds(servers: &[McpServerDescriptor]) -> Result<(), String> {
+    let tool_count = servers
+        .iter()
+        .map(|server| server.tools.len())
+        .sum::<usize>();
+    if tool_count > MAX_TOTAL_TOOLS {
+        return Err(format!(
+            "MCP tool catalog exceeds the {MAX_TOTAL_TOOLS}-tool limit."
+        ));
+    }
+    let bytes = serde_json::to_vec(servers)
+        .map_err(|_| "Unable to measure the MCP tool catalog.".to_string())?;
+    if bytes.len() > MAX_CATALOG_BYTES {
+        return Err(format!(
+            "MCP tool catalog exceeds the {MAX_CATALOG_BYTES}-byte limit."
+        ));
+    }
+    Ok(())
+}
+
 async fn list_bounded_tools(
     client: &McpClient,
     server_id: &str,
@@ -359,32 +450,64 @@ pub async fn mcp_connect(
     }
     {
         let sessions = state.sessions.lock().await;
-        if !sessions.contains_key(&server_id) && sessions.len() >= MAX_SERVERS {
+        let mut connecting = state.connecting.lock().await;
+        if connecting.contains(&server_id) {
+            return Err("MCP server is already connecting.".to_string());
+        }
+        if !sessions.contains_key(&server_id)
+            && sessions.len().saturating_add(connecting.len()) >= MAX_SERVERS
+        {
             return Err(format!(
                 "At most {MAX_SERVERS} MCP servers may be connected."
             ));
         }
+        connecting.insert(server_id.clone());
     }
-    let client = connect_client(&request).await?;
-    let tools = timeout(
+    let client = match connect_client(&request).await {
+        Ok(client) => client,
+        Err(error) => {
+            release_connecting(&state, &server_id).await;
+            return Err(error);
+        }
+    };
+    let tools = match timeout(
         CONNECT_TIMEOUT,
         list_bounded_tools(&client, &server_id, &name),
     )
     .await
-    .map_err(|_| "MCP tools/list timed out.".to_string())??;
+    {
+        Ok(Ok(tools)) => tools,
+        Ok(Err(error)) => {
+            release_connecting(&state, &server_id).await;
+            return Err(error);
+        }
+        Err(_) => {
+            release_connecting(&state, &server_id).await;
+            return Err("MCP tools/list timed out.".to_string());
+        }
+    };
     let descriptor = McpServerDescriptor {
         server_id: server_id.clone(),
         name,
         transport: request.transport,
         tools,
     };
-    let previous = state.sessions.lock().await.insert(
-        server_id,
-        Arc::new(Mutex::new(McpSession {
-            client,
-            descriptor: descriptor.clone(),
-        })),
-    );
+    if let Err(error) = ensure_catalog_bounds(std::slice::from_ref(&descriptor)) {
+        release_connecting(&state, &server_id).await;
+        return Err(error);
+    }
+    let previous = {
+        let mut sessions = state.sessions.lock().await;
+        let mut connecting = state.connecting.lock().await;
+        connecting.remove(&server_id);
+        sessions.insert(
+            server_id,
+            Arc::new(Mutex::new(McpSession {
+                client,
+                descriptor: descriptor.clone(),
+            })),
+        )
+    };
     if let Some(previous) = previous {
         let mut previous = previous.lock().await;
         let _ = previous.client.close_with_timeout(CLOSE_TIMEOUT).await;
@@ -412,6 +535,7 @@ pub async fn mcp_list(state: State<'_, McpState>) -> Result<McpListResponse, Str
         session.descriptor.tools = tools;
         descriptors.push(session.descriptor.clone());
     }
+    ensure_catalog_bounds(&descriptors)?;
     Ok(McpListResponse {
         servers: descriptors,
     })
@@ -542,6 +666,10 @@ mod tests {
         assert!(validate_http(&request).is_ok());
         request.url = Some("https://127.0.0.1/mcp".to_string());
         assert!(validate_http(&request).is_err());
+        request.url = Some("https://[::ffff:10.0.0.1]/mcp".to_string());
+        assert!(validate_http(&request).is_err());
+        assert!(forbidden_ip("100.64.0.1".parse().unwrap()));
+        assert!(forbidden_ip("ff02::1".parse().unwrap()));
     }
 
     #[test]
@@ -550,9 +678,41 @@ mod tests {
         let bounded = bounded_text(&text, MAX_DESCRIPTION_BYTES);
         assert!(bounded.len() <= MAX_DESCRIPTION_BYTES);
         assert!(bounded.is_char_boundary(bounded.len()));
-        assert_eq!(
-            json!({"type":"object", "additionalProperties":true})["type"],
-            "object"
+        let mut tool = Tool::default();
+        tool.name = "large-schema".into();
+        let mut schema = serde_json::Map::new();
+        schema.insert(
+            "description".to_string(),
+            Value::String("x".repeat(MAX_SCHEMA_BYTES)),
         );
+        tool.input_schema = Arc::new(schema);
+        let descriptor = tool_descriptor("remote", "Remote", tool).unwrap();
+        assert_eq!(
+            descriptor.input_schema,
+            json!({"type":"object", "additionalProperties":true})
+        );
+    }
+
+    #[test]
+    fn catalog_bounds_protect_the_bridge_payload() {
+        let descriptor = McpServerDescriptor {
+            server_id: "remote".to_string(),
+            name: "Remote".to_string(),
+            transport: "stdio".to_string(),
+            tools: vec![],
+        };
+        assert!(ensure_catalog_bounds(std::slice::from_ref(&descriptor)).is_ok());
+        let oversized = vec![McpToolDescriptor {
+            server_id: descriptor.server_id.clone(),
+            server_name: descriptor.name.clone(),
+            name: "tool".to_string(),
+            description: Some("x".repeat(MAX_DESCRIPTION_BYTES)),
+            input_schema: json!({"type":"object"}),
+        }];
+        let oversized_descriptor = McpServerDescriptor {
+            tools: oversized,
+            ..descriptor
+        };
+        assert!(ensure_catalog_bounds(&vec![oversized_descriptor; MAX_TOTAL_TOOLS + 1]).is_err());
     }
 }

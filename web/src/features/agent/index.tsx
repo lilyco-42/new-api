@@ -32,7 +32,7 @@ import {
   Share2,
   Wrench,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -71,6 +71,7 @@ import {
   combineLocalToolProviders,
   createBrowserMcpToolProvider,
   createMcpToolProvider,
+  type McpServerDescriptor,
 } from './mcp-tool-provider'
 
 const LYCO_DEFAULT_SYSTEM_PROMPT = `你是云枢智创 Agent，默认采用 lyco-skill 的“预研先行”方法。
@@ -132,6 +133,8 @@ function WorkspaceToolsCards({
   mcpController,
   mcpRevision,
   onMcpChanged,
+  remoteMcpServers,
+  onRemoteMcpRefresh,
 }: {
   bridgeStatus: AgentBridgeStatus
   deviceName?: string
@@ -145,6 +148,8 @@ function WorkspaceToolsCards({
   mcpController: ReturnType<typeof createMcpToolProvider>
   mcpRevision: number
   onMcpChanged: () => void
+  remoteMcpServers?: McpServerDescriptor[]
+  onRemoteMcpRefresh?: () => Promise<McpServerDescriptor[]>
 }) {
   return (
     <div className='grid gap-3'>
@@ -164,6 +169,8 @@ function WorkspaceToolsCards({
         controller={mcpController}
         isDesktop={isDesktop}
         onChanged={onMcpChanged}
+        onRemoteRefresh={onRemoteMcpRefresh}
+        remoteServers={remoteMcpServers}
         revision={mcpRevision}
       />
       <PlatformAccessCard />
@@ -284,6 +291,12 @@ export function AgentWorkspace() {
     useState<AgentPairingSession | null>(null)
   const [mcpController] = useState(() => createMcpToolProvider())
   const [mcpRevision, setMcpRevision] = useState(0)
+  const [remoteMcpServers, setRemoteMcpServers] = useState<
+    McpServerDescriptor[]
+  >([])
+  const remoteMcpProvider = useRef<ReturnType<
+    typeof createBrowserMcpToolProvider
+  > | null>(null)
   const isDesktop = localAgentToolProvider.isAvailable()
   const activeToolProvider = isDesktop
     ? combineLocalToolProviders(localAgentToolProvider, mcpController)
@@ -297,6 +310,8 @@ export function AgentWorkspace() {
     let disposed = false
     let cleanup: (() => void) | null = null
     setBridgeProvider(null)
+    setRemoteMcpServers([])
+    remoteMcpProvider.current = null
     setBridgeDeviceName(undefined)
     setBridgeStatus(isDesktop ? 'unavailable' : 'connecting')
 
@@ -315,6 +330,7 @@ export function AgentWorkspace() {
         })
       return () => {
         disposed = true
+        remoteMcpProvider.current = null
         cleanup?.()
       }
     }
@@ -337,10 +353,14 @@ export function AgentWorkspace() {
         const removeStatus = client.onStatus(setBridgeStatus)
         const provider = createBrowserBridgeProvider(client)
         const mcpProvider = createBrowserMcpToolProvider(client)
+        remoteMcpProvider.current = mcpProvider
         try {
           await client.connect()
           try {
-            await mcpProvider.refresh(new AbortController().signal)
+            const servers = await mcpProvider.refresh(
+              new AbortController().signal
+            )
+            setRemoteMcpServers(servers)
             setBridgeProvider(combineLocalToolProviders(provider, mcpProvider))
           } catch {
             // Older servers may not expose the MCP bridge yet; keep GitHub
@@ -362,6 +382,7 @@ export function AgentWorkspace() {
 
     return () => {
       disposed = true
+      remoteMcpProvider.current = null
       cleanup?.()
     }
   }, [bridgeEpoch, isDesktop])
@@ -397,6 +418,15 @@ export function AgentWorkspace() {
     await confirmAgentPairing(pairingSession.id, ticket)
     setPairingSession(null)
     setBridgeEpoch((value) => value + 1)
+  }
+
+  const refreshRemoteMcp = async () => {
+    if (isDesktop || !remoteMcpProvider.current) return []
+    const servers = await remoteMcpProvider.current.refresh(
+      new AbortController().signal
+    )
+    setRemoteMcpServers(servers)
+    return servers
   }
 
   const handlePresetChange = (nextPreset: AgentPreset) => {
@@ -560,6 +590,8 @@ export function AgentWorkspace() {
                 mcpController={mcpController}
                 mcpRevision={mcpRevision}
                 onMcpChanged={() => setMcpRevision((value) => value + 1)}
+                onRemoteMcpRefresh={isDesktop ? undefined : refreshRemoteMcp}
+                remoteMcpServers={isDesktop ? undefined : remoteMcpServers}
               />
             ) : (
               <WorkspaceViewPlaceholder view={workspaceView} />
@@ -593,6 +625,8 @@ export function AgentWorkspace() {
               mcpController={mcpController}
               mcpRevision={mcpRevision}
               onMcpChanged={() => setMcpRevision((value) => value + 1)}
+              onRemoteMcpRefresh={isDesktop ? undefined : refreshRemoteMcp}
+              remoteMcpServers={isDesktop ? undefined : remoteMcpServers}
             />
           </SheetContent>
         </Sheet>

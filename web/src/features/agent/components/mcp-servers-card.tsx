@@ -33,6 +33,8 @@ type McpServersCardProps = {
   isDesktop: boolean
   revision: number
   onChanged: () => void
+  remoteServers?: McpServerDescriptor[]
+  onRemoteRefresh?: () => Promise<McpServerDescriptor[]>
 }
 
 export function McpServersCard({
@@ -40,6 +42,8 @@ export function McpServersCard({
   isDesktop,
   revision,
   onChanged,
+  remoteServers,
+  onRemoteRefresh,
 }: McpServersCardProps) {
   const { t } = useTranslation()
   const [transport, setTransport] =
@@ -54,13 +58,17 @@ export function McpServersCard({
   const [servers, setServers] = useState<McpServerDescriptor[]>([])
 
   useEffect(() => {
-    setServers(controller.servers())
-  }, [controller, revision])
+    setServers(remoteServers ?? controller.servers())
+  }, [controller, remoteServers, revision])
 
   const refresh = async () => {
     setBusy(true)
     try {
-      setServers(await controller.refresh())
+      const next =
+        !isDesktop && onRemoteRefresh
+          ? await onRemoteRefresh()
+          : await controller.refresh()
+      setServers(next)
       onChanged()
     } catch (error) {
       toast.error(
@@ -143,7 +151,7 @@ export function McpServersCard({
                 'Connect a user-selected stdio or HTTPS MCP server. Every call asks for exact parameter approval.'
               )
             : t(
-                'MCP connections are configured in the Tauri desktop app. A paired browser can use the connected tools; the headless Radxa companion currently exposes GitHub CLI only.'
+                'MCP connections are configured in the Tauri desktop app or by the Radxa administrator. A paired browser can use the connected tools; headless nodes expose only their explicit local allowlist.'
               )}
         </CardDescription>
       </CardHeader>
@@ -235,7 +243,7 @@ export function McpServersCard({
           </span>
           <Button
             aria-label={t('Refresh MCP servers')}
-            disabled={!isDesktop || busy}
+            disabled={(!isDesktop && !onRemoteRefresh) || busy}
             onClick={() => void refresh()}
             size='icon-xs'
             variant='ghost'
