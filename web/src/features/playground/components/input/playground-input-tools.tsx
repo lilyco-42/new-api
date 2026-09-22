@@ -27,19 +27,27 @@ import {
   PromptInputTools,
 } from '@/components/ai-elements/prompt-input'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { api } from '@/lib/api'
 
-import { ATTACHMENT_ACTIONS, getSearchActionNotice } from '../../lib'
+import { ATTACHMENT_ACTIONS } from '../../lib'
 import type { ParameterEnabled, PlaygroundConfig } from '../../types'
 import { PlaygroundParameterPanel } from './playground-parameter-panel'
 
@@ -71,25 +79,89 @@ export function PlaygroundInputTools({
   const { t } = useTranslation()
   const attachments = usePromptInputAttachments()
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [searchResults, setSearchResults] = useState<
+    Array<{ title: string; url: string; snippet?: string }>
+  >([])
+
+  const captureMediaFrame = async (kind: 'screen' | 'camera') => {
+    const mediaDevices = navigator.mediaDevices
+    if (!mediaDevices) {
+      attachments.openFileDialog()
+      return
+    }
+
+    let stream: MediaStream | null = null
+    try {
+      stream =
+        kind === 'screen'
+          ? await mediaDevices.getDisplayMedia({ video: true, audio: false })
+          : await mediaDevices.getUserMedia({ video: true, audio: false })
+      const video = document.createElement('video')
+      video.muted = true
+      video.playsInline = true
+      video.srcObject = stream
+      await video.play()
+      await new Promise<void>((resolve) => {
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          resolve()
+        } else {
+          video.addEventListener('loadeddata', () => resolve(), { once: true })
+        }
+      })
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth || 1280
+      canvas.height = video.videoHeight || 720
+      canvas
+        .getContext('2d')
+        ?.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/png')
+      )
+      if (!blob) throw new Error(t('Could not capture an image.'))
+      const prefix = kind === 'screen' ? 'screenshot' : 'photo'
+      attachments.add([
+        new File([blob], `${prefix}-${Date.now()}.png`, { type: 'image/png' }),
+      ])
+    } catch (error) {
+      if ((error as DOMException)?.name !== 'NotAllowedError') {
+        toast.error(
+          error instanceof Error ? error.message : t('Capture failed.')
+        )
+      }
+    } finally {
+      stream?.getTracks().forEach((track) => track.stop())
+    }
+  }
 
   const handleFileAction = (action: string) => {
     if (action === 'upload-file' || action === 'upload-photo') {
       attachments.openFileDialog()
       return
     }
-
-    toast.info(
-      t(
-        action === 'take-screenshot'
-          ? 'Use Upload file to attach a screenshot.'
-          : 'Use Upload photo to attach a photo.'
-      )
-    )
+    void captureMediaFrame(action === 'take-screenshot' ? 'screen' : 'camera')
   }
 
-  const handleSearchAction = () => {
-    const notice = getSearchActionNotice()
-    toast.info(t(notice.title))
+  const runSearch = async () => {
+    const query = searchQuery.trim()
+    if (!query) {
+      toast.error(t('Search query is required.'))
+      return
+    }
+    setSearching(true)
+    try {
+      const response = await api.get('/api/agent/search', {
+        params: { q: query, limit: 6 },
+        skipErrorHandler: true,
+      })
+      setSearchResults(response.data?.data?.items ?? [])
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('Search failed.'))
+    } finally {
+      setSearching(false)
+    }
   }
 
   const handleClearMessages = () => {
@@ -136,24 +208,78 @@ export function PlaygroundInputTools({
           </DropdownMenu>
         </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <PromptInputButton
+        <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <PopoverTrigger
+                  render={
+                    <PromptInputButton
+                      aria-label={t('Search')}
+                      className='text-muted-foreground hover:text-foreground hover:bg-muted/70 font-medium'
+                      disabled={disabled}
+                      variant='ghost'
+                    >
+                      <GlobeIcon size={16} />
+                    </PromptInputButton>
+                  }
+                />
+              }
+            />
+            <TooltipContent>
+              <p>{t('Search')}</p>
+            </TooltipContent>
+          </Tooltip>
+          <PopoverContent
+            align='start'
+            className='w-[min(24rem,calc(100vw-2rem))]'
+          >
+            <div className='flex gap-2'>
+              <Input
+                autoFocus
                 aria-label={t('Search')}
-                className='text-muted-foreground hover:text-foreground hover:bg-muted/70 font-medium'
-                disabled={disabled}
-                onClick={handleSearchAction}
-                variant='ghost'
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void runSearch()
+                }}
+                placeholder={t('Search the web')}
+                value={searchQuery}
+              />
+              <Button
+                disabled={searching}
+                onClick={() => void runSearch()}
+                size='sm'
               >
-                <GlobeIcon size={16} />
-              </PromptInputButton>
-            }
-          />
-          <TooltipContent>
-            <p>{t('Search')}</p>
-          </TooltipContent>
-        </Tooltip>
+                {searching ? t('Searching…') : t('Search')}
+              </Button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className='mt-2 grid max-h-72 gap-1 overflow-y-auto'>
+                {searchResults.map((result) => (
+                  <a
+                    className='hover:bg-muted/60 rounded-md p-2 text-xs'
+                    href={result.url}
+                    key={result.url}
+                    rel='noreferrer'
+                    target='_blank'
+                  >
+                    <span className='block truncate font-medium'>
+                      {result.title}
+                    </span>
+                    <span className='text-muted-foreground mt-0.5 line-clamp-2 block leading-4'>
+                      {result.snippet || result.url}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            )}
+            {!searching && searchQuery.trim() && searchResults.length === 0 && (
+              <p className='text-muted-foreground mt-2 text-xs'>
+                {t('No records found')}
+              </p>
+            )}
+          </PopoverContent>
+        </Popover>
 
         <PlaygroundParameterPanel
           config={config}

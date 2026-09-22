@@ -23,20 +23,31 @@ import {
   Code2,
   FileCode2,
   FolderOpen,
+  FileText,
   Globe2,
+  Image as ImageIcon,
   Menu,
   MoreHorizontal,
   PanelRight,
   PanelRightClose,
   PenLine,
   Share2,
+  Upload,
   Wrench,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import {
   Sheet,
   SheetContent,
@@ -62,7 +73,6 @@ import {
   type AgentRunEvent,
 } from './agent-bridge'
 import { localAgentToolProvider } from './agent-tool-provider'
-import { webAgentToolProvider } from './web-agent-tool-provider'
 import { AgentBridgeCard } from './components/agent-bridge-card'
 import { AgentSidebar, type AgentPreset } from './components/agent-sidebar'
 import { DeveloperToolkitCard } from './components/developer-toolkit-card'
@@ -76,6 +86,7 @@ import {
   createMcpToolProvider,
   type McpServerDescriptor,
 } from './mcp-tool-provider'
+import { webAgentToolProvider } from './web-agent-tool-provider'
 
 const LYCO_DEFAULT_SYSTEM_PROMPT = `你是云枢智创 Agent，默认采用 lyco-skill 的“预研先行”方法。
 
@@ -200,31 +211,300 @@ const WORKSPACE_VIEWS: Array<{
   { id: 'preview', label: 'Preview', icon: Eye },
 ]
 
-function WorkspaceViewPlaceholder({
-  view,
-}: {
-  view: Exclude<WorkspaceView, 'tools'>
-}) {
+type WorkspaceFile = {
+  id: string
+  name: string
+  type: string
+  size: number
+  url: string
+  text?: string
+}
+
+function WorkspaceFiles({ view }: { view: Exclude<WorkspaceView, 'tools'> }) {
   const { t } = useTranslation()
-  const isFiles = view === 'files'
-  const Icon = isFiles ? FileCode2 : Eye
+  const [files, setFiles] = useState<WorkspaceFile[]>([])
+  const [selectedId, setSelectedId] = useState<string>()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(
+    () => () => {
+      files.forEach((file) => URL.revokeObjectURL(file.url))
+    },
+    [files]
+  )
+
+  const selected = files.find((file) => file.id === selectedId)
+  const loadFiles = async (incoming: FileList | null) => {
+    if (!incoming?.length) return
+    const next = [...incoming].slice(0, 10)
+    const loaded = await Promise.all(
+      next.map(async (file, index) => {
+        const id = `${file.name}-${file.lastModified}-${index}`
+        const textLike =
+          file.type.startsWith('text/') ||
+          /\.(c|cc|cpp|css|csv|go|h|hpp|html?|java|js|json|md|py|rs|sql|toml|ts|tsx|txt|vue|xml|ya?ml)$/i.test(
+            file.name
+          )
+        return {
+          id,
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          url: URL.createObjectURL(file),
+          ...(textLike ? { text: (await file.text()).slice(0, 120_000) } : {}),
+        }
+      })
+    )
+    setFiles((previous) => {
+      previous.forEach((file) => URL.revokeObjectURL(file.url))
+      return loaded
+    })
+    setSelectedId(loaded[0]?.id)
+  }
+
+  const filesContent = (
+    <>
+      <div className='flex items-center justify-between gap-2'>
+        <div>
+          <h3 className='text-sm font-medium'>{t('Workspace files')}</h3>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Files stay in this browser until you attach them to a message.'
+            )}
+          </p>
+        </div>
+        <Button onClick={() => inputRef.current?.click()} size='sm'>
+          <Upload className='mr-1.5 size-3.5' aria-hidden='true' />
+          {t('Upload files')}
+        </Button>
+      </div>
+      {files.length === 0 ? (
+        <button
+          className='text-muted-foreground hover:border-primary/50 hover:text-foreground flex min-h-44 flex-col items-center justify-center rounded-xl border border-dashed px-6 text-center text-xs'
+          onClick={() => inputRef.current?.click()}
+          type='button'
+        >
+          <FileCode2 className='mb-2 size-6' aria-hidden='true' />
+          {t('Choose files to inspect them here.')}
+        </button>
+      ) : (
+        <div className='grid gap-1'>
+          {files.map((file) => {
+            const FileIcon = file.type.startsWith('image/')
+              ? ImageIcon
+              : FileText
+            return (
+              <button
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs ${file.id === selectedId ? 'bg-muted' : 'hover:bg-muted/60'}`}
+                key={file.id}
+                onClick={() => setSelectedId(file.id)}
+                type='button'
+              >
+                <FileIcon className='size-4 shrink-0' aria-hidden='true' />
+                <span className='min-w-0 flex-1 truncate'>{file.name}</span>
+                <span className='text-muted-foreground shrink-0'>
+                  {Math.ceil(file.size / 1024)} KB
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </>
+  )
+
+  let previewContent: ReactNode
+  if (!selected) {
+    previewContent = (
+      <div className='flex min-h-[22rem] flex-col items-center justify-center rounded-xl border border-dashed px-6 text-center'>
+        <Eye className='text-muted-foreground mb-3 size-6' aria-hidden='true' />
+        <h3 className='text-sm font-medium'>{t('No preview yet')}</h3>
+        <p className='text-muted-foreground mt-1 max-w-xs text-xs leading-5'>
+          {t('Choose a file in the Files tab to preview it here.')}
+        </p>
+        <Button
+          className='mt-4'
+          onClick={() => inputRef.current?.click()}
+          size='sm'
+        >
+          {t('Upload files')}
+        </Button>
+      </div>
+    )
+  } else {
+    let body: ReactNode
+    if (selected.type.startsWith('image/')) {
+      body = (
+        <img
+          alt={selected.name}
+          className='max-h-[30rem] w-full rounded-lg border object-contain'
+          src={selected.url}
+        />
+      )
+    } else if (selected.text !== undefined) {
+      body = (
+        <pre className='bg-muted/40 min-h-44 overflow-auto rounded-lg p-3 text-xs leading-5 whitespace-pre-wrap'>
+          {selected.text}
+        </pre>
+      )
+    } else {
+      body = (
+        <div className='text-muted-foreground flex min-h-44 items-center justify-center rounded-lg border border-dashed text-xs'>
+          {t('Preview is unavailable for this file type.')}
+        </div>
+      )
+    }
+    previewContent = (
+      <div className='grid min-h-0 gap-3'>
+        <div className='flex items-center justify-between gap-2'>
+          <div className='min-w-0'>
+            <h3 className='truncate text-sm font-medium'>{selected.name}</h3>
+            <p className='text-muted-foreground truncate text-xs'>
+              {selected.type}
+            </p>
+          </div>
+          <Button
+            onClick={() => inputRef.current?.click()}
+            size='sm'
+            variant='outline'
+          >
+            {t('Upload files')}
+          </Button>
+        </div>
+        {body}
+      </div>
+    )
+  }
 
   return (
-    <div className='flex min-h-[22rem] flex-col items-center justify-center rounded-xl border border-dashed px-6 text-center'>
-      <div className='bg-muted/50 text-muted-foreground mb-3 flex size-10 items-center justify-center rounded-xl'>
-        <Icon className='size-5' aria-hidden='true' />
-      </div>
-      <h3 className='text-sm font-medium'>
-        {t(isFiles ? 'No file selected' : 'No preview yet')}
-      </h3>
-      <p className='text-muted-foreground mt-1 max-w-xs text-xs leading-5'>
-        {t(
-          isFiles
-            ? 'Open a repository or attach a file to see it in the workspace.'
-            : 'Run a task or open a file to populate the preview pane.'
-        )}
-      </p>
+    <div className='grid min-h-[22rem] gap-3'>
+      <input
+        accept='image/*,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
+        className='hidden'
+        multiple
+        onChange={(event) => {
+          void loadFiles(event.target.files)
+          event.currentTarget.value = ''
+        }}
+        ref={inputRef}
+        type='file'
+      />
+      {view === 'files' ? filesContent : previewContent}
     </div>
+  )
+}
+
+type AgentChatSearchResult = {
+  key: string
+  namespace: string
+  presetId: string
+  chatId: number
+  preview: string
+  updatedAt?: number
+}
+
+function readAgentChatSearchResults(query: string): AgentChatSearchResult[] {
+  if (typeof window === 'undefined') return []
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return []
+
+  const results: AgentChatSearchResult[] = []
+  const namespacePattern = /^agent-([a-z-]+)-chat-(\d+):playground_messages$/
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const storageKey = window.localStorage.key(index)
+    const match = storageKey?.match(namespacePattern)
+    if (!storageKey || !match) {
+      continue
+    }
+    try {
+      const parsed = JSON.parse(
+        window.localStorage.getItem(storageKey) ?? ''
+      ) as {
+        data?: Array<{
+          key?: string
+          from?: string
+          createdAt?: number
+          versions?: Array<{ content?: string }>
+        }>
+      }
+      const messages = Array.isArray(parsed.data) ? parsed.data : []
+      for (const message of messages) {
+        const content = message.versions?.at(-1)?.content?.trim() ?? ''
+        if (!content || !content.toLowerCase().includes(normalizedQuery)) {
+          continue
+        }
+        results.push({
+          key: message.key ?? `${storageKey}-${results.length}`,
+          namespace: storageKey,
+          presetId: match[1],
+          chatId: Number(match[2]),
+          preview: content.slice(0, 180),
+          updatedAt: message.createdAt,
+        })
+      }
+    } catch {
+      // Ignore stale or malformed local conversation data.
+    }
+  }
+  return results
+    .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
+    .slice(0, 30)
+}
+
+function AgentChatSearchDialog({
+  open,
+  onOpenChange,
+  onSelect,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSelect: (presetId: string, chatId: number) => void
+}) {
+  const { t } = useTranslation()
+  const [query, setQuery] = useState('')
+  const results = readAgentChatSearchResults(query)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className='sm:max-w-lg'>
+        <DialogHeader>
+          <DialogTitle>{t('Search chats')}</DialogTitle>
+          <DialogDescription>
+            {t('Search local Agent conversations stored in this browser.')}
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          autoFocus
+          aria-label={t('Search chats')}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t('Search chats')}
+          value={query}
+        />
+        <div className='grid max-h-80 gap-1 overflow-y-auto'>
+          {query.trim() && results.length === 0 && (
+            <p className='text-muted-foreground px-2 py-6 text-center text-sm'>
+              {t('No records found')}
+            </p>
+          )}
+          {results.map((result) => (
+            <button
+              className='hover:bg-muted flex min-w-0 flex-col rounded-lg px-3 py-2 text-left'
+              key={`${result.namespace}-${result.key}`}
+              onClick={() => {
+                onSelect(result.presetId, result.chatId)
+                onOpenChange(false)
+              }}
+              type='button'
+            >
+              <span className='text-muted-foreground text-[10px] uppercase'>
+                {result.presetId} · chat {result.chatId}
+              </span>
+              <span className='truncate text-sm'>{result.preview}</span>
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -287,6 +567,7 @@ export function AgentWorkspace() {
   const [preset, setPreset] = useState<AgentPreset>(PRESETS[0])
   const [chatId, setChatId] = useState(0)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('tools')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [bridgeStatus, setBridgeStatus] =
@@ -468,12 +749,19 @@ export function AgentWorkspace() {
     setSidebarOpen(false)
   }
 
+  const handleChatSearchSelect = (presetId: string, selectedChatId: number) => {
+    const nextPreset = PRESETS.find((item) => item.id === presetId)
+    if (nextPreset) setPreset(nextPreset)
+    setChatId(selectedChatId)
+  }
+
   return (
     <div className='bg-background text-foreground flex size-full min-h-0 overflow-hidden'>
       <AgentSidebar
         activePresetId={preset.id}
         className='hidden lg:flex'
         onNewChat={handleNewChat}
+        onSearchChats={() => setChatSearchOpen(true)}
         onOpenTools={() => setToolsOpen(true)}
         onPresetChange={handlePresetChange}
         presets={PRESETS}
@@ -492,6 +780,7 @@ export function AgentWorkspace() {
             activePresetId={preset.id}
             className='h-full w-full border-0'
             onNewChat={handleNewChat}
+            onSearchChats={() => setChatSearchOpen(true)}
             onOpenTools={() => {
               setSidebarOpen(false)
               setToolsOpen(true)
@@ -597,6 +886,12 @@ export function AgentWorkspace() {
         </main>
       </div>
 
+      <AgentChatSearchDialog
+        onOpenChange={setChatSearchOpen}
+        onSelect={handleChatSearchSelect}
+        open={chatSearchOpen}
+      />
+
       {toolsOpen && !useToolsSheet && (
         <aside className='bg-background flex w-[min(43vw,52rem)] shrink-0 flex-col border-l'>
           <WorkspacePanelHeader
@@ -624,7 +919,7 @@ export function AgentWorkspace() {
                 journal={isDesktop ? undefined : bridgeJournal}
               />
             ) : (
-              <WorkspaceViewPlaceholder view={workspaceView} />
+              <WorkspaceFiles view={workspaceView} />
             )}
           </div>
         </aside>

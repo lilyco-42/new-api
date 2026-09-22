@@ -52,6 +52,7 @@ type AgentSidebarProps = {
   activePresetId: string
   className?: string
   onNewChat: () => void
+  onSearchChats: () => void
   onOpenTools: () => void
   onPresetChange: (preset: AgentPreset) => void
 }
@@ -61,6 +62,7 @@ export function AgentSidebar({
   activePresetId,
   className,
   onNewChat,
+  onSearchChats,
   onOpenTools,
   onPresetChange,
 }: AgentSidebarProps) {
@@ -103,9 +105,7 @@ export function AgentSidebar({
           <Button
             aria-label={t('Search')}
             className='text-sidebar-foreground/60 hover:text-sidebar-foreground'
-            onClick={() =>
-              toast.info(t('Chat search is available from the app header.'))
-            }
+            onClick={onSearchChats}
             size='icon-sm'
             type='button'
             variant='ghost'
@@ -138,9 +138,7 @@ export function AgentSidebar({
         <Button
           aria-label={t('Search chats')}
           className='text-sidebar-foreground/70 hover:text-sidebar-foreground h-9 justify-start gap-2.5 rounded-lg px-3 text-sm'
-          onClick={() =>
-            toast.info(t('Chat search is available from the app header.'))
-          }
+          onClick={onSearchChats}
           type='button'
           variant='ghost'
         >

@@ -135,32 +135,33 @@ export function GithubCliCard() {
   const [checking, setChecking] = useState(false)
   const [searching, setSearching] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [browserStatus, setBrowserStatus] = useState<BrowserGitHubStatus | null>(null)
+  const [browserStatus, setBrowserStatus] =
+    useState<BrowserGitHubStatus | null>(null)
   const [connectingBrowser, setConnectingBrowser] = useState(false)
 
-  const refreshBrowserStatus = async () => {
-    try {
-      const response = await api.get('/api/agent/github/status', {
-        skipErrorHandler: true,
-      })
-      const value = response.data?.data
-      if (value && typeof value === 'object') {
-        setBrowserStatus(value as BrowserGitHubStatus)
+  const refreshBrowserStatus =
+    async (): Promise<BrowserGitHubStatus | null> => {
+      try {
+        const response = await api.get('/api/agent/github/status', {
+          skipErrorHandler: true,
+        })
+        const value = response.data?.data
+        if (value && typeof value === 'object') {
+          const nextStatus = value as BrowserGitHubStatus
+          setBrowserStatus(nextStatus)
+          return nextStatus
+        }
+      } catch {
+        // The page can still use the local gh CLI when the browser API is
+        // unavailable, so status refresh is intentionally best-effort.
       }
-    } catch {
-      // The page can still use the local gh CLI when the browser API is
-      // unavailable, so status refresh is intentionally best-effort.
+      return null
     }
-  }
 
   const connectBrowserGitHub = async () => {
     setConnectingBrowser(true)
     try {
-      await refreshBrowserStatus()
-      const statusResponse = await api.get('/api/agent/github/status', {
-        skipErrorHandler: true,
-      })
-      const status = statusResponse.data?.data as BrowserGitHubStatus | undefined
+      const status = await refreshBrowserStatus()
       if (!status?.enabled || !status.client_id) {
         throw new Error(t('GitHub OAuth is not configured on this site.'))
       }
@@ -176,18 +177,24 @@ export function GithubCliCard() {
       authorization.searchParams.set('state', state)
       authorization.searchParams.set('scope', 'repo read:user user:email')
       popup.location.replace(authorization.toString())
-      const started = Date.now()
+      let attempts = 0
       const poll = window.setInterval(() => {
-        void refreshBrowserStatus()
-        if (popup.closed || Date.now() - started > 5 * 60_000) {
-          window.clearInterval(poll)
-          void refreshBrowserStatus()
-          setConnectingBrowser(false)
-        }
-      }, 2000)
+        attempts += 1
+        void refreshBrowserStatus().then((nextStatus) => {
+          // Stop as soon as the callback has stored the credential. The old
+          // five-minute, two-second poll could consume the critical API budget
+          // even after OAuth had already succeeded, resulting in a 429 loop.
+          if (nextStatus?.connected || popup.closed || attempts >= 8) {
+            window.clearInterval(poll)
+            setConnectingBrowser(false)
+          }
+        })
+      }, 7000)
     } catch (error) {
       setConnectingBrowser(false)
-      toast.error(error instanceof Error ? error.message : t('GitHub OAuth failed.'))
+      toast.error(
+        error instanceof Error ? error.message : t('GitHub OAuth failed.')
+      )
     }
   }
 
@@ -197,11 +204,15 @@ export function GithubCliCard() {
         skipErrorHandler: true,
       })
       setBrowserStatus((previous) =>
-        previous ? { ...previous, connected: false, login: undefined } : previous
+        previous
+          ? { ...previous, connected: false, login: undefined }
+          : previous
       )
       toast.success(t('GitHub authorization removed.'))
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('GitHub disconnect failed.'))
+      toast.error(
+        error instanceof Error ? error.message : t('GitHub disconnect failed.')
+      )
     }
   }
 
@@ -230,13 +241,18 @@ export function GithubCliCard() {
       if (!query.trim()) return
       setSearching(true)
       try {
-        const response = await api.get('/api/agent/github/repositories/search', {
-          params: { q: query.trim(), limit: 6 },
-          skipErrorHandler: true,
-        })
+        const response = await api.get(
+          '/api/agent/github/repositories/search',
+          {
+            params: { q: query.trim(), limit: 6 },
+            skipErrorHandler: true,
+          }
+        )
         setRepositories(response.data?.data?.items ?? [])
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : t('GitHub search failed.'))
+        toast.error(
+          error instanceof Error ? error.message : t('GitHub search failed.')
+        )
       } finally {
         setSearching(false)
       }
@@ -287,15 +303,27 @@ export function GithubCliCard() {
         return
       }
       try {
-        const path = kind === 'issues' ? '/api/agent/github/issues' : '/api/agent/github/pull-requests'
+        const path =
+          kind === 'issues'
+            ? '/api/agent/github/issues'
+            : '/api/agent/github/pull-requests'
         const response = await api.get(path, {
-          params: { repo: repo.trim(), limit: 6, state: 'open', sort: 'updated' },
+          params: {
+            repo: repo.trim(),
+            limit: 6,
+            state: 'open',
+            sort: 'updated',
+          },
           skipErrorHandler: true,
         })
         setActivity(response.data?.data?.items ?? [])
         setActivityKind(kind)
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : t('GitHub activity load failed.'))
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t('GitHub activity load failed.')
+        )
       }
       return
     }
