@@ -72,7 +72,7 @@ func ValidateAgentBridgeHello(envelope AgentBridgeEnvelope) error {
 	if envelope.Type != AgentBridgeMessageHello {
 		return ErrAgentBridgeInvalid
 	}
-	if envelope.ProtocolVersion > AgentBridgeProtocolVersion {
+	if envelope.ProtocolVersion < 0 || envelope.ProtocolVersion > AgentBridgeProtocolVersion {
 		return ErrAgentBridgeInvalid
 	}
 	if len(envelope.Capabilities) > AgentBridgeMaxCapabilities {

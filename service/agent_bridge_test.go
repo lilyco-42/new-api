@@ -77,6 +77,10 @@ func TestValidateAgentBridgeHelloKeepsVersionAndCapabilitiesAdditive(t *testing.
 		ProtocolVersion: AgentBridgeProtocolVersion + 1,
 	}))
 	require.Error(t, ValidateAgentBridgeHello(AgentBridgeEnvelope{
+		Type:            AgentBridgeMessageHello,
+		ProtocolVersion: -1,
+	}))
+	require.Error(t, ValidateAgentBridgeHello(AgentBridgeEnvelope{
 		Type:         AgentBridgeMessageHello,
 		Capabilities: []string{"mcp.list", "mcp.list"},
 	}))
