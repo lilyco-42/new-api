@@ -78,6 +78,8 @@ func AgentBridgeDesktop(c *gin.Context) {
 		return
 	}
 	defer hub.Unregister(peer)
+	stopHeartbeat := make(chan struct{})
+	defer close(stopHeartbeat)
 	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 	if err := hub.Send(peer, service.AgentBridgeEnvelope{
 		Type:            service.AgentBridgeMessageHelloAck,
@@ -87,6 +89,24 @@ func AgentBridgeDesktop(c *gin.Context) {
 	}); err != nil {
 		return
 	}
+	// Headless companions do not have a browser event loop to schedule their
+	// own heartbeat. Keep the outbound connection alive from the server and
+	// let the companion answer with a pong, which also refreshes the read
+	// deadline below.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := hub.Send(peer, service.AgentBridgeEnvelope{Type: service.AgentBridgeMessagePing}); err != nil {
+					return
+				}
+			case <-stopHeartbeat:
+				return
+			}
+		}
+	}()
 
 	for {
 		var envelope service.AgentBridgeEnvelope
@@ -107,6 +127,9 @@ func AgentBridgeDesktop(c *gin.Context) {
 			if err := hub.Send(peer, service.AgentBridgeEnvelope{Type: service.AgentBridgeMessagePong}); err != nil {
 				return
 			}
+		case service.AgentBridgeMessagePong:
+			// The headless companion answers the server heartbeat. Reading it
+			// is enough to refresh the read deadline and keep the session alive.
 		default:
 			return
 		}
