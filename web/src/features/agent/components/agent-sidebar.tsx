@@ -160,11 +160,7 @@ export function AgentSidebar({
           <Button
             className='text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground h-9 justify-start gap-2.5 rounded-lg px-2.5 text-sm'
             key={label}
-            onClick={() =>
-              toast.info(
-                t('This workspace entry is ready for a future module.')
-              )
-            }
+            onClick={onOpenTools}
             type='button'
             variant='ghost'
           >

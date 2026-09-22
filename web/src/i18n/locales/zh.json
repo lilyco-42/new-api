@@ -4220,6 +4220,7 @@
     "Search the web": "搜索网页",
     "Search query is required.": "请输入搜索内容。",
     "Search failed.": "搜索失败。",
+    "The selected model is temporarily rate limited. Retry shortly or choose another model.": "当前模型暂时触发限流，请稍后重试或切换其他模型。",
     "Searching…": "搜索中…",
     "Capture failed.": "捕获失败。",
     "Could not capture an image.": "无法捕获图片。",

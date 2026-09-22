@@ -33,11 +33,6 @@ type AttachmentAction = {
   label: string
 }
 
-type InputToolNotice = {
-  description?: string
-  title: string
-}
-
 export const ATTACHMENT_ACTIONS = [
   { action: 'upload-file', icon: FileIcon, label: 'Upload file' },
   { action: 'upload-photo', icon: ImageIcon, label: 'Upload photo' },
@@ -129,17 +124,4 @@ export function filePartsToContentParts(files: FileUIPart[]): ContentPart[] {
   }
 
   return parts
-}
-
-export function getAttachmentActionNotice(action: string): InputToolNotice {
-  return {
-    description: action,
-    title: 'Feature in development',
-  }
-}
-
-export function getSearchActionNotice(): InputToolNotice {
-  return {
-    title: 'Search feature in development',
-  }
 }

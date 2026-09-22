@@ -209,6 +209,17 @@ export function useChatHandler({
         return t(error)
       }
 
+      // Upstream providers commonly return a bare Axios "status code 429"
+      // message. Turn it into an actionable hint instead of making users
+      // guess whether their prompt or account is broken.
+      if (
+        /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
+          error
+        )
+      ) {
+        return t('The selected model is temporarily rate limited. Retry shortly or choose another model.')
+      }
+
       const connectionClosedSuffix = `: ${ERROR_MESSAGES.CONNECTION_CLOSED}`
       if (error.endsWith(connectionClosedSuffix)) {
         return `${error.slice(0, -ERROR_MESSAGES.CONNECTION_CLOSED.length)}${t(

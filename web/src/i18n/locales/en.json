@@ -4220,6 +4220,7 @@
     "Search the web": "Search the web",
     "Search query is required.": "Search query is required.",
     "Search failed.": "Search failed.",
+    "The selected model is temporarily rate limited. Retry shortly or choose another model.": "The selected model is temporarily rate limited. Retry shortly or choose another model.",
     "Searching…": "Searching…",
     "Capture failed.": "Capture failed.",
     "Could not capture an image.": "Could not capture an image.",
