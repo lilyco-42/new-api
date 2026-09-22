@@ -4,7 +4,7 @@ The desktop shell exposes one versioned tool boundary instead of one Tauri
 command per executable.
 
 The paired WebSocket handshake carries `protocol_version: 1` and a bounded
-capability list (`github.read`, `mcp.list`, `mcp.call`). Version 1 peers may
+capability list (`github.read`, `developer.cli.status`, `mcp.list`, `mcp.call`). Version 1 peers may
 omit these fields for backwards compatibility. A future incompatible wire
 change must use a new version; additive fields and capabilities are ignored by
 older peers. The server advertises the negotiated version in `hello_ack`, so a
@@ -44,8 +44,11 @@ The runtime validates the operation's typed parameters, constructs the fixed
 argv without a shell, enforces a 30-second deadline and a 64 KiB streaming
 output limit, and returns the operation, status, bounded output, and truncation
 flag. The accepted operations are deliberately read-only in v1:
-`github.auth.status`, `github.issues.list`, `github.repositories.search`, and
-`github.pull_requests.list`.
+`developer.tools.status`, `github.auth.status`, `github.issues.list`,
+`github.repositories.search`, and `github.pull_requests.list`. The developer
+status operation runs only fixed `--version` probes for the registered CLI
+catalog, so a browser or model can discover whether Yazi, jj, ast-grep, and
+CodeGraph are available without gaining an arbitrary command runner.
 
 `gh` uses the same adapter and automatically receives the current desktop
 profile's `GH_CONFIG_DIR` after inherited token environment variables are
@@ -77,8 +80,8 @@ local configuration with an explicit tool allowlist. Connections are
 process-memory sessions and must be recreated after the desktop exits; the
 headless companion recreates its configured MCP session for each request.
 
-The paired WebSocket bridge also accepts only `mcp.list` and `mcp.call` in
-addition to the four read-only GitHub operations. A browser receives the
+The paired WebSocket bridge also accepts only `developer.tools.status`,
+`mcp.list`, and `mcp.call` in addition to the read-only GitHub operations. A browser receives the
 already-connected tool descriptors but never receives the stdio command or
 bearer token. The desktop remains the execution and approval boundary.
 

@@ -448,6 +448,25 @@ pub fn execute_operation(
     credentials: Option<&ProfileCredentials>,
     cancellation: &CancellationToken,
 ) -> Result<CliExecResult, String> {
+    if request.operation.trim() == "developer.tools.status" {
+        let _: EmptyParams = serde_json::from_value(request.params.clone())
+            .map_err(|_| "Invalid arguments for developer.tools.status.".to_string())?;
+        let statuses = CLI_TOOL_REGISTRY
+            .iter()
+            .map(|tool| detect_cli_tool(tool.id, credentials))
+            .collect::<Vec<_>>();
+        let stdout = serde_json::to_string(&statuses)
+            .map_err(|_| "Unable to encode developer tool status.".to_string())?;
+        return Ok(CliExecResult {
+            operation: "developer.tools.status".to_string(),
+            tool_id: "agent".to_string(),
+            exit_code: Some(0),
+            stdout,
+            stderr: String::new(),
+            truncated: false,
+            status: ExecutionStatus::Succeeded,
+        });
+    }
     let (operation, args) = operation_args(request)?;
     let tool = cli_tool_spec(operation.tool_id)?;
     let credentials = if tool.profile_scoped {

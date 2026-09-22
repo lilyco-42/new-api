@@ -720,6 +720,7 @@ fn run_connection(
             protocol_version: Some(AGENT_BRIDGE_PROTOCOL_VERSION),
             capabilities: Some(vec![
                 "github.read".to_string(),
+                "developer.cli.status".to_string(),
                 "mcp.list".to_string(),
                 "mcp.call".to_string(),
             ]),

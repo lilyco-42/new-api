@@ -20,6 +20,7 @@ const REQUEST_TIMEOUT_MS = 45_000
 export const AGENT_BRIDGE_PROTOCOL_VERSION = 1 as const
 const AGENT_BRIDGE_CAPABILITIES = [
   'github.read',
+  'developer.cli.status',
   'mcp.list',
   'mcp.call',
 ] as const
@@ -490,6 +491,7 @@ export async function startDesktopAgentBridge(
     if (
       !operation ||
       ![
+        'developer.tools.status',
         'github.auth.status',
         'github.issues.list',
         'github.repositories.search',

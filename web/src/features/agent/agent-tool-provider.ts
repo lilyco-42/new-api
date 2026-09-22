@@ -57,6 +57,20 @@ const AUTH_STATUS_TOOL: ChatCompletionTool = {
   },
 }
 
+const DEVELOPER_STATUS_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'developer.tools.status',
+    description:
+      'Check which approved developer CLIs are installed on the paired desktop or Radxa node. Tokens and command output are not exposed.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    },
+  },
+}
+
 const ISSUES_TOOL: ChatCompletionTool = {
   type: 'function',
   function: {
@@ -133,6 +147,7 @@ const PULL_REQUESTS_TOOL: ChatCompletionTool = {
 }
 
 const TOOLS: ChatCompletionTool[] = [
+  DEVELOPER_STATUS_TOOL,
   AUTH_STATUS_TOOL,
   ISSUES_TOOL,
   REPOSITORY_SEARCH_TOOL,
@@ -166,9 +181,12 @@ function parseToolArguments(
   argumentsText: string
 ): Record<string, unknown> {
   const params = parseJsonObject(argumentsText, name)
-  if (name === AUTH_STATUS_TOOL.function.name) {
+  if (
+    name === AUTH_STATUS_TOOL.function.name ||
+    name === DEVELOPER_STATUS_TOOL.function.name
+  ) {
     if (Object.keys(params).length > 0) {
-      throw new Error('GitHub auth status does not accept arguments.')
+      throw new Error(`${name} does not accept arguments.`)
     }
     return {}
   }
@@ -317,7 +335,7 @@ export const localAgentToolProvider: LocalToolProvider = {
     }
 
     return JSON.stringify({
-      source: 'local gh cli',
+      source: result.tool_id === 'gh' ? 'local gh cli' : 'local approved cli',
       operation: result.operation ?? call.function.name,
       truncated: Boolean(result.truncated),
       data,

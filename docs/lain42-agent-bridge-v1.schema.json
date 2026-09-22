@@ -42,6 +42,7 @@
     "operation": {
       "type": "string",
       "enum": [
+        "developer.tools.status",
         "github.auth.status",
         "github.issues.list",
         "github.repositories.search",
