@@ -108,7 +108,12 @@ func SetApiRouter(router *gin.Engine) {
 
 		userRoute := apiRouter.Group("/user")
 		{
-			userRoute.POST("/auth/refresh", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RefreshAuth)
+			// Refresh is already protected by the signed refresh cookie and the
+			// origin guard. Keeping it in the shared IP-based critical bucket lets
+			// an unrelated reconnect storm (for example a headless Agent bridge)
+			// lock every browser session out with a 429. Let the controller's
+			// refresh-token rotation provide the replay protection instead.
+			userRoute.POST("/auth/refresh", middleware.SessionCookieOriginGuard(), middleware.DisableCache(), controller.RefreshAuth)
 			userRoute.POST("/auth/logout", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AuthLogout)
 			userRoute.POST("/register", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, middleware.TurnstileCheck(), controller.Register)
 			userRoute.GET("/login/encryption-key", middleware.DisableCache(), controller.GetPasswordEncryptionKey)
