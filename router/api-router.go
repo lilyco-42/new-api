@@ -55,6 +55,12 @@ func SetApiRouter(router *gin.Engine) {
 			browserAgentRoute := agentRoute.Group("")
 			browserAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
 			browserAgentRoute.GET("/bridge/browser", middleware.SessionCookieOriginGuard(), controller.AgentBridgeBrowser)
+			browserAgentRoute.GET("/search", controller.AgentWebSearch)
+			browserAgentRoute.GET("/github/status", controller.AgentGitHubStatus)
+			browserAgentRoute.DELETE("/github/authorization", middleware.SessionCookieOriginGuard(), controller.AgentGitHubDisconnect)
+			browserAgentRoute.GET("/github/repositories/search", controller.AgentGitHubRepositoriesSearch)
+			browserAgentRoute.GET("/github/issues", controller.AgentGitHubIssues)
+			browserAgentRoute.GET("/github/pull-requests", controller.AgentGitHubPullRequests)
 		}
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")

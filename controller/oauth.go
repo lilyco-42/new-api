@@ -239,16 +239,25 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 		return
 	}
 
-	// Check if this OAuth account is already bound (check both new ID and legacy ID)
+	// Check if this OAuth account is already bound. Re-linking the same user's
+	// GitHub account is allowed so the Agent credential can be refreshed after
+	// a scope change or token rotation; another user's account is rejected.
+	allowGitHubRefresh := provider.GetProviderPrefix() == "github_"
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
-		common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
-		return
-	}
-	// Also check legacy ID to prevent duplicate bindings during migration period
-	if legacyID, ok := oauthUser.Extra["legacy_id"].(string); ok && legacyID != "" {
-		if provider.IsUserIDTaken(legacyID) {
+		boundUser := &model.User{}
+		if !allowGitHubRefresh || provider.FillUserByProviderID(boundUser, oauthUser.ProviderUserID) != nil || boundUser.Id != pendingFlow.UserId {
 			common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
 			return
+		}
+	}
+	// Also check legacy ID to prevent duplicate bindings during migration period.
+	if allowGitHubRefresh {
+		if legacyID, ok := oauthUser.Extra["legacy_id"].(string); ok && legacyID != "" && provider.IsUserIDTaken(legacyID) {
+			boundUser := &model.User{}
+			if provider.FillUserByProviderID(boundUser, legacyID) != nil || boundUser.Id != pendingFlow.UserId {
+				common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
+				return
+			}
 		}
 	}
 
@@ -272,6 +281,14 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 		if err != nil {
 			common.ApiError(c, err)
 			return
+		}
+	} else if provider.GetProviderPrefix() == "github_" {
+		// GitHub's built-in binding is also the explicit Agent authorization
+		// ceremony. Persist the encrypted grant after the one-time flow has been
+		// consumed; the browser only receives the non-sensitive success result.
+		err = model.UpdateUserBindColumn(userId, provider.ProviderUserIDColumn(), oauthUser.ProviderUserID)
+		if err == nil {
+			err = model.SaveAgentGitHubCredential(userId, oauthUser.ProviderUserID, oauthUser.Username, token.Scope, token.AccessToken)
 		}
 	} else {
 		// Built-in provider: 只更新绑定列。完整快照的 user.Update 会把读取时刻的

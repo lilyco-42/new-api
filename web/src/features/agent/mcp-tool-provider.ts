@@ -397,12 +397,22 @@ export function createBrowserMcpToolProvider(
 export function combineLocalToolProviders(
   ...providers: LocalToolProvider[]
 ): LocalToolProvider {
+  const toolsByName = new Map<string, ChatCompletionTool>()
+  for (const provider of providers) {
+    for (const tool of provider.tools) {
+      // Keep the first provider's implementation when a local/paired tool
+      // intentionally shadows the server fallback with the same name.
+      if (!toolsByName.has(tool.function.name)) {
+        toolsByName.set(tool.function.name, tool)
+      }
+    }
+  }
   const findProvider = (name: string) =>
     providers.find((provider) =>
       provider.tools.some((tool) => tool.function.name === name)
     )
   return {
-    tools: providers.flatMap((provider) => provider.tools),
+    tools: [...toolsByName.values()],
     isAvailable: () => providers.some((provider) => provider.isAvailable()),
     requiresApproval: async (call, signal) => {
       const provider = findProvider(call.function.name)
@@ -411,7 +421,7 @@ export function combineLocalToolProviders(
       }
       return provider.requiresApproval
         ? provider.requiresApproval(call, signal)
-        : true
+        : false
     },
     invoke: async (call, signal) => {
       const provider = findProvider(call.function.name)

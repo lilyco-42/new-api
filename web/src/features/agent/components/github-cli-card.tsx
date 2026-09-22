@@ -31,6 +31,12 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { createOAuthFlow } from '@/features/auth/api'
+import {
+  getOAuthSessionStorage,
+  markOAuthBindPopup,
+} from '@/features/auth/lib/oauth-callback-mode'
+import { api } from '@/lib/api'
 
 type GhAuthStatus = {
   profile_id: string
@@ -56,6 +62,14 @@ type GhActivity = {
   url?: string
   state?: string
   updatedAt?: string
+}
+
+type BrowserGitHubStatus = {
+  enabled: boolean
+  connected: boolean
+  login?: string
+  scope?: string[]
+  client_id?: string
 }
 
 type TauriWindow = Window & {
@@ -121,13 +135,80 @@ export function GithubCliCard() {
   const [checking, setChecking] = useState(false)
   const [searching, setSearching] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [browserStatus, setBrowserStatus] = useState<BrowserGitHubStatus | null>(null)
+  const [connectingBrowser, setConnectingBrowser] = useState(false)
+
+  const refreshBrowserStatus = async () => {
+    try {
+      const response = await api.get('/api/agent/github/status', {
+        skipErrorHandler: true,
+      })
+      const value = response.data?.data
+      if (value && typeof value === 'object') {
+        setBrowserStatus(value as BrowserGitHubStatus)
+      }
+    } catch {
+      // The page can still use the local gh CLI when the browser API is
+      // unavailable, so status refresh is intentionally best-effort.
+    }
+  }
+
+  const connectBrowserGitHub = async () => {
+    setConnectingBrowser(true)
+    try {
+      await refreshBrowserStatus()
+      const statusResponse = await api.get('/api/agent/github/status', {
+        skipErrorHandler: true,
+      })
+      const status = statusResponse.data?.data as BrowserGitHubStatus | undefined
+      if (!status?.enabled || !status.client_id) {
+        throw new Error(t('GitHub OAuth is not configured on this site.'))
+      }
+      const popup = window.open('', '_blank', 'width=520,height=720')
+      if (!popup) throw new Error(t('OAuth pop-up was blocked'))
+      const state = await createOAuthFlow('github', 'bind')
+      if (!markOAuthBindPopup(getOAuthSessionStorage(popup), 'github', state)) {
+        popup.close()
+        throw new Error(t('OAuth pop-up storage is unavailable'))
+      }
+      const authorization = new URL('https://github.com/login/oauth/authorize')
+      authorization.searchParams.set('client_id', status.client_id)
+      authorization.searchParams.set('state', state)
+      authorization.searchParams.set('scope', 'repo read:user user:email')
+      popup.location.replace(authorization.toString())
+      const started = Date.now()
+      const poll = window.setInterval(() => {
+        void refreshBrowserStatus()
+        if (popup.closed || Date.now() - started > 5 * 60_000) {
+          window.clearInterval(poll)
+          void refreshBrowserStatus()
+          setConnectingBrowser(false)
+        }
+      }, 2000)
+    } catch (error) {
+      setConnectingBrowser(false)
+      toast.error(error instanceof Error ? error.message : t('GitHub OAuth failed.'))
+    }
+  }
+
+  const disconnectBrowserGitHub = async () => {
+    try {
+      await api.delete('/api/agent/github/authorization', {
+        skipErrorHandler: true,
+      })
+      setBrowserStatus((previous) =>
+        previous ? { ...previous, connected: false, login: undefined } : previous
+      )
+      toast.success(t('GitHub authorization removed.'))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('GitHub disconnect failed.'))
+    }
+  }
 
   const checkGh = async () => {
     const invoke = getInvoke()
     if (!invoke) {
-      toast.info(
-        t('GitHub CLI actions are available in the Tauri desktop app.')
-      )
+      await refreshBrowserStatus()
       return
     }
     setChecking(true)
@@ -146,9 +227,19 @@ export function GithubCliCard() {
   const searchGithub = async () => {
     const invoke = getInvoke()
     if (!invoke) {
-      toast.info(
-        t('GitHub CLI actions are available in the Tauri desktop app.')
-      )
+      if (!query.trim()) return
+      setSearching(true)
+      try {
+        const response = await api.get('/api/agent/github/repositories/search', {
+          params: { q: query.trim(), limit: 6 },
+          skipErrorHandler: true,
+        })
+        setRepositories(response.data?.data?.items ?? [])
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t('GitHub search failed.'))
+      } finally {
+        setSearching(false)
+      }
       return
     }
     if (!query.trim()) return
@@ -191,9 +282,21 @@ export function GithubCliCard() {
   const loadActivity = async (kind: 'issues' | 'pull requests') => {
     const invoke = getInvoke()
     if (!invoke) {
-      toast.info(
-        t('GitHub CLI actions are available in the Tauri desktop app.')
-      )
+      if (!repo.includes('/')) {
+        toast.error(t('Enter a repository such as owner/name first.'))
+        return
+      }
+      try {
+        const path = kind === 'issues' ? '/api/agent/github/issues' : '/api/agent/github/pull-requests'
+        const response = await api.get(path, {
+          params: { repo: repo.trim(), limit: 6, state: 'open', sort: 'updated' },
+          skipErrorHandler: true,
+        })
+        setActivity(response.data?.data?.items ?? [])
+        setActivityKind(kind)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t('GitHub activity load failed.'))
+      }
       return
     }
     if (!repo.includes('/')) {
@@ -223,15 +326,43 @@ export function GithubCliCard() {
       <CardHeader>
         <CardTitle className='flex items-center gap-2 text-sm'>
           <GitBranch className='text-primary size-4' />
-          {t('Your GitHub CLI')}
+          {t('GitHub access')}
         </CardTitle>
         <CardDescription className='text-xs leading-5'>
           {t(
-            'Use the local gh CLI and your own token. The Agent never receives the token.'
+            'Connect GitHub in the browser with OAuth, or use the local gh CLI. The Agent never receives either token.'
           )}
         </CardDescription>
       </CardHeader>
       <CardContent className='grid gap-3'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <Button
+            disabled={connectingBrowser}
+            onClick={() => void connectBrowserGitHub()}
+            size='sm'
+            variant='default'
+          >
+            {connectingBrowser
+              ? t('Waiting for GitHub…')
+              : t('Connect GitHub in browser')}
+          </Button>
+          {browserStatus?.connected && (
+            <Badge variant='secondary'>
+              {t('OAuth connected{{account}}', {
+                account: browserStatus.login ? ` · ${browserStatus.login}` : '',
+              })}
+            </Badge>
+          )}
+          {browserStatus?.connected && (
+            <Button
+              onClick={() => void disconnectBrowserGitHub()}
+              size='sm'
+              variant='ghost'
+            >
+              {t('Disconnect')}
+            </Button>
+          )}
+        </div>
         <div className='flex items-center gap-2'>
           <Button
             disabled={checking}
