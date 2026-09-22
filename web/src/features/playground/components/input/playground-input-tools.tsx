@@ -158,10 +158,18 @@ export function PlaygroundInputTools({
         params: { q: query, limit: 6 },
         skipErrorHandler: true,
       })
-      const data = response.data?.data
-      setSearchResults(data?.items ?? [])
-      if (data?.items?.length === 0 && typeof data?.search_url === 'string') {
-        setSearchFallbackUrl(data.search_url)
+      // Keep the input compatible with both the standard API envelope
+      // (`{ data: { items } }`) and lightweight/self-hosted proxies that
+      // return the search payload directly.
+      const data = response.data?.data ?? response.data
+      const items = Array.isArray(data?.items) ? data.items : []
+      setSearchResults(items)
+      if (items.length === 0) {
+        setSearchFallbackUrl(
+          typeof data?.search_url === 'string'
+            ? data.search_url
+            : `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
+        )
       }
     } catch (error) {
       setSearchResults([])
