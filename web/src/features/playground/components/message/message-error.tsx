@@ -56,6 +56,15 @@ interface MessageErrorProps {
   actions?: ReactNode
 }
 
+function displayErrorContent(content: string, translate: (key: string) => string): string {
+  if (/(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(content)) {
+    return translate(
+      'The selected model is temporarily rate limited. Retry shortly or choose another model.'
+    )
+  }
+  return content
+}
+
 /**
  * Display error messages using Alert component
  * Following ai-elements pattern for error handling
@@ -101,15 +110,18 @@ export function MessageError({
     )
   }
 
+  const content =
+    errorState.content === FALLBACK_ERROR_CONTENT
+      ? t(FALLBACK_ERROR_CONTENT)
+      : displayErrorContent(errorState.content, t)
+
   return (
     <Alert variant='destructive' className={className}>
       <AlertCircle />
       <AlertTitle>{t('Error')}</AlertTitle>
       <AlertDescription className='space-y-2'>
         <p>
-          {errorState.content === FALLBACK_ERROR_CONTENT
-            ? t(FALLBACK_ERROR_CONTENT)
-            : errorState.content}
+          {content}
         </p>
         {actions}
       </AlertDescription>
