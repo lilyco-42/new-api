@@ -29,6 +29,9 @@ export function SignIn() {
   const { t } = useTranslation()
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
   const { status } = useStatus()
+  const isAgentLogin =
+    typeof redirect === 'string' &&
+    (redirect === '/agent' || redirect.startsWith('/agent?'))
 
   return (
     <AuthLayout>
@@ -49,8 +52,16 @@ export function SignIn() {
                 </Link>
                 .
               </p>
-            )}
+          )}
         </div>
+
+        {isAgentLogin && (
+          <div className='bg-muted/50 text-muted-foreground rounded-xl border px-4 py-3 text-sm leading-6'>
+            {t(
+              '登录后即可打开 Lain42 Agent：在浏览器或手机上连接你的 Radxa CLI 节点、使用网页搜索和 GitHub 工具。首次连接请在 Agent 工作区创建一次性配对票据。'
+            )}
+          </div>
+        )}
 
         <UserAuthForm redirectTo={redirect} />
 
