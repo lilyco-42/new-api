@@ -152,7 +152,10 @@ export function PlaygroundInputTools({
       return
     }
     setSearching(true)
-    setSearchFallbackUrl('')
+    // Keep a deterministic escape hatch visible even when the authenticated
+    // backend search is unavailable or returns an empty provider response.
+    const fallbackUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
+    setSearchFallbackUrl(fallbackUrl)
     try {
       const response = await api.get('/api/agent/search', {
         params: { q: query, limit: 6 },
@@ -168,14 +171,13 @@ export function PlaygroundInputTools({
         setSearchFallbackUrl(
           typeof data?.search_url === 'string'
             ? data.search_url
-            : `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
+            : fallbackUrl
         )
+      } else {
+        setSearchFallbackUrl('')
       }
     } catch (error) {
       setSearchResults([])
-      setSearchFallbackUrl(
-        `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
-      )
       const status =
         error && typeof error === 'object' && 'response' in error
           ? (error as { response?: { status?: unknown } }).response?.status
