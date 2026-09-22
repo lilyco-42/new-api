@@ -62,8 +62,8 @@ function createSystemMessage(content: string): Message {
 export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
   const { storageNamespace = '', systemPrompt } = options
   // Load initial state from localStorage
-  const [config, setConfig] = useState<PlaygroundConfig>(
-    () => getInitialPlaygroundConfig(storageNamespace)
+  const [config, setConfig] = useState<PlaygroundConfig>(() =>
+    getInitialPlaygroundConfig(storageNamespace)
   )
 
   const [parameterEnabled, setParameterEnabled] = useState<ParameterEnabled>(
@@ -82,22 +82,28 @@ export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
   const [models, setModels] = useState<ModelOption[]>([])
   const [groups, setGroups] = useState<GroupOption[]>([])
 
-  const persistMessages = useCallback((messagesToSave: Message[]) => {
-    latestMessagesRef.current = messagesToSave
+  const persistMessages = useCallback(
+    (messagesToSave: Message[]) => {
+      latestMessagesRef.current = messagesToSave
 
-    if (!hasLoadedMessagesRef.current) {
-      return
-    }
+      if (!hasLoadedMessagesRef.current) {
+        return
+      }
 
-    if (messagesSaveTimerRef.current !== null) {
-      window.clearTimeout(messagesSaveTimerRef.current)
-    }
+      if (messagesSaveTimerRef.current !== null) {
+        window.clearTimeout(messagesSaveTimerRef.current)
+      }
 
-    messagesSaveTimerRef.current = window.setTimeout(() => {
-      messagesSaveTimerRef.current = null
-      saveMessages(latestMessagesRef.current, storageNamespace)
-    }, MESSAGE_SAVE_DEBOUNCE_MS)
-  }, [storageNamespace])
+      messagesSaveTimerRef.current = window.setTimeout(() => {
+        messagesSaveTimerRef.current = null
+        saveMessages(latestMessagesRef.current, storageNamespace)
+      }, MESSAGE_SAVE_DEBOUNCE_MS)
+      if (storageNamespace.startsWith('agent-')) {
+        window.dispatchEvent(new Event('lain42:agent-chat-updated'))
+      }
+    },
+    [storageNamespace]
+  )
 
   useEffect(() => {
     let cancelled = false

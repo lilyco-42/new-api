@@ -31,6 +31,7 @@ import {
   type LucideIcon,
   Wrench,
 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -47,6 +48,14 @@ export type AgentPreset = {
   tone: string
 }
 
+type RecentAgentChat = {
+  key: string
+  presetId: string
+  chatId: number
+  preview: string
+  updatedAt: number
+}
+
 type AgentSidebarProps = {
   presets: AgentPreset[]
   activePresetId: string
@@ -54,7 +63,55 @@ type AgentSidebarProps = {
   onNewChat: () => void
   onSearchChats: () => void
   onOpenTools: (view?: 'tools' | 'files' | 'preview') => void
+  onSelectChat: (presetId: string, chatId: number) => void
   onPresetChange: (preset: AgentPreset) => void
+}
+
+function readRecentAgentChats(): RecentAgentChat[] {
+  if (typeof window === 'undefined') return []
+
+  const results: RecentAgentChat[] = []
+  const namespacePattern = /^agent-([a-z-]+)-chat-(\d+):playground_messages$/
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const storageKey = window.localStorage.key(index)
+    const match = storageKey?.match(namespacePattern)
+    if (!storageKey || !match) continue
+
+    try {
+      const parsed = JSON.parse(
+        window.localStorage.getItem(storageKey) ?? ''
+      ) as {
+        data?: Array<{
+          from?: string
+          createdAt?: number
+          versions?: Array<{ content?: string }>
+        }>
+      }
+      const messages = Array.isArray(parsed.data) ? parsed.data : []
+      const latest = [...messages]
+        .reverse()
+        .find(
+          (message) =>
+            (message.from === 'user' || message.from === 'assistant') &&
+            Boolean(message.versions?.at(-1)?.content?.trim())
+        )
+      const preview = latest?.versions?.at(-1)?.content?.trim()
+      if (!preview) continue
+      results.push({
+        key: storageKey,
+        presetId: match[1],
+        chatId: Number(match[2]),
+        preview: preview.slice(0, 72),
+        updatedAt: latest?.createdAt ?? 0,
+      })
+    } catch {
+      // Ignore malformed or stale local conversation data.
+    }
+  }
+
+  return results
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, 8)
 }
 
 export function AgentSidebar({
@@ -64,14 +121,24 @@ export function AgentSidebar({
   onNewChat,
   onSearchChats,
   onOpenTools,
+  onSelectChat,
   onPresetChange,
 }: AgentSidebarProps) {
   const { t } = useTranslation()
+  const [recentChats, setRecentChats] = useState<RecentAgentChat[]>([])
   const accountName = useAuthStore(
     (state) =>
       state.auth.user?.display_name || state.auth.user?.username || 'Lain42'
   )
   const accountInitials = accountName.slice(0, 2).toUpperCase()
+
+  useEffect(() => {
+    const refresh = () => setRecentChats(readRecentAgentChats())
+    refresh()
+    window.addEventListener('lain42:agent-chat-updated', refresh)
+    return () =>
+      window.removeEventListener('lain42:agent-chat-updated', refresh)
+  }, [])
 
   return (
     <aside
@@ -209,9 +276,31 @@ export function AgentSidebar({
         <div className='text-sidebar-foreground/45 px-2 pt-7 pb-2 text-[11px] font-medium tracking-wide uppercase'>
           {t('Recent')}
         </div>
-        <p className='text-sidebar-foreground/45 px-2.5 text-xs leading-5'>
-          {t('No saved conversations yet')}
-        </p>
+        {recentChats.length > 0 ? (
+          <nav aria-label={t('Recent')} className='grid gap-0.5'>
+            {recentChats.map((chat) => (
+              <button
+                className='text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground min-w-0 rounded-lg px-2.5 py-2 text-left text-xs'
+                key={chat.key}
+                onClick={() => onSelectChat(chat.presetId, chat.chatId)}
+                type='button'
+              >
+                <span className='text-sidebar-foreground/45 mb-0.5 block text-[10px] uppercase'>
+                  {t(
+                    presets.find((preset) => preset.id === chat.presetId)
+                      ?.title ?? chat.presetId
+                  )}{' '}
+                  · chat {chat.chatId}
+                </span>
+                <span className='block truncate'>{chat.preview}</span>
+              </button>
+            ))}
+          </nav>
+        ) : (
+          <p className='text-sidebar-foreground/45 px-2.5 text-xs leading-5'>
+            {t('No saved conversations yet')}
+          </p>
+        )}
       </div>
 
       <div className='border-sidebar-border/70 grid shrink-0 gap-1 border-t p-2'>
@@ -258,9 +347,7 @@ export function AgentSidebar({
         <Button
           aria-label={t('Account menu')}
           className='text-sidebar-foreground/55 hover:text-sidebar-foreground'
-          onClick={() =>
-            toast.info(t('Account settings are available in the profile menu.'))
-          }
+          render={<a href='/profile' />}
           size='icon-xs'
           type='button'
           variant='ghost'

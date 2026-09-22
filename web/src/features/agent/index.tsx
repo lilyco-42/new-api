@@ -790,6 +790,7 @@ export function AgentWorkspace() {
     const nextPreset = PRESETS.find((item) => item.id === presetId)
     if (nextPreset) setPreset(nextPreset)
     setChatId(selectedChatId)
+    setSidebarOpen(false)
   }
 
   const openWorkspaceTools = (view: WorkspaceView = 'tools') => {
@@ -823,6 +824,7 @@ export function AgentWorkspace() {
         onNewChat={handleNewChat}
         onSearchChats={() => setChatSearchOpen(true)}
         onOpenTools={openWorkspaceTools}
+        onSelectChat={handleChatSearchSelect}
         onPresetChange={handlePresetChange}
         presets={PRESETS}
       />
@@ -842,6 +844,7 @@ export function AgentWorkspace() {
             onNewChat={handleNewChat}
             onSearchChats={() => setChatSearchOpen(true)}
             onOpenTools={openWorkspaceTools}
+            onSelectChat={handleChatSearchSelect}
             onPresetChange={handlePresetChange}
             presets={PRESETS}
           />
