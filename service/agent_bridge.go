@@ -221,13 +221,31 @@ func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope
 		return err
 	}
 	key := bridgeRequestKey(browser.deviceID, envelope.RequestID)
+	now := time.Now()
+	var expired []pendingAgentBridgeRequest
 	hub.mu.Lock()
 	for pendingKey, pending := range hub.pending {
-		if !pending.expires.After(time.Now()) {
+		if !pending.expires.After(now) {
 			delete(hub.pending, pendingKey)
+			expired = append(expired, pending)
 		}
 	}
 	desktop := hub.desktops[browser.deviceID]
+	hub.mu.Unlock()
+	for _, pending := range expired {
+		recordAgentBridgeEvent(
+			pending.userID,
+			pending.deviceID,
+			pending.requestID,
+			model.AgentRunEventTypeToolInterrupted,
+			pending.operation,
+			nil,
+			nil,
+			"request_expired",
+		)
+	}
+	hub.mu.Lock()
+	desktop = hub.desktops[browser.deviceID]
 	if desktop == nil || desktop.userID != browser.userID {
 		hub.mu.Unlock()
 		return ErrAgentBridgeOffline
@@ -292,7 +310,20 @@ func (hub *AgentBridgeHub) ForwardToolResult(desktop *AgentBridgePeer, envelope 
 		delete(hub.pending, key)
 	}
 	hub.mu.Unlock()
-	if !exists || pending.deviceID != desktop.deviceID || !pending.expires.After(time.Now()) {
+	if !exists || pending.deviceID != desktop.deviceID {
+		return ErrAgentBridgeInvalid
+	}
+	if !pending.expires.After(time.Now()) {
+		recordAgentBridgeEvent(
+			pending.userID,
+			pending.deviceID,
+			pending.requestID,
+			model.AgentRunEventTypeToolInterrupted,
+			pending.operation,
+			nil,
+			nil,
+			"request_expired",
+		)
 		return ErrAgentBridgeInvalid
 	}
 	eventType := model.AgentRunEventTypeToolSucceeded
