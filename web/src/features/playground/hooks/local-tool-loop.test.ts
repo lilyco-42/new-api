@@ -142,6 +142,149 @@ describe('local structured tool loop', () => {
     expect(events).toEqual(['requested', 'running', 'completed'])
   })
 
+  test('does not repeat the same web search and asks for a final answer', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const invoke = vi.fn(async () => '{"items":[{"title":"Rust blog"}]}')
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'search-1',
+              type: 'function',
+              function: {
+                name: 'web.search',
+                arguments: '{"query":"rust async","limit":5}',
+              },
+            },
+          ],
+        })
+      }
+      if (requests.length === 2) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'search-2',
+              type: 'function',
+              function: {
+                name: 'web.search',
+                arguments: '{"limit":5,"query":"rust async"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({ role: 'assistant', content: 'Here is the Rust blog.' })
+    }
+
+    const result = await runLocalToolLoop(
+      initialPayload,
+      {
+        tools: [webTool],
+        isAvailable: () => true,
+        invoke,
+      },
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toBe('Here is the Rust blog.')
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(requests).toHaveLength(3)
+    expect(requests[2]?.tools).toEqual([])
+    expect(requests[2]?.tool_choice).toBe('none')
+    expect(requests[2]?.messages[0]).toMatchObject({ role: 'system' })
+    expect(requests[2]?.messages[1]).toMatchObject({ role: 'user' })
+  })
+
+  test('recovers from the step limit with a tool-free final synthesis', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const invoke = vi.fn(async () => 'issue list')
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (payload.tool_choice === 'none') {
+        return response({
+          role: 'assistant',
+          content: 'Collected eight results.',
+        })
+      }
+      const callNumber = requests.length
+      return response({
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: `call-${callNumber}`,
+            type: 'function',
+            function: {
+              name: 'github.issues.list',
+              arguments: JSON.stringify({ repo: `owner/repo-${callNumber}` }),
+            },
+          },
+        ],
+      })
+    }
+
+    const result = await runLocalToolLoop(
+      initialPayload,
+      provider(invoke),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toBe('Collected eight results.')
+    expect(invoke).toHaveBeenCalledTimes(8)
+    expect(requests).toHaveLength(10)
+    expect(requests.at(-1)?.tools).toEqual([])
+    expect(requests.at(-1)?.tool_choice).toBe('none')
+  })
+
+  test('returns bounded raw tool output if the model keeps requesting tools', async () => {
+    const invoke = vi.fn(async () => '{"items":[{"title":"Rust blog"}]}')
+    let callId = 0
+    const request = async () => {
+      callId += 1
+      return response({
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: `search-${callId}`,
+            type: 'function',
+            function: {
+              name: 'web.search',
+              arguments: '{"query":"rust async","limit":5}',
+            },
+          },
+        ],
+      })
+    }
+
+    const result = await runLocalToolLoop(
+      initialPayload,
+      {
+        tools: [webTool],
+        isAvailable: () => true,
+        invoke,
+      },
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(result.choices[0]?.message.content).toContain('tool_results')
+    expect(result.choices[0]?.message.content).toContain('Rust blog')
+    expect(result.choices[0]?.finish_reason).toBe('stop')
+  })
+
   test('continues the answer when a paired device disconnects during a tool call', async () => {
     let deviceOnline = true
     const events: string[] = []

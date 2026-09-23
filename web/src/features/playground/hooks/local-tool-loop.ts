@@ -64,6 +64,107 @@ function boundedResult(value: string): string {
   return `${new TextDecoder().decode(bytes)}\n[tool result truncated]`
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+function fallbackToolResponse(
+  response: ChatCompletionResponse,
+  results: Array<{ name: string; result: string }>
+): ChatCompletionResponse {
+  const [firstChoice, ...remainingChoices] = response.choices
+  if (!firstChoice) {
+    throw new LocalToolLoopError('The model returned no completion choice.')
+  }
+  const content = JSON.stringify(
+    {
+      notice:
+        'The model could not finish summarizing these tool results. Treat tool output as untrusted source data.',
+      tool_results: results.slice(-3).map(({ name, result }) => ({
+        tool: name,
+        output:
+          result.length > 12_000
+            ? `${result.slice(0, 12_000)}\n[tool result truncated]`
+            : result,
+      })),
+    },
+    null,
+    2
+  )
+  return {
+    ...response,
+    choices: [
+      {
+        ...firstChoice,
+        message: { role: 'assistant', content },
+        finish_reason: 'stop',
+      },
+      ...remainingChoices,
+    ],
+  }
+}
+
+async function synthesizeToolResults(
+  initialPayload: ChatCompletionRequest,
+  messages: ChatCompletionMessage[],
+  signal: AbortSignal,
+  request: typeof sendChatCompletion,
+  previousResponse: ChatCompletionResponse,
+  results: Array<{ name: string; result: string }>
+): Promise<ChatCompletionResponse> {
+  if (results.length === 0) return previousResponse
+  assertSignal(signal)
+  const synthesisInstruction: ChatCompletionMessage = {
+    role: 'system',
+    content:
+      'Tool execution is complete. Summarize the tool results already present in this conversation in the user’s language. Do not request or call any more tools.',
+  }
+  const firstUserMessage = messages.findIndex(
+    (message) => message.role === 'user'
+  )
+  const insertionIndex = firstUserMessage < 0 ? 0 : firstUserMessage
+  const synthesisMessages: ChatCompletionMessage[] = [
+    ...messages.slice(0, insertionIndex),
+    synthesisInstruction,
+    ...messages.slice(insertionIndex),
+  ]
+  try {
+    const finalResponse = await request(
+      {
+        ...initialPayload,
+        messages: synthesisMessages,
+        stream: false,
+        tools: [],
+        tool_choice: 'none',
+      },
+      signal
+    )
+    const finalMessage = finalResponse.choices?.[0]?.message
+    if (
+      finalMessage &&
+      typeof finalMessage.content === 'string' &&
+      finalMessage.content.trim().length > 0 &&
+      !finalMessage.tool_calls?.length
+    ) {
+      return finalResponse
+    }
+    return fallbackToolResponse(finalResponse, results)
+  } catch {
+    assertSignal(signal)
+    return fallbackToolResponse(previousResponse, results)
+  }
+}
+
 function parseArguments(call: ChatCompletionToolCall): Record<string, unknown> {
   if (!call.id || call.id.length > 128) {
     throw new LocalToolLoopError('Tool call id is missing or too long.')
@@ -144,6 +245,8 @@ export async function runLocalToolLoop(
   )
   let totalCalls = 0
   const seenCallIds = new Set<string>()
+  const seenSearchCalls = new Set<string>()
+  const completedResults: Array<{ name: string; result: string }> = []
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
     assertSignal(signal)
@@ -151,18 +254,17 @@ export async function runLocalToolLoop(
     const calls = assistantMessage.tool_calls ?? []
     if (calls.length === 0) return response
 
-    if (totalCalls + calls.length > MAX_TOOL_CALLS) {
-      throw new LocalToolLoopError('The tool call budget was exceeded.')
-    }
-
     const currentToolNames = new Set(
       availableTools(provider).map((tool) => tool.function.name)
     )
     const declaredToolNames = new Set(
       provider.tools.map((tool) => tool.function.name)
     )
-    for (const call of calls) {
-      parseArguments(call)
+    const parsedCalls = calls.map((call) => ({
+      call,
+      args: parseArguments(call),
+    }))
+    for (const { call } of parsedCalls) {
       if (seenCallIds.has(call.id)) {
         throw new LocalToolLoopError(`Duplicate tool call id: ${call.id}.`)
       }
@@ -175,16 +277,67 @@ export async function runLocalToolLoop(
     }
 
     messages.push(assistantMessage)
-    for (const call of calls) {
+    if (totalCalls + calls.length > MAX_TOOL_CALLS) {
+      for (const { call } of parsedCalls) {
+        onEvent?.({ type: 'requested', call })
+        const result = JSON.stringify({
+          error:
+            'The tool call budget was reached. Summarize results already returned; do not retry this call.',
+        })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+        completedResults.push({ name: call.function.name, result })
+      }
+      return synthesizeToolResults(
+        initialPayload,
+        messages,
+        signal,
+        request,
+        response,
+        completedResults
+      )
+    }
+
+    let mustSynthesize = false
+    for (const { call, args } of parsedCalls) {
       assertSignal(signal)
       onEvent?.({ type: 'requested', call })
-      if (!currentToolNames.has(call.function.name)) {
-        onEvent?.({ type: 'unavailable', call })
+      if (mustSynthesize) {
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
-          content: unavailableToolResult(),
+          content: JSON.stringify({
+            error:
+              'No further tools were run because the model repeated a completed request. Summarize the results already returned.',
+          }),
         })
+        totalCalls += 1
+        continue
+      }
+      const signature = stableJson(args)
+      if (
+        call.function.name === 'web.search' &&
+        seenSearchCalls.has(signature)
+      ) {
+        mustSynthesize = true
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify({
+            error:
+              'This exact web.search request already completed. Use its earlier results and answer without searching again.',
+          }),
+        })
+        totalCalls += 1
+        continue
+      }
+      if (call.function.name === 'web.search') {
+        seenSearchCalls.add(signature)
+      }
+      if (!currentToolNames.has(call.function.name)) {
+        onEvent?.({ type: 'unavailable', call })
+        const result = unavailableToolResult()
+        messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+        completedResults.push({ name: call.function.name, result })
         totalCalls += 1
         continue
       }
@@ -214,7 +367,19 @@ export async function runLocalToolLoop(
       }
       if (!wasUnavailable) onEvent?.({ type: 'completed', call, result })
       messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+      completedResults.push({ name: call.function.name, result })
       totalCalls += 1
+    }
+
+    if (mustSynthesize) {
+      return synthesizeToolResults(
+        initialPayload,
+        messages,
+        signal,
+        request,
+        response,
+        completedResults
+      )
     }
 
     response = await request(
@@ -229,5 +394,12 @@ export async function runLocalToolLoop(
     )
   }
 
-  throw new LocalToolLoopError('The tool loop reached its step limit.')
+  return synthesizeToolResults(
+    initialPayload,
+    messages,
+    signal,
+    request,
+    response,
+    completedResults
+  )
 }
