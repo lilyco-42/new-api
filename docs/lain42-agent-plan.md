@@ -15,7 +15,7 @@
 
 - 修复“新聊天”在页面重载后把编号重置为 0、从而重新打开已有 `chat 1` 的问题。新聊天编号现在扫描当前 Agent 类型的本地会话键并选择未使用的编号；存储不可用时至少从当前会话编号递增。4 项回归测试覆盖重载冲突、当前最大编号、不同 Agent 隔离和存储读取失败。
 - `35701cc` 的首轮远端 CI 抓到测试 fixture 的 TypeScript 返回类型错误；修正后 `696ac2b` 的 GitHub Actions 全绿。部署版本 `agent-696ac2b` 的公开状态接口、Agent 页面与容器健康均验证通过；刷新页面后再次点击“新聊天”显示空白起始态，既有聊天仍保留。
-- 当前账号的 OAuth 状态显示 `lilyco-42`；页面 GitHub 仓库搜索 `rust` 返回 `rust-lang/rust` 等结果，`rust-lang/rust` 的 Issue 和 PR 只读列表返回公开记录。Agent 聊天实际调用 `github.oauth.repositories.search` 并成功回答 `rust-lang/rust`，证明工具返回已进入后续回答。
+- 当前账号的 OAuth 状态显示 `lilyco-42`；页面 GitHub 仓库搜索 `rust` 返回 `rust-lang/rust` 等结果，`rust-lang/rust` 的 Issue 和 PR 只读列表返回公开记录。Agent 聊天实际调用 `github.oauth.repositories.search` 并成功回答 `rust-lang/rust`，证明工具返回已进入后续回答。浏览器端 `web.search` 也实际返回工具完成事件；模型随后请求额外读取一个结果页，本轮测试明确限制为只搜索，因此拒绝了 `web.fetch`，界面清楚显示未批准，而未带 Cookie 抓取页面。
 - 同一模型普通对话返回 `OK`（2.87 秒）；另一次 OAuth 状态工具调用已执行，但最终续答 41.88 秒后返回 `openai_error`，之后的仓库搜索续答成功（24.45 秒）。这说明上游/工具续答路径仍有间歇故障，当前证据不足以归因为稳定的代码错误或宣称已完全解决；后续需要增加脱敏的请求阶段与渠道错误诊断。
 - 尚未在真实 Radxa A7A 上验证首次配对、systemd 开机启动、断线重连与手机网页工具调用；未操作该个人设备，也未把它作为共享算力。完整 P0-E / A1–A11 验收仍未完成。
 
