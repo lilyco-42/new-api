@@ -172,7 +172,7 @@ export async function createOAuthFlow(
   const res = await api.post(
     '/api/oauth/state',
     { provider, intent, aff: aff || undefined },
-    { skipAuthRefresh: intent === 'login' }
+    { skipAuthRefresh: intent === 'login', timeout: 20_000 }
   )
   if (res.data?.success) {
     if (typeof res.data.data === 'string') return res.data.data

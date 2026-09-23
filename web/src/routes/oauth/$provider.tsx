@@ -34,6 +34,8 @@ import {
 } from '@/features/auth/constants'
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import {
+  OAUTH_BIND_REQUEST_TIMEOUT_MS,
+  OAUTH_BIND_RESULT_CHANNEL,
   parseTelegramBindCallback,
   postTelegramBindResult,
   startOAuthBindResponseDeadline,
@@ -136,14 +138,17 @@ function OAuthCallback() {
         if (search.error_description) {
           params.error_description = search.error_description
         }
+        let bindingSuccess = false
         void api
           .get(`/api/oauth/${provider}`, {
             params,
+            timeout: OAUTH_BIND_REQUEST_TIMEOUT_MS,
             skipBusinessError: true,
             skipErrorHandler: true,
           })
           .then((response) => {
-            if (response.data?.success) {
+            bindingSuccess = Boolean(response.data?.success)
+            if (bindingSuccess) {
               toast.success(i18next.t('Binding successful!'))
             } else {
               const messageKey = getServerErrorMessageKey(response.data)
@@ -168,7 +173,28 @@ function OAuthCallback() {
             )
           })
           .finally(() => {
-            safeNavigate(provider === 'github' ? '/agent' : '/profile')
+            if (provider === 'github') {
+              if (typeof BroadcastChannel !== 'undefined') {
+                const channel = new BroadcastChannel(OAUTH_BIND_RESULT_CHANNEL)
+                channel.postMessage({
+                  type: 'oauth:binding:broadcast-result',
+                  provider,
+                  state,
+                  success: bindingSuccess,
+                })
+                channel.close()
+              }
+              // Some browsers sever window.opener when returning from GitHub.
+              // Notify the original Agent tab over a same-origin channel, then
+              // close this script-opened popup so its close watcher can also
+              // refresh authorization status when BroadcastChannel is absent.
+              window.close()
+              window.setTimeout(() => {
+                if (!window.closed) safeNavigate('/agent')
+              }, 500)
+              return
+            }
+            safeNavigate('/profile')
           })
         return
       }

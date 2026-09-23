@@ -657,7 +657,10 @@ export function AgentWorkspace() {
       webAgentToolProvider
     )
   } else if (bridgeProvider) {
-    activeToolProvider = createBrowserAgentToolProvider(bridgeProvider)
+    activeToolProvider = createBrowserAgentToolProvider(
+      bridgeProvider,
+      bridgeStatus === 'connected'
+    )
   } else {
     activeToolProvider = webAgentToolProvider
   }

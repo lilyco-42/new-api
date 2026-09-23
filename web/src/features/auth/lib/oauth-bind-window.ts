@@ -37,6 +37,38 @@ const intervalRuntime: TimerRuntime = {
     ),
 }
 
+export const OAUTH_BIND_RESULT_CHANNEL = 'lain42.oauth-bind-result.v1'
+export const OAUTH_BIND_REQUEST_TIMEOUT_MS = 75_000
+export const OAUTH_BIND_RESPONSE_DEADLINE_MS = 120_000
+// The user may need time to sign in to GitHub or review consent. This bounds
+// the whole popup flow without treating a slow human step as a failed callback.
+export const OAUTH_BIND_FLOW_DEADLINE_MS = 10 * 60_000
+
+export interface OAuthBindResultBroadcast {
+  type: 'oauth:binding:broadcast-result'
+  provider: string
+  state: string
+  success: boolean
+}
+
+export function parseOAuthBindResultBroadcast(
+  value: unknown,
+  provider: string,
+  expectedState: string
+): OAuthBindResultBroadcast | null {
+  if (!value || typeof value !== 'object') return null
+  const result = value as Partial<OAuthBindResultBroadcast>
+  if (
+    result.type !== 'oauth:binding:broadcast-result' ||
+    result.provider !== provider ||
+    result.state !== expectedState ||
+    typeof result.success !== 'boolean'
+  ) {
+    return null
+  }
+  return result as OAuthBindResultBroadcast
+}
+
 interface TelegramBindCallbackSearch {
   telegram_bind?: string
   flow_token?: string
@@ -98,9 +130,10 @@ export function postTelegramBindResult(
 export function startOAuthBindResponseDeadline(
   onTimeout: () => void,
   // GitHub OAuth completion makes two sequential requests to GitHub (token
-  // exchange and user lookup), each with a 20-second server-side timeout.
-  // Keep the popup open long enough for both requests plus network overhead.
-  delay = 60_000,
+  // exchange and user lookup), each with a 20-second server-side timeout. The
+  // opener also gets a bounded request timeout; leave room for both plus UI and
+  // network scheduling before declaring the callback lost.
+  delay = OAUTH_BIND_RESPONSE_DEADLINE_MS,
   runtime: TimerRuntime = timeoutRuntime
 ): () => void {
   let active = true

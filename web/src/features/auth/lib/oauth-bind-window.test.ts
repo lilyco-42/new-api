@@ -19,6 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import { describe, expect, test } from 'vitest'
 
 import {
+  OAUTH_BIND_REQUEST_TIMEOUT_MS,
+  OAUTH_BIND_RESPONSE_DEADLINE_MS,
+  OAUTH_BIND_FLOW_DEADLINE_MS,
+  OAUTH_BIND_RESULT_CHANNEL,
+  parseOAuthBindResultBroadcast,
   parseTelegramBindCallback,
   postTelegramBindResult,
   startOAuthBindResponseDeadline,
@@ -136,7 +141,7 @@ describe('OAuth bind popup lifecycle', () => {
     expect(messages.length).toBe(1)
   })
 
-  test('waits 60 seconds for the opener response and can be cancelled', () => {
+  test('waits for callback completion and can be cancelled', () => {
     const timer = fakeTimerRuntime()
     let timedOut = false
     const cancel = startOAuthBindResponseDeadline(
@@ -147,11 +152,42 @@ describe('OAuth bind popup lifecycle', () => {
       timer.runtime
     )
 
-    expect(timer.delay).toBe(60_000)
+    expect(timer.delay).toBe(OAUTH_BIND_RESPONSE_DEADLINE_MS)
+    expect(timer.delay).toBeGreaterThan(OAUTH_BIND_REQUEST_TIMEOUT_MS)
+    expect(OAUTH_BIND_FLOW_DEADLINE_MS).toBeGreaterThan(
+      OAUTH_BIND_RESPONSE_DEADLINE_MS
+    )
     cancel()
     timer.fire()
     expect(timedOut).toBe(false)
     expect(timer.cancelled).toEqual([timer.handle])
+  })
+
+  test('accepts only same-flow OAuth result broadcasts', () => {
+    const result = {
+      type: 'oauth:binding:broadcast-result',
+      provider: 'github',
+      state: 'expected-flow',
+      success: true,
+    }
+
+    expect(OAUTH_BIND_RESULT_CHANNEL).toBe('lain42.oauth-bind-result.v1')
+    expect(
+      parseOAuthBindResultBroadcast(result, 'github', 'expected-flow')
+    ).toEqual(result)
+    expect(
+      parseOAuthBindResultBroadcast(result, 'discord', 'expected-flow')
+    ).toBeNull()
+    expect(
+      parseOAuthBindResultBroadcast(result, 'github', 'another-flow')
+    ).toBeNull()
+    expect(
+      parseOAuthBindResultBroadcast(
+        { ...result, success: 'yes' },
+        'github',
+        'expected-flow'
+      )
+    ).toBeNull()
   })
 
   test('reports a closed popup once and clears its poller', () => {

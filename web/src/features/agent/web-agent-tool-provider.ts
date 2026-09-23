@@ -370,8 +370,17 @@ export const webAgentToolProvider: LocalToolProvider = {
         break
       }
     }
-    const text = latestUserMessage?.content
-    if (typeof text !== 'string' || !/^\p{N}+$/u.test(text.trim())) {
+    const content = latestUserMessage?.content
+    let text = ''
+    if (typeof content === 'string') {
+      text = content
+    } else if (
+      Array.isArray(content) &&
+      content.every((part) => part.type === 'text')
+    ) {
+      text = content.map((part) => part.text ?? '').join('\n')
+    }
+    if (!/^\p{N}+$/u.test(text.trim())) {
       return null
     }
 
@@ -461,9 +470,10 @@ export const webAgentToolProvider: LocalToolProvider = {
  * Radxa or desktop is offline, while device-only tools still use the bridge.
  */
 export function createBrowserAgentToolProvider(
-  bridgeProvider?: LocalToolProvider
+  bridgeProvider?: LocalToolProvider,
+  bridgeConnected = true
 ): LocalToolProvider {
-  return bridgeProvider
+  return bridgeProvider && bridgeConnected
     ? combineLocalToolProviders(webAgentToolProvider, bridgeProvider)
     : webAgentToolProvider
 }

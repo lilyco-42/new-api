@@ -449,10 +449,10 @@ export function createBrowserBridgeProvider(
 ): LocalToolProvider {
   return {
     tools: BRIDGE_TOOLS,
-    // Keep the provider visible while a reconnect is in progress so a user
-    // request fails with a clear offline error instead of silently falling
-    // back to a model response that pretends the local tool was unavailable.
-    isAvailable: () => client.getStatus() !== 'unavailable',
+    // The paired CLI is an optional per-user capability. Never advertise it
+    // unless its device is currently connected; browser and server tools stay
+    // usable through the web provider while it is offline.
+    isAvailable: () => client.getStatus() === 'connected',
     invoke: async (call: ChatCompletionToolCall, signal: AbortSignal) => {
       if (
         !BRIDGE_TOOLS.some((tool) => tool.function.name === call.function.name)

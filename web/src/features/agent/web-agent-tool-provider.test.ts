@@ -76,7 +76,7 @@ describe('webAgentToolProvider', () => {
   it('asks for context locally instead of searching for a standalone number', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
-      messages: [{ role: 'user', content: '1123' }],
+      messages: [{ role: 'user', content: '123' }],
       stream: false,
     }
     const request = vi.fn(async () => {
@@ -99,6 +99,53 @@ describe('webAgentToolProvider', () => {
     expect(response.choices[0]?.message.content).toContain('你发来的是一个数字')
     expect(request).not.toHaveBeenCalled()
     expect(searchClientSources).not.toHaveBeenCalled()
+  })
+
+  it('recognizes a numeric text part but preserves image questions for the model', () => {
+    const numeric = webAgentToolProvider.preflight?.([
+      { role: 'user', content: [{ type: 'text', text: '123' }] },
+    ])
+    const imageQuestion = webAgentToolProvider.preflight?.([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '123' },
+          {
+            type: 'image_url',
+            image_url: { url: 'https://example.com/a.png' },
+          },
+        ],
+      },
+    ])
+
+    expect(numeric?.choices[0]?.message.content).toContain('你发来的是一个数字')
+    expect(imageQuestion).toBeNull()
+  })
+
+  it('runs local preflight before falling back from an unavailable provider', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [{ role: 'user', content: '123' }],
+      stream: false,
+    }
+    const request = vi.fn(async () => {
+      throw new Error('No model request should be made.')
+    })
+    const provider: LocalToolProvider = {
+      ...webAgentToolProvider,
+      isAvailable: () => false,
+    }
+
+    const response = await runLocalToolLoop(
+      payload,
+      provider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain('你发来的是一个数字')
+    expect(request).not.toHaveBeenCalled()
   })
 
   it('clamps model-generated search limits to the supported maximum', async () => {
@@ -206,5 +253,34 @@ describe('webAgentToolProvider', () => {
       expect.objectContaining({ params: {} })
     )
     expect(bridgeInvoke).not.toHaveBeenCalled()
+  })
+
+  it('does not advertise paired-device tools while that device is offline', () => {
+    const bridgeProvider: LocalToolProvider = {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'agent.workspace.list',
+            parameters: { type: 'object' },
+          },
+        },
+      ],
+      isAvailable: () => true,
+      invoke: vi.fn(),
+    }
+
+    const connected = createBrowserAgentToolProvider(bridgeProvider, true)
+    const offline = createBrowserAgentToolProvider(bridgeProvider, false)
+
+    expect(connected.tools.map((tool) => tool.function.name)).toContain(
+      'agent.workspace.list'
+    )
+    expect(offline.tools.map((tool) => tool.function.name)).not.toContain(
+      'agent.workspace.list'
+    )
+    expect(offline.tools.map((tool) => tool.function.name)).toContain(
+      'web.search'
+    )
   })
 })

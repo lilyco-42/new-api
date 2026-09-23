@@ -361,7 +361,7 @@ export function useChatHandler({
             )
           }
         }
-        const response = localToolProvider?.isAvailable()
+        const response = localToolProvider
           ? await runLocalToolLoop(
               payload,
               localToolProvider,
@@ -424,7 +424,10 @@ export function useChatHandler({
   // Send chat request (stream or non-stream based on config)
   const sendChat = useCallback(
     (messages: Message[]) => {
-      if (localToolProvider?.isAvailable()) {
+      if (
+        localToolProvider &&
+        (localToolProvider.isAvailable() || localToolProvider.preflight)
+      ) {
         void sendNonStreamingChat(messages)
       } else if (config.stream) {
         sendStreamingChat(messages)

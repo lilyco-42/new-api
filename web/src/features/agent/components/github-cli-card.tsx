@@ -33,7 +33,14 @@ import {
 import { Input } from '@/components/ui/input'
 import { createOAuthFlow } from '@/features/auth/api'
 import { OAUTH_BIND_RESULT_MESSAGE } from '@/features/auth/constants'
-import { watchOAuthPopupClosed } from '@/features/auth/lib/oauth-bind-window'
+import {
+  OAUTH_BIND_REQUEST_TIMEOUT_MS,
+  OAUTH_BIND_FLOW_DEADLINE_MS,
+  OAUTH_BIND_RESULT_CHANNEL,
+  parseOAuthBindResultBroadcast,
+  startOAuthBindResponseDeadline,
+  watchOAuthPopupClosed,
+} from '@/features/auth/lib/oauth-bind-window'
 import {
   getOAuthSessionStorage,
   markOAuthBindPopup,
@@ -79,8 +86,10 @@ type BrowserGitHubStatus = {
 type PendingGitHubOAuth = {
   popup: Window
   state: string
+  wasConnectedBefore: boolean
   handlingCallback: boolean
   stopCloseWatcher: () => void
+  stopResponseDeadline: () => void
 }
 
 type TauriWindow = Window & {
@@ -155,6 +164,8 @@ export function GithubCliCard() {
     useCallback(async (): Promise<BrowserGitHubStatus | null> => {
       try {
         const response = await api.get('/api/agent/github/status', {
+          timeout: 15_000,
+          disableDuplicate: true,
           skipErrorHandler: true,
         })
         const value = response.data?.data
@@ -179,6 +190,7 @@ export function GithubCliCard() {
       const pending = pendingGitHubOAuth.current
       if (!pending || (expected && pending !== expected)) return
       pending.stopCloseWatcher()
+      pending.stopResponseDeadline()
       pendingGitHubOAuth.current = null
     },
     []
@@ -209,6 +221,7 @@ export function GithubCliCard() {
         }
         const response = await api.get('/api/oauth/github', {
           params,
+          timeout: OAUTH_BIND_REQUEST_TIMEOUT_MS,
           skipBusinessError: true,
           skipErrorHandler: true,
         })
@@ -216,12 +229,16 @@ export function GithubCliCard() {
         resultMessage = response.data?.message || resultMessage
         if (success) {
           toast.success(t('Binding successful!'))
-          const nextStatus = await refreshBrowserStatus()
-          if (!nextStatus) {
-            setBrowserStatus((previous) =>
-              previous ? { ...previous, connected: true } : previous
-            )
-          }
+          setBrowserStatus((previous) =>
+            previous ? { ...previous, connected: true } : previous
+          )
+          void refreshBrowserStatus().then((nextStatus) => {
+            if (!nextStatus) {
+              setBrowserStatus((previous) =>
+                previous ? { ...previous, connected: true } : previous
+              )
+            }
+          })
         } else {
           toast.error(resultMessage)
         }
@@ -230,7 +247,16 @@ export function GithubCliCard() {
           (error as { response?: { data?: { message?: string } } }).response
             ?.data?.message ||
           (error instanceof Error ? error.message : resultMessage)
-        toast.error(resultMessage)
+        const recoveredStatus = pending.wasConnectedBefore
+          ? null
+          : await refreshBrowserStatus()
+        if (recoveredStatus?.connected) {
+          success = true
+          resultMessage = t('Binding successful!')
+          toast.success(resultMessage)
+        } else {
+          toast.error(resultMessage)
+        }
       } finally {
         clearPendingGitHubOAuth(pending)
         setConnectingBrowser(false)
@@ -251,6 +277,49 @@ export function GithubCliCard() {
 
     window.addEventListener('message', handleOAuthCallback)
     return () => window.removeEventListener('message', handleOAuthCallback)
+  }, [clearPendingGitHubOAuth, refreshBrowserStatus, t])
+
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return
+    const channel = new BroadcastChannel(OAUTH_BIND_RESULT_CHANNEL)
+    const handleBroadcast = (event: MessageEvent<unknown>) => {
+      const pending = pendingGitHubOAuth.current
+      if (!pending || pending.handlingCallback) return
+      const result = parseOAuthBindResultBroadcast(
+        event.data,
+        'github',
+        pending.state
+      )
+      if (!result) return
+
+      pending.handlingCallback = true
+      clearPendingGitHubOAuth(pending)
+      setConnectingBrowser(false)
+      if (result.success) {
+        toast.success(t('Binding successful!'))
+        void refreshBrowserStatus().then((nextStatus) => {
+          if (!nextStatus) {
+            setBrowserStatus((previous) =>
+              previous ? { ...previous, connected: true } : previous
+            )
+          }
+        })
+      } else {
+        void refreshBrowserStatus().then((nextStatus) => {
+          if (!pending.wasConnectedBefore && nextStatus?.connected) {
+            toast.success(t('Binding successful!'))
+            return
+          }
+          toast.error(t('GitHub OAuth failed.'))
+        })
+      }
+      if (!pending.popup.closed) pending.popup.close()
+    }
+    channel.addEventListener('message', handleBroadcast)
+    return () => {
+      channel.removeEventListener('message', handleBroadcast)
+      channel.close()
+    }
   }, [clearPendingGitHubOAuth, refreshBrowserStatus, t])
 
   useEffect(
@@ -284,14 +353,26 @@ export function GithubCliCard() {
       const pending: PendingGitHubOAuth = {
         popup,
         state,
+        wasConnectedBefore: Boolean(status.connected),
         handlingCallback: false,
         stopCloseWatcher: () => undefined,
+        stopResponseDeadline: () => undefined,
       }
       pending.stopCloseWatcher = watchOAuthPopupClosed(popup, () => {
         clearPendingGitHubOAuth(pending)
         setConnectingBrowser(false)
-        void refreshBrowserStatus()
+        void refreshBrowserStatus().then((nextStatus) => {
+          if (!pending.wasConnectedBefore && nextStatus?.connected) {
+            toast.success(t('Binding successful!'))
+          }
+        })
       })
+      pending.stopResponseDeadline = startOAuthBindResponseDeadline(() => {
+        clearPendingGitHubOAuth(pending)
+        setConnectingBrowser(false)
+        toast.error(t('GitHub OAuth failed.'))
+        void refreshBrowserStatus()
+      }, OAUTH_BIND_FLOW_DEADLINE_MS)
       pendingGitHubOAuth.current = pending
       const authorization = new URL('https://github.com/login/oauth/authorize')
       authorization.searchParams.set('client_id', status.client_id)
