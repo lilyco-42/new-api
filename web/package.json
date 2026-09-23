@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "rsbuild dev",
     "build": "rsbuild build",
+    "build:agent-crawler-wasm": "node scripts/build-agent-crawler-wasm.mjs",
     "build:check": "tsgo -b && rsbuild build",
     "typecheck": "tsgo -b",
     "lint": "oxlint -c .oxlintrc.json .",

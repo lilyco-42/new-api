@@ -41,6 +41,7 @@ type BridgeEnvelope = {
   capabilities?: string[]
   request_id?: string
   device_id?: number
+  desktop_connected?: boolean
   credential?: string
   access_token?: string
   operation?: string
@@ -245,7 +246,11 @@ export class AgentBridgeClient {
           }
           if (!settled) {
             settled = true
-            this.setStatus('connected')
+            this.setStatus(
+              this.role === 'browser' && envelope.desktop_connected === false
+                ? 'offline'
+                : 'connected'
+            )
             this.heartbeat = window.setInterval(() => {
               if (socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({ type: 'ping' }))
@@ -255,7 +260,15 @@ export class AgentBridgeClient {
           }
           return
         }
-        if (envelope.type === 'pong') return
+        if (envelope.type === 'pong') {
+          if (
+            this.role === 'browser' &&
+            typeof envelope.desktop_connected === 'boolean'
+          ) {
+            this.setStatus(envelope.desktop_connected ? 'connected' : 'offline')
+          }
+          return
+        }
         if (
           (envelope.type === 'tool_result' || envelope.type === 'tool_error') &&
           envelope.request_id

@@ -70,6 +70,18 @@ export function AgentBridgeCard({
   const [confirmationTicket, setConfirmationTicket] = useState('')
   const [copied, setCopied] = useState(false)
   const [copiedScript, setCopiedScript] = useState(false)
+  let deviceStatusMessage = t(
+    'Create a short-lived ticket, claim it on Radxa, then paste the confirmation ticket here.'
+  )
+  if (status === 'connected') {
+    deviceStatusMessage = t(
+      'The paired device is connected. Local tools are ready.'
+    )
+  } else if (status === 'offline' && deviceName) {
+    deviceStatusMessage = t(
+      'The paired device is offline. Restart its bridge to use local tools; web and GitHub API tools remain available.'
+    )
+  }
 
   const action = async () => {
     const callback = status === 'connected' ? onReconnect : onPair
@@ -232,11 +244,7 @@ export function AgentBridgeCard({
         ) : (
           <div className='grid gap-2'>
             <p className='text-muted-foreground text-xs leading-5'>
-              {status === 'connected'
-                ? t('GitHub tools from this device are ready for the Agent.')
-                : t(
-                    'Create a short-lived ticket, claim it on Radxa, then paste the confirmation ticket here.'
-                  )}
+              {deviceStatusMessage}
             </p>
             {status !== 'connected' && onCreatePairing && !pairingTicket && (
               <Button

@@ -92,7 +92,7 @@ export function ResearchSourcesCard() {
         </CardTitle>
         <CardDescription className='text-xs leading-5'>
           {t(
-            'Open trusted public sources while you ask the Agent to compare findings.'
+            'Search GitHub, Hugging Face and research indexes from this browser. Give the Agent a public HTTPS URL to read; the client-side WASM reader follows up to five same-site pages where CORS allows. No cookies are sent.'
           )}
         </CardDescription>
       </CardHeader>

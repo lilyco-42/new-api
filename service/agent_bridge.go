@@ -58,12 +58,13 @@ var (
 // credentials never travel in browser envelopes; the browser uses a
 // short-lived dashboard access token only for its initial hello.
 type AgentBridgeEnvelope struct {
-	Type            string   `json:"type"`
-	ProtocolVersion int      `json:"protocol_version,omitempty"`
-	Capabilities    []string `json:"capabilities,omitempty"`
-	RequestID       string   `json:"request_id,omitempty"`
-	DeviceID        int64    `json:"device_id,omitempty"`
-	Credential      string   `json:"credential,omitempty"`
+	Type             string   `json:"type"`
+	ProtocolVersion  int      `json:"protocol_version,omitempty"`
+	Capabilities     []string `json:"capabilities,omitempty"`
+	RequestID        string   `json:"request_id,omitempty"`
+	DeviceID         int64    `json:"device_id,omitempty"`
+	DesktopConnected bool     `json:"desktop_connected"`
+	Credential       string   `json:"credential,omitempty"`
 	// AccessToken is only accepted on the first browser hello. It is carried
 	// inside the encrypted WebSocket payload because browsers cannot set an
 	// Authorization header when constructing a WebSocket. Desktop peers keep
@@ -221,6 +222,16 @@ func (hub *AgentBridgeHub) RegisterBrowser(userID int, deviceID int64, conn *web
 	}
 	peer := &AgentBridgePeer{conn: conn, deviceID: deviceID, userID: userID, role: "browser"}
 	return peer, nil
+}
+
+// DesktopConnected reports whether the paired desktop peer for this device is
+// currently registered under the same user. Browser clients use this to
+// distinguish an open relay socket from an actually reachable local device.
+func (hub *AgentBridgeHub) DesktopConnected(deviceID int64, userID int) bool {
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	peer := hub.desktops[deviceID]
+	return peer != nil && peer.userID == userID && peer.role == "desktop"
 }
 
 func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope AgentBridgeEnvelope) error {

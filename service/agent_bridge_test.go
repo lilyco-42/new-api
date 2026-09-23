@@ -75,6 +75,15 @@ func TestAgentBridgeRequestKeyScopesDevice(t *testing.T) {
 	require.NotEqual(t, bridgeRequestKey(1, "same"), bridgeRequestKey(2, "same"))
 }
 
+func TestAgentBridgeHubReportsDesktopPresenceOnlyForItsOwner(t *testing.T) {
+	hub := NewAgentBridgeHub()
+	hub.desktops[7] = &AgentBridgePeer{deviceID: 7, userID: 12, role: "desktop"}
+
+	require.True(t, hub.DesktopConnected(7, 12))
+	require.False(t, hub.DesktopConnected(7, 13))
+	require.False(t, hub.DesktopConnected(8, 12))
+}
+
 func TestValidateAgentBridgeHelloKeepsVersionAndCapabilitiesAdditive(t *testing.T) {
 	require.NoError(t, ValidateAgentBridgeHello(AgentBridgeEnvelope{
 		Type:         AgentBridgeMessageHello,

@@ -92,10 +92,10 @@ func AgentBridgeDesktop(c *gin.Context) {
 	defer close(stopHeartbeat)
 	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 	if err := hub.Send(peer, service.AgentBridgeEnvelope{
-		Type:            service.AgentBridgeMessageHelloAck,
-		ProtocolVersion: service.AgentBridgeProtocolVersion,
-		Capabilities:    service.AgentBridgeCapabilities(),
-		DeviceID:        device.Id,
+		Type:             service.AgentBridgeMessageHelloAck,
+		ProtocolVersion:  service.AgentBridgeProtocolVersion,
+		Capabilities:     service.AgentBridgeCapabilities(),
+		DeviceID:         device.Id,
 	}); err != nil {
 		return
 	}
@@ -134,7 +134,10 @@ func AgentBridgeDesktop(c *gin.Context) {
 				})
 			}
 		case service.AgentBridgeMessagePing:
-			if err := hub.Send(peer, service.AgentBridgeEnvelope{Type: service.AgentBridgeMessagePong}); err != nil {
+			if err := hub.Send(peer, service.AgentBridgeEnvelope{
+				Type:             service.AgentBridgeMessagePong,
+				DesktopConnected: hub.DesktopConnected(device.Id, device.UserId),
+			}); err != nil {
 				return
 			}
 		case service.AgentBridgeMessagePong:
@@ -180,10 +183,11 @@ func AgentBridgeBrowser(c *gin.Context) {
 	defer hub.Unregister(peer)
 	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 	if err := hub.Send(peer, service.AgentBridgeEnvelope{
-		Type:            service.AgentBridgeMessageHelloAck,
-		ProtocolVersion: service.AgentBridgeProtocolVersion,
-		Capabilities:    service.AgentBridgeCapabilities(),
-		DeviceID:        device.Id,
+		Type:             service.AgentBridgeMessageHelloAck,
+		ProtocolVersion:  service.AgentBridgeProtocolVersion,
+		Capabilities:     service.AgentBridgeCapabilities(),
+		DeviceID:         device.Id,
+		DesktopConnected: hub.DesktopConnected(device.Id, device.UserId),
 	}); err != nil {
 		return
 	}
@@ -204,7 +208,10 @@ func AgentBridgeBrowser(c *gin.Context) {
 				})
 			}
 		case service.AgentBridgeMessagePing:
-			if err := hub.Send(peer, service.AgentBridgeEnvelope{Type: service.AgentBridgeMessagePong}); err != nil {
+			if err := hub.Send(peer, service.AgentBridgeEnvelope{
+				Type:             service.AgentBridgeMessagePong,
+				DesktopConnected: hub.DesktopConnected(device.Id, device.UserId),
+			}); err != nil {
 				return
 			}
 		default:
