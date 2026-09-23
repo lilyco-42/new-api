@@ -283,4 +283,32 @@ describe('webAgentToolProvider', () => {
       'web.search'
     )
   })
+
+  it('removes paired-device tools from an in-flight provider after disconnect', () => {
+    let connected = true
+    const bridgeTool = {
+      type: 'function' as const,
+      function: {
+        name: 'agent.workspace.list',
+        parameters: { type: 'object' },
+      },
+    }
+    const bridgeProvider: LocalToolProvider = {
+      tools: [bridgeTool],
+      availableTools: () => (connected ? [bridgeTool] : []),
+      isAvailable: () => connected,
+      invoke: vi.fn(),
+    }
+    const provider = createBrowserAgentToolProvider(bridgeProvider, true)
+
+    expect(
+      provider.availableTools?.().map((tool) => tool.function.name)
+    ).toContain('agent.workspace.list')
+    connected = false
+    const availableToolNames = provider
+      .availableTools?.()
+      .map((tool) => tool.function.name)
+    expect(availableToolNames).not.toContain('agent.workspace.list')
+    expect(availableToolNames).toContain('web.search')
+  })
 })

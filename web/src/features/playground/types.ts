@@ -88,6 +88,8 @@ export interface ChatCompletionTool {
 
 export interface LocalToolProvider {
   tools: ChatCompletionTool[]
+  /** Current tools may change while a request is in flight (for example, when a paired device disconnects). */
+  availableTools?: () => ChatCompletionTool[]
   isAvailable: () => boolean
   /** Return a local answer before making a model or tool request, when needed. */
   preflight?: (

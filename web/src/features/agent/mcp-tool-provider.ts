@@ -413,6 +413,17 @@ export function combineLocalToolProviders(
     )
   return {
     tools: [...toolsByName.values()],
+    availableTools: () => {
+      const currentTools = new Map<string, ChatCompletionTool>()
+      for (const provider of providers) {
+        for (const tool of provider.availableTools?.() ?? provider.tools) {
+          if (!currentTools.has(tool.function.name)) {
+            currentTools.set(tool.function.name, tool)
+          }
+        }
+      }
+      return [...currentTools.values()]
+    },
     isAvailable: () => providers.some((provider) => provider.isAvailable()),
     preflight: (messages) => {
       for (const provider of providers) {

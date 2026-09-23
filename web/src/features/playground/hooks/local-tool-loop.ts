@@ -34,6 +34,18 @@ export type LocalToolLoopEvent =
   | { type: 'requested'; call: ChatCompletionToolCall }
   | { type: 'running'; call: ChatCompletionToolCall }
   | { type: 'completed'; call: ChatCompletionToolCall; result: string }
+  | { type: 'unavailable'; call: ChatCompletionToolCall }
+
+function availableTools(provider: LocalToolProvider) {
+  return provider.availableTools?.() ?? provider.tools
+}
+
+function unavailableToolResult(): string {
+  return JSON.stringify({
+    error:
+      'The paired desktop or Radxa device is offline. This local tool was not run. Continue with available context and do not retry local-only tools.',
+  })
+}
 
 export class LocalToolLoopError extends Error {
   constructor(message: string) {
@@ -117,12 +129,15 @@ export async function runLocalToolLoop(
   if (!provider.isAvailable()) return request(initialPayload, signal)
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
+  if (availableTools(provider).length === 0) {
+    return request(initialPayload, signal)
+  }
   let response = await request(
     {
       ...initialPayload,
       messages,
       stream: false,
-      tools: provider.tools,
+      tools: availableTools(provider),
       tool_choice: 'auto',
     },
     signal
@@ -140,17 +155,19 @@ export async function runLocalToolLoop(
       throw new LocalToolLoopError('The tool call budget was exceeded.')
     }
 
+    const currentToolNames = new Set(
+      availableTools(provider).map((tool) => tool.function.name)
+    )
+    const declaredToolNames = new Set(
+      provider.tools.map((tool) => tool.function.name)
+    )
     for (const call of calls) {
       parseArguments(call)
       if (seenCallIds.has(call.id)) {
         throw new LocalToolLoopError(`Duplicate tool call id: ${call.id}.`)
       }
       seenCallIds.add(call.id)
-      if (
-        !provider.tools.some(
-          (tool) => tool.function.name === call.function.name
-        )
-      ) {
+      if (!declaredToolNames.has(call.function.name)) {
         throw new LocalToolLoopError(
           `Tool is not allowed: ${call.function.name}.`
         )
@@ -161,6 +178,16 @@ export async function runLocalToolLoop(
     for (const call of calls) {
       assertSignal(signal)
       onEvent?.({ type: 'requested', call })
+      if (!currentToolNames.has(call.function.name)) {
+        onEvent?.({ type: 'unavailable', call })
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: unavailableToolResult(),
+        })
+        totalCalls += 1
+        continue
+      }
       if (provider.requiresApproval) {
         const approved = await provider.requiresApproval(call, signal)
         assertSignal(signal)
@@ -171,8 +198,21 @@ export async function runLocalToolLoop(
         }
       }
       onEvent?.({ type: 'running', call })
-      const result = boundedResult(await provider.invoke(call, signal))
-      onEvent?.({ type: 'completed', call, result })
+      let result: string
+      let wasUnavailable = false
+      try {
+        result = boundedResult(await provider.invoke(call, signal))
+      } catch (error) {
+        assertSignal(signal)
+        const stillAvailable = availableTools(provider).some(
+          (tool) => tool.function.name === call.function.name
+        )
+        if (stillAvailable) throw error
+        onEvent?.({ type: 'unavailable', call })
+        wasUnavailable = true
+        result = unavailableToolResult()
+      }
+      if (!wasUnavailable) onEvent?.({ type: 'completed', call, result })
       messages.push({ role: 'tool', tool_call_id: call.id, content: result })
       totalCalls += 1
     }
@@ -182,7 +222,7 @@ export async function runLocalToolLoop(
         ...initialPayload,
         messages,
         stream: false,
-        tools: provider.tools,
+        tools: availableTools(provider),
         tool_choice: 'auto',
       },
       signal

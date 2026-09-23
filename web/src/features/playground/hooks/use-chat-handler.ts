@@ -333,7 +333,16 @@ export function useChatHandler({
       try {
         setIsRequesting(true)
         const onToolEvent = (event: LocalToolLoopEvent) => {
-          if (event.type === 'running') {
+          if (event.type === 'unavailable') {
+            onMessageUpdate((prev) =>
+              updateLastAssistantMessage(prev, (message) =>
+                updateCurrentVersionContent(
+                  message,
+                  t('Paired device is offline; continuing without local tools.')
+                )
+              )
+            )
+          } else if (event.type === 'running') {
             onMessageUpdate((prev) =>
               updateLastAssistantMessage(prev, (message) =>
                 updateCurrentVersionContent(

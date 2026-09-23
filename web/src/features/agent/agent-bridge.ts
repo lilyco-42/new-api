@@ -278,6 +278,12 @@ export class AgentBridgeClient {
           window.clearTimeout(pending.timer)
           this.pending.delete(envelope.request_id)
           if (envelope.type === 'tool_error') {
+            if (
+              this.role === 'browser' &&
+              envelope.error?.toLowerCase().includes('agent device is offline')
+            ) {
+              this.setStatus('offline')
+            }
             pending.reject(
               new Error(envelope.error || 'The desktop tool failed.')
             )
@@ -318,6 +324,9 @@ export class AgentBridgeClient {
       throw new DOMException('The tool was cancelled.', 'AbortError')
     }
     await this.connect()
+    if (this.role === 'browser' && this.status !== 'connected') {
+      throw new Error('The paired desktop or Radxa device is offline.')
+    }
     const socket = this.socket
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       throw new Error('The paired desktop is offline.')
@@ -449,6 +458,8 @@ export function createBrowserBridgeProvider(
 ): LocalToolProvider {
   return {
     tools: BRIDGE_TOOLS,
+    availableTools: () =>
+      client.getStatus() === 'connected' ? BRIDGE_TOOLS : [],
     // The paired CLI is an optional per-user capability. Never advertise it
     // unless its device is currently connected; browser and server tools stay
     // usable through the web provider while it is offline.

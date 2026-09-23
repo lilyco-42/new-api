@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import type {
   ChatCompletionRequest,
@@ -29,6 +29,14 @@ const tool = {
   type: 'function' as const,
   function: {
     name: 'github.issues.list',
+    parameters: { type: 'object' },
+  },
+}
+
+const webTool = {
+  type: 'function' as const,
+  function: {
+    name: 'web.search',
     parameters: { type: 'object' },
   },
 }
@@ -132,6 +140,117 @@ describe('local structured tool loop', () => {
       tool_call_id: 'call-1',
     })
     expect(events).toEqual(['requested', 'running', 'completed'])
+  })
+
+  test('continues the answer when a paired device disconnects during a tool call', async () => {
+    let deviceOnline = true
+    const events: string[] = []
+    const requests: ChatCompletionRequest[] = []
+    const remoteProvider: LocalToolProvider = {
+      tools: [tool, webTool],
+      availableTools: () => (deviceOnline ? [tool, webTool] : [webTool]),
+      isAvailable: () => true,
+      invoke: async () => {
+        deviceOnline = false
+        throw new Error('agent device is offline')
+      },
+    }
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call-device',
+              type: 'function',
+              function: {
+                name: 'github.issues.list',
+                arguments: '{"repo":"lilyco-42/new-api"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({
+        role: 'assistant',
+        content: 'DeepSeek is an AI model family.',
+      })
+    }
+
+    const result = await runLocalToolLoop(
+      initialPayload,
+      remoteProvider,
+      new AbortController().signal,
+      (event) => events.push(event.type),
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toBe(
+      'DeepSeek is an AI model family.'
+    )
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.tools?.map((item) => item.function.name)).toEqual([
+      'web.search',
+    ])
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'call-device',
+      content: expect.stringContaining('device is offline'),
+    })
+    expect(events).toContain('unavailable')
+    expect(events).not.toContain('completed')
+  })
+
+  test('does not invoke a device tool if the device goes offline before its call runs', async () => {
+    let deviceOnline = true
+    const invoke = vi.fn(async () => 'must not run')
+    const requests: ChatCompletionRequest[] = []
+    const remoteProvider: LocalToolProvider = {
+      tools: [tool, webTool],
+      availableTools: () => (deviceOnline ? [tool, webTool] : [webTool]),
+      isAvailable: () => true,
+      invoke,
+    }
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        deviceOnline = false
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call-device',
+              type: 'function',
+              function: {
+                name: 'github.issues.list',
+                arguments: '{"repo":"lilyco-42/new-api"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({
+        role: 'assistant',
+        content: 'Here is a general answer.',
+      })
+    }
+
+    const result = await runLocalToolLoop(
+      initialPayload,
+      remoteProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toBe('Here is a general answer.')
+    expect(invoke).not.toHaveBeenCalled()
+    expect(requests[1]?.tools?.map((item) => item.function.name)).toEqual([
+      'web.search',
+    ])
   })
 
   test('rejects malformed and unknown calls before invoking a tool', async () => {
