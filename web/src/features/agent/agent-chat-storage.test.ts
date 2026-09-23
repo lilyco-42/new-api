@@ -59,7 +59,7 @@ describe('getNextAgentChatId', () => {
 
   test('still advances if local storage cannot be read', () => {
     const storage = {
-      get length() {
+      get length(): number {
         throw new Error('storage unavailable')
       },
       key: () => null,
