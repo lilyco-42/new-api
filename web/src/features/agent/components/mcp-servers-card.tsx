@@ -6,7 +6,7 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
-import { Cable, Plug, RefreshCw, Server, Trash2 } from 'lucide-react'
+import { BookOpen, Cable, Plug, RefreshCw, Server, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -35,6 +35,13 @@ type McpServersCardProps = {
   onChanged: () => void
   remoteServers?: McpServerDescriptor[]
   onRemoteRefresh?: () => Promise<McpServerDescriptor[]>
+}
+
+const DEEPWIKI_MCP_REQUEST: McpConnectRequest = {
+  server_id: 'deepwiki',
+  name: 'DeepWiki',
+  transport: 'streamable_http',
+  url: 'https://mcp.deepwiki.com/mcp',
 }
 
 export function McpServersCard({
@@ -120,6 +127,29 @@ export function McpServersCard({
     }
   }
 
+  const connectDeepWiki = async () => {
+    if (servers.some((server) => server.server_id === DEEPWIKI_MCP_REQUEST.server_id)) {
+      toast.message(t('DeepWiki is already connected.'))
+      return
+    }
+    setBusy(true)
+    try {
+      const server = await controller.connect(DEEPWIKI_MCP_REQUEST)
+      setServers((current) => [
+        ...current.filter((item) => item.server_id !== server.server_id),
+        server,
+      ])
+      onChanged()
+      toast.success(t('DeepWiki MCP connected.'))
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t('DeepWiki connection failed.')
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const disconnect = async (serverIdToRemove: string) => {
     setBusy(true)
     try {
@@ -158,6 +188,21 @@ export function McpServersCard({
       <CardContent className='grid gap-3'>
         {isDesktop ? (
           <>
+            <div className='grid gap-1'>
+              <Button
+                className='justify-start'
+                disabled={busy}
+                onClick={() => void connectDeepWiki()}
+                size='sm'
+                variant='outline'
+              >
+                <BookOpen />
+                {t('Connect public DeepWiki')}
+              </Button>
+              <p className='text-muted-foreground text-[10px] leading-4'>
+                {t('Official remote MCP for public GitHub repository wikis; no token required.')}
+              </p>
+            </div>
             <div className='grid grid-cols-2 gap-2'>
               <Input
                 aria-label={t('MCP server id')}

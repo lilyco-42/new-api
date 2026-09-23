@@ -33,6 +33,28 @@ const WEB_SEARCH_TOOL: ChatCompletionTool = {
   },
 }
 
+const WEB_FETCH_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'web.fetch',
+    description:
+      'Fetch a public web page and return bounded readable text with its final URL and retrieval time. Only public HTTP(S) text documents are supported.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        url: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 2048,
+          description: 'The public HTTP(S) page URL to read.',
+        },
+      },
+      required: ['url'],
+    },
+  },
+}
+
 const GITHUB_STATUS_TOOL: ChatCompletionTool = {
   type: 'function',
   function: {
@@ -104,6 +126,7 @@ const GITHUB_PULL_REQUESTS_TOOL: ChatCompletionTool = {
 
 export const WEB_AGENT_TOOLS: ChatCompletionTool[] = [
   WEB_SEARCH_TOOL,
+  WEB_FETCH_TOOL,
   GITHUB_STATUS_TOOL,
   GITHUB_REPOSITORY_SEARCH_TOOL,
   GITHUB_ISSUES_TOOL,
@@ -140,10 +163,10 @@ function readResponseData<T>(value: unknown): T {
 
 function boundedLimit(value: unknown, fallback: number, maximum: number): number {
   if (value === undefined) return fallback
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > maximum) {
-    throw new Error(`Tool limit must be an integer between 1 and ${maximum}.`)
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+    return fallback
   }
-  return value
+  return Math.max(1, Math.min(maximum, value))
 }
 
 function queryString(value: unknown, label: string, max = 200): string {
@@ -160,6 +183,28 @@ function readRepository(value: unknown): string {
   return value.trim()
 }
 
+function readPublicPageURL(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > 2048) {
+    throw new Error('Page URL must contain 1–2048 characters.')
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error('Page URL must be an absolute HTTP(S) URL.')
+  }
+  if (
+    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    (parsed.port !== '' && parsed.port !== '80' && parsed.port !== '443')
+  ) {
+    throw new Error('Page URL must use public HTTP(S) on a default port.')
+  }
+  parsed.hash = ''
+  return parsed.toString()
+}
+
 function parseToolArguments(call: ChatCompletionToolCall): Record<string, unknown> {
   const params = parseArguments(call)
   switch (call.function.name) {
@@ -170,6 +215,11 @@ function parseToolArguments(call: ChatCompletionToolCall): Record<string, unknow
         query: queryString(params.query, 'Search query'),
         limit: boundedLimit(params.limit, 5, 8),
       }
+    }
+    case 'web.fetch': {
+      const allowed = new Set(['url'])
+      if (Object.keys(params).some((key) => !allowed.has(key))) throw new Error('Unsupported web.fetch argument.')
+      return { url: readPublicPageURL(params.url) }
     }
     case 'github.auth.status':
       if (Object.keys(params).length > 0) throw new Error('GitHub auth status does not accept arguments.')
@@ -216,6 +266,8 @@ export const webAgentToolProvider: LocalToolProvider = {
     switch (call.function.name) {
       case 'web.search':
         return invokeApi('/api/agent/search', { q: params.query, limit: params.limit }, signal)
+      case 'web.fetch':
+        return invokeApi('/api/agent/fetch', { url: params.url }, signal)
       case 'github.auth.status':
         return invokeApi('/api/agent/github/status', {}, signal)
       case 'github.repositories.search':

@@ -4223,6 +4223,8 @@
     "Search failed.": "搜索失败。",
     "Open web search results": "打开完整网页搜索结果",
     "The selected model is temporarily rate limited. Retry shortly or choose another model.": "当前模型暂时触发限流，请稍后重试或切换其他模型。",
+    "GitHub OAuth is not configured. Set a Client ID and Secret in System settings → Authentication → OAuth, enable it, and register the callback URL shown there.": "GitHub OAuth 尚未配置。请在“系统设置 → 身份验证 → OAuth”填写 Client ID 和 Client Secret、启用 GitHub OAuth，并将该页面显示的回调 URL 注册到 GitHub 应用。",
+    "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.": "当前模型或 API 渠道暂时不可用。请重试或切换模型；如果所有模型都失败，请检查渠道和服务器状态。",
     "Searching…": "搜索中…",
     "Capture failed.": "捕获失败。",
     "Could not capture an image.": "无法捕获图片。",
@@ -5545,10 +5547,10 @@
     "Zhipu V4": "智谱 V4",
     "Zoom": "缩放",
     "Quick access on every device": "在所有设备上快速使用",
-    "Use the browser, install a PWA, or wrap the same Agent URL with Lyco and webview-capi.": "可以直接用浏览器、安装为 PWA，或用 Lyco 与 webview-capi 套壳打开同一个 Agent 地址。",
+    "Use the browser, install a PWA, or download the Lain42 Agent desktop app.": "可以直接用浏览器、安装为 PWA，或下载 Lain42 Agent 桌面版。",
     "Install as an app": "安装为应用",
     "Installed on this device": "此设备已安装",
-    "Desktop shell with Lyco": "用 Lyco 创建桌面壳",
+    "Download Lain42 Agent desktop app": "下载 Lain42 Agent 桌面版",
     "Desktop: choose Install app from the address bar. iPhone or iPad: use Share → Add to Home Screen.": "电脑端在地址栏选择“安装应用”；iPhone 或 iPad 使用“分享 → 添加到主屏幕”。",
     "OpenAI-compatible API clients": "兼容 OpenAI 的 API 客户端",
     "Copy API endpoint": "复制 API 地址",
@@ -5699,6 +5701,11 @@
     "按语法树搜索、检查和重写代码，适合安全批量重构。": "按语法树搜索、检查和重写代码，适合安全批量重构。",
     "为代码库建立知识图谱，探索符号、调用链和影响范围。": "为代码库建立知识图谱，探索符号、调用链和影响范围。",
     "用 gh 查看仓库、Issue、Pull Request 和项目趋势。": "用 gh 查看仓库、Issue、Pull Request 和项目趋势。",
-    "把结构化代码搜索暴露给支持 MCP 的 Agent。": "把结构化代码搜索暴露给支持 MCP 的 Agent。"
+    "把结构化代码搜索暴露给支持 MCP 的 Agent。": "把结构化代码搜索暴露给支持 MCP 的 Agent。",
+    "Connect public DeepWiki": "连接公开 DeepWiki",
+    "Official remote MCP for public GitHub repository wikis; no token required.": "官方远程 MCP，可读取公开 GitHub 仓库知识库；无需令牌。",
+    "DeepWiki is already connected.": "DeepWiki 已连接。",
+    "DeepWiki MCP connected.": "DeepWiki MCP 已连接。",
+    "DeepWiki connection failed.": "DeepWiki 连接失败。"
   }
 }

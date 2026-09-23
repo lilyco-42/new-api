@@ -24,6 +24,7 @@ type RequestErrorLike = {
     data?: {
       error?: {
         code?: string
+        message?: string
       }
       message?: string
     }
@@ -37,12 +38,32 @@ export type RequestErrorDetails = {
 
 export function parseRequestErrorDetails(error: unknown): RequestErrorDetails {
   const requestError = error as RequestErrorLike
+  const payload = requestError?.response?.data
 
   return {
-    errorCode: requestError?.response?.data?.error?.code || undefined,
+    errorCode: payload?.error?.code || undefined,
     errorMessage:
-      requestError?.response?.data?.message ||
+      payload?.error?.message ||
+      payload?.message ||
       requestError?.message ||
       ERROR_MESSAGES.API_REQUEST_ERROR,
   }
+}
+
+export function getActionableRequestErrorKey(message: string): string | null {
+  if (
+    /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
+      message
+    )
+  ) {
+    return 'The selected model is temporarily rate limited. Retry shortly or choose another model.'
+  }
+  if (
+    /\b(?:502|503|504)\b|temporarily unavailable|service unavailable/i.test(
+      message
+    )
+  ) {
+    return 'The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.'
+  }
+  return null
 }

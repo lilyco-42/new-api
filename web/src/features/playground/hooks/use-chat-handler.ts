@@ -25,6 +25,7 @@ import { ERROR_MESSAGES } from '../constants'
 import {
   applyStreamingChunk,
   buildChatCompletionPayload,
+  getActionableRequestErrorKey,
   updateAssistantMessageWithError,
   updateLastAssistantMessage,
   parseRequestErrorDetails,
@@ -209,16 +210,10 @@ export function useChatHandler({
         return t(error)
       }
 
-      // Upstream providers commonly return a bare Axios "status code 429"
-      // message. Turn it into an actionable hint instead of making users
-      // guess whether their prompt or account is broken.
-      if (
-        /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
-          error
-        )
-      ) {
-        return t('The selected model is temporarily rate limited. Retry shortly or choose another model.')
-      }
+      // Upstream channels commonly surface transient 429/5xx errors as bare
+      // Axios status strings. Turn those into useful recovery guidance.
+      const actionableErrorKey = getActionableRequestErrorKey(error)
+      if (actionableErrorKey) return t(actionableErrorKey)
 
       const connectionClosedSuffix = `: ${ERROR_MESSAGES.CONNECTION_CLOSED}`
       if (error.endsWith(connectionClosedSuffix)) {

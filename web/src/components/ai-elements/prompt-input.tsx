@@ -91,6 +91,8 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
+import { filterPromptInputFiles } from './prompt-input-utils'
+
 // ============================================================================
 // Provider Context & Types
 // ============================================================================
@@ -116,7 +118,8 @@ export type PromptInputControllerProps = {
   /** INTERNAL: Allows PromptInput to register its file textInput + "open" callback */
   __registerFileInput: (
     ref: RefObject<HTMLInputElement | null>,
-    open: () => void
+    open: () => void,
+    validate: (files: File[] | FileList, currentFiles: number) => File[]
   ) => void
 }
 
@@ -173,39 +176,45 @@ export function PromptInputProvider({
   const [attachements, setAttachements] = useState<
     (FileUIPart & { id: string })[]
   >([])
+  const attachmentsRef = useRef<(FileUIPart & { id: string })[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const openRef = useRef<() => void>(() => {})
+  const validateRef = useRef<
+    (files: File[] | FileList, currentFiles: number) => File[]
+  >((files) => Array.from(files))
 
   const add = useCallback((files: File[] | FileList) => {
-    const incoming = Array.from(files)
+    const incoming = validateRef.current(files, attachmentsRef.current.length)
     if (incoming.length === 0) return
 
-    setAttachements((prev) =>
-      prev.concat(
-        incoming.map((file) => ({
-          id: nanoid(),
-          type: 'file' as const,
-          url: URL.createObjectURL(file),
-          mediaType: file.type,
-          filename: file.name,
-        }))
-      )
+    const next = attachmentsRef.current.concat(
+      incoming.map((file) => ({
+        id: nanoid(),
+        type: 'file' as const,
+        url: URL.createObjectURL(file),
+        mediaType: file.type,
+        filename: file.name,
+      }))
     )
+    attachmentsRef.current = next
+    setAttachements(next)
   }, [])
 
   const remove = useCallback((id: string) => {
-    setAttachements((prev) => {
-      const found = prev.find((f) => f.id === id)
-      if (found?.url) URL.revokeObjectURL(found.url)
-      return prev.filter((f) => f.id !== id)
-    })
+    const previous = attachmentsRef.current
+    const found = previous.find((file) => file.id === id)
+    if (found?.url) URL.revokeObjectURL(found.url)
+    const next = previous.filter((file) => file.id !== id)
+    attachmentsRef.current = next
+    setAttachements(next)
   }, [])
 
   const clear = useCallback(() => {
-    setAttachements((prev) => {
-      for (const f of prev) if (f.url) URL.revokeObjectURL(f.url)
-      return []
-    })
+    for (const file of attachmentsRef.current) {
+      if (file.url) URL.revokeObjectURL(file.url)
+    }
+    attachmentsRef.current = []
+    setAttachements([])
   }, [])
 
   const openFileDialog = useCallback(() => {
@@ -225,9 +234,14 @@ export function PromptInputProvider({
   )
 
   const __registerFileInput = useCallback(
-    (ref: RefObject<HTMLInputElement | null>, open: () => void) => {
+    (
+      ref: RefObject<HTMLInputElement | null>,
+      open: () => void,
+      validate: (files: File[] | FileList, currentFiles: number) => File[]
+    ) => {
       fileInputRef.current = ref.current
       openRef.current = open
+      validateRef.current = validate
     },
     []
   )
@@ -487,76 +501,84 @@ export const PromptInput = ({
 
   // ----- Local attachments (only used when no provider)
   const [items, setItems] = useState<(FileUIPart & { id: string })[]>([])
+  const localItemsRef = useRef<(FileUIPart & { id: string })[]>([])
   const files = usingProvider ? controller.attachments.files : items
 
   const openFileDialogLocal = useCallback(() => {
     inputRef.current?.click()
   }, [])
 
-  const matchesAccept = useCallback(
-    (f: File) => {
-      if (!accept || accept.trim() === '') {
-        return true
-      }
-      if (accept.includes('image/*')) {
-        return f.type.startsWith('image/')
-      }
-      // NOTE: keep simple; expand as needed
-      return true
-    },
-    [accept]
-  )
-
-  const addLocal = useCallback(
-    (fileList: File[] | FileList) => {
-      const incoming = Array.from(fileList)
-      const accepted = incoming.filter((f) => matchesAccept(f))
-      if (incoming.length && accepted.length === 0) {
+  const validateFiles = useCallback(
+    (fileList: File[] | FileList, currentFiles = files.length) => {
+      const result = filterPromptInputFiles(fileList, {
+        accept,
+        maxFiles,
+        maxFileSize,
+        currentFiles,
+      })
+      const incomingCount = fileList.length
+      if (result.rejectedTypes > 0 && result.accepted.length === 0) {
         onError?.({
           code: 'accept',
           message: t('No files match the accepted types.'),
         })
-        return
-      }
-      const withinSize = (f: File) =>
-        maxFileSize ? f.size <= maxFileSize : true
-      const sized = accepted.filter(withinSize)
-      if (accepted.length > 0 && sized.length === 0) {
+      } else if (result.rejectedSizes > 0 && result.accepted.length === 0) {
         onError?.({
           code: 'max_file_size',
           message: t('All files exceed the maximum size.'),
         })
-        return
+      } else if (result.rejectedCount > 0 && result.accepted.length === 0) {
+        onError?.({
+          code: 'max_files',
+          message: t('Too many files. Some were not added.'),
+        })
+      } else if (incomingCount > 0 && result.accepted.length === 0) {
+        onError?.({
+          code: 'max_files',
+          message: t('Too many files. Some were not added.'),
+        })
       }
-
-      setItems((prev) => {
-        const capacity =
-          typeof maxFiles === 'number'
-            ? Math.max(0, maxFiles - prev.length)
-            : undefined
-        const capped =
-          typeof capacity === 'number' ? sized.slice(0, capacity) : sized
-        if (typeof capacity === 'number' && sized.length > capacity) {
-          onError?.({
-            code: 'max_files',
-            message: t('Too many files. Some were not added.'),
-          })
-        }
-        const next: (FileUIPart & { id: string })[] = []
-        for (const file of capped) {
-          next.push({
-            id: nanoid(),
-            type: 'file',
-            url: URL.createObjectURL(file),
-            mediaType: file.type,
-            filename: file.name,
-          })
-        }
-        return prev.concat(next)
-      })
+      return result.accepted
     },
-    [matchesAccept, maxFiles, maxFileSize, onError, t]
+    [accept, files.length, maxFileSize, maxFiles, onError, t]
   )
+
+  const addLocal = useCallback(
+    (fileList: File[] | FileList) => {
+      const accepted = validateFiles(fileList, localItemsRef.current.length)
+      if (accepted.length === 0) return
+
+      const next = localItemsRef.current.concat(
+        accepted.map((file) => ({
+          id: nanoid(),
+          type: 'file' as const,
+          url: URL.createObjectURL(file),
+          mediaType: file.type,
+          filename: file.name,
+        }))
+      )
+      localItemsRef.current = next
+      setItems(next)
+    },
+    [validateFiles]
+  )
+
+  const removeLocal = useCallback((id: string) => {
+    const previous = localItemsRef.current
+    const found = previous.find((file) => file.id === id)
+    if (found?.url) URL.revokeObjectURL(found.url)
+    const next = previous.filter((file) => file.id !== id)
+    localItemsRef.current = next
+    setItems(next)
+  }, [])
+
+  const clearLocal = useCallback(() => {
+    for (const file of localItemsRef.current) {
+      if (file.url) URL.revokeObjectURL(file.url)
+    }
+    localItemsRef.current = []
+    setItems([])
+  }, [])
 
   const add = useMemo(
     () =>
@@ -570,31 +592,16 @@ export const PromptInput = ({
     () =>
       controller
         ? (id: string) => controller.attachments.remove(id)
-        : (id: string) =>
-            setItems((prev) => {
-              const found = prev.find((file) => file.id === id)
-              if (found?.url) {
-                URL.revokeObjectURL(found.url)
-              }
-              return prev.filter((file) => file.id !== id)
-            }),
-    [controller]
+        : removeLocal,
+    [controller, removeLocal]
   )
 
   const clear = useMemo(
     () =>
       controller
         ? () => controller.attachments.clear()
-        : () =>
-            setItems((prev) => {
-              for (const file of prev) {
-                if (file.url) {
-                  URL.revokeObjectURL(file.url)
-                }
-              }
-              return []
-            }),
-    [controller]
+        : clearLocal,
+    [controller, clearLocal]
   )
 
   const openFileDialog = useMemo(
@@ -608,8 +615,12 @@ export const PromptInput = ({
   // Let provider know about our hidden file input so external menus can call openFileDialog()
   useEffect(() => {
     if (!usingProvider) return
-    controller.__registerFileInput(inputRef, () => inputRef.current?.click())
-  }, [usingProvider, controller])
+    controller.__registerFileInput(
+      inputRef,
+      () => inputRef.current?.click(),
+      (fileList, currentFiles) => validateFiles(fileList, currentFiles)
+    )
+  }, [usingProvider, controller, validateFiles])
 
   // Note: File input cannot be programmatically set for security reasons
   // The syncHiddenInput prop is no longer functional

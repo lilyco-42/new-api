@@ -139,8 +139,8 @@ export function GithubCliCard() {
     useState<BrowserGitHubStatus | null>(null)
   const [connectingBrowser, setConnectingBrowser] = useState(false)
 
-  const refreshBrowserStatus = useCallback(
-    async (): Promise<BrowserGitHubStatus | null> => {
+  const refreshBrowserStatus =
+    useCallback(async (): Promise<BrowserGitHubStatus | null> => {
       try {
         const response = await api.get('/api/agent/github/status', {
           skipErrorHandler: true,
@@ -156,9 +156,7 @@ export function GithubCliCard() {
         // unavailable, so status refresh is intentionally best-effort.
       }
       return null
-    },
-    []
-  )
+    }, [])
 
   useEffect(() => {
     void refreshBrowserStatus()
@@ -169,7 +167,11 @@ export function GithubCliCard() {
     try {
       const status = await refreshBrowserStatus()
       if (!status?.enabled || !status.client_id) {
-        throw new Error(t('GitHub OAuth is not configured on this site.'))
+        throw new Error(
+          t(
+            'GitHub OAuth is not configured. Set a Client ID and Secret in System settings → Authentication → OAuth, enable it, and register the callback URL shown there.'
+          )
+        )
       }
       const popup = window.open('', '_blank', 'width=520,height=720')
       if (!popup) throw new Error(t('OAuth pop-up was blocked'))

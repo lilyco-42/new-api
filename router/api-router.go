@@ -79,12 +79,13 @@ func SetApiRouter(router *gin.Engine) {
 			browserAgentStatusRoute := agentRoute.Group("")
 			browserAgentStatusRoute.Use(middleware.UserAuth(), middleware.DisableCache())
 			browserAgentStatusRoute.GET("/github/status", controller.AgentGitHubStatus)
-			// Search and GitHub reads are bounded per authenticated user. They
+			// Search, web fetch, and GitHub reads are bounded per authenticated user. They
 			// are frequent, read-only Agent tools and should not consume the
 			// shared IP-wide critical-request budget used by login and billing.
 			browserAgentRoute := agentRoute.Group("")
 			browserAgentRoute.Use(middleware.UserAuth(), middleware.SearchRateLimit(), middleware.DisableCache())
 			browserAgentRoute.GET("/search", controller.AgentWebSearch)
+			browserAgentRoute.GET("/fetch", controller.AgentWebFetch)
 			browserAgentRoute.GET("/github/repositories/search", controller.AgentGitHubRepositoriesSearch)
 			browserAgentRoute.GET("/github/issues", controller.AgentGitHubIssues)
 			browserAgentRoute.GET("/github/pull-requests", controller.AgentGitHubPullRequests)

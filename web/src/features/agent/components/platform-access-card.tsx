@@ -38,6 +38,8 @@ import {
 } from '@/components/ui/card'
 
 const API_ENDPOINT = 'https://api.lain42.top/v1'
+const DESKTOP_DOWNLOAD_URL =
+  'https://github.com/lilyco-42/new-api/releases/latest'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -114,7 +116,7 @@ export function PlatformAccessCard() {
         </CardTitle>
         <CardDescription className='text-xs leading-5'>
           {t(
-            'Use the browser, install a PWA, or wrap the same Agent URL with Lyco and webview-capi.'
+            'Use the browser, install a PWA, or download the Lain42 Agent desktop app.'
           )}
         </CardDescription>
       </CardHeader>
@@ -132,17 +134,13 @@ export function PlatformAccessCard() {
           <Button
             className='w-full justify-start'
             render={
-              <a
-                href='https://github.com/lilyco-42/lyco'
-                rel='noreferrer'
-                target='_blank'
-              />
+              <a href={DESKTOP_DOWNLOAD_URL} rel='noreferrer' target='_blank' />
             }
             size='sm'
             variant='outline'
           >
             <Laptop />
-            {t('Desktop shell with Lyco')}
+            {t('Download Lain42 Agent desktop app')}
             <ExternalLink className='ml-auto' />
           </Button>
         </div>

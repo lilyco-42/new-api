@@ -30,5 +30,7 @@ export function buildOAuthCallbackUrl(
   fallback: string
 ): string {
   const siteUrl = resolveOAuthSiteUrl(serverAddress, fallback)
-  return `${siteUrl}/oauth/${callbackPath.replace(/^\/+/, '')}`
+  const serverBase = siteUrl.replace(/\/api$/i, '')
+  const provider = callbackPath.replaceAll(/^\/+|\/+$/g, '')
+  return `${serverBase}/api/oauth/${provider}`
 }

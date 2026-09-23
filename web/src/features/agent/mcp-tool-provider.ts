@@ -419,9 +419,13 @@ export function combineLocalToolProviders(
       if (!provider) {
         throw new Error(`Tool is not allowed: ${call.function.name}.`)
       }
+      // An omitted approval callback means this provider deliberately exposes
+      // a read-only tool with no extra approval prompt. Returning false here
+      // incorrectly rejects every web.search / GitHub read when providers are
+      // combined with MCP, even though those tools do not require approval.
       return provider.requiresApproval
         ? provider.requiresApproval(call, signal)
-        : false
+        : true
     },
     invoke: async (call, signal) => {
       const provider = findProvider(call.function.name)
