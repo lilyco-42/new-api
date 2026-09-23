@@ -181,21 +181,22 @@ export function PromptInputProvider({
   const openRef = useRef<() => void>(() => {})
   const validateRef = useRef<
     (files: File[] | FileList, currentFiles: number) => File[]
-  >((files) => Array.from(files))
+  >((files) => [...files])
 
   const add = useCallback((files: File[] | FileList) => {
     const incoming = validateRef.current(files, attachmentsRef.current.length)
     if (incoming.length === 0) return
 
-    const next = attachmentsRef.current.concat(
-      incoming.map((file) => ({
+    const next = [
+      ...attachmentsRef.current,
+      ...incoming.map((file) => ({
         id: nanoid(),
         type: 'file' as const,
         url: URL.createObjectURL(file),
         mediaType: file.type,
         filename: file.name,
-      }))
-    )
+      })),
+    ]
     attachmentsRef.current = next
     setAttachements(next)
   }, [])
@@ -548,15 +549,16 @@ export const PromptInput = ({
       const accepted = validateFiles(fileList, localItemsRef.current.length)
       if (accepted.length === 0) return
 
-      const next = localItemsRef.current.concat(
-        accepted.map((file) => ({
+      const next = [
+        ...localItemsRef.current,
+        ...accepted.map((file) => ({
           id: nanoid(),
           type: 'file' as const,
           url: URL.createObjectURL(file),
           mediaType: file.type,
           filename: file.name,
-        }))
-      )
+        })),
+      ]
       localItemsRef.current = next
       setItems(next)
     },
@@ -597,10 +599,7 @@ export const PromptInput = ({
   )
 
   const clear = useMemo(
-    () =>
-      controller
-        ? () => controller.attachments.clear()
-        : clearLocal,
+    () => (controller ? () => controller.attachments.clear() : clearLocal),
     [controller, clearLocal]
   )
 
