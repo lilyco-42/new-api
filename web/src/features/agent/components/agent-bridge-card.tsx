@@ -10,6 +10,8 @@ import {
   Cable,
   Check,
   Clipboard,
+  Copy,
+  ExternalLink,
   Laptop,
   Link2,
   RefreshCw,
@@ -30,6 +32,7 @@ import {
 } from '@/components/ui/card'
 
 import type { AgentBridgeStatus, AgentRunEvent } from '../agent-bridge'
+import { createRadxaPairingScript } from '../radxa-pairing-script'
 
 type AgentBridgeCardProps = {
   isDesktop: boolean
@@ -66,6 +69,7 @@ export function AgentBridgeCard({
   const [busy, setBusy] = useState(false)
   const [confirmationTicket, setConfirmationTicket] = useState('')
   const [copied, setCopied] = useState(false)
+  const [copiedScript, setCopiedScript] = useState(false)
 
   const action = async () => {
     const callback = status === 'connected' ? onReconnect : onPair
@@ -138,6 +142,25 @@ export function AgentBridgeCard({
     }
   }
 
+  const copyPairingScript = async () => {
+    try {
+      if (!navigator.clipboard) {
+        throw new Error('Clipboard access is unavailable.')
+      }
+      await navigator.clipboard.writeText(
+        createRadxaPairingScript(window.location.origin)
+      )
+      setCopiedScript(true)
+      window.setTimeout(() => setCopiedScript(false), 1600)
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Could not copy Radxa pairing script.')
+      )
+    }
+  }
+
   let label = t('Desktop offline')
   if (status === 'connected') label = t('Connected')
   if (status === 'connecting') label = t('Connecting…')
@@ -186,9 +209,12 @@ export function AgentBridgeCard({
         </div>
         {!isDesktop && journal.length > 0 && (
           <p className='text-muted-foreground text-xs leading-5'>
-            {t('Synced {{count}} bridge events. Incomplete tool calls are never replayed automatically.', {
-              count: journal.length,
-            })}
+            {t(
+              'Synced {{count}} bridge events. Incomplete tool calls are never replayed automatically.',
+              {
+                count: journal.length,
+              }
+            )}
           </p>
         )}
         {isDesktop ? (
@@ -227,7 +253,7 @@ export function AgentBridgeCard({
               <div className='grid gap-2 rounded-lg border border-dashed p-2'>
                 <span className='text-muted-foreground text-[11px]'>
                   {t(
-                    'Copy this ticket to the Radxa pairing API. It expires soon; after claiming it, paste the confirmation ticket here.'
+                    'Open a terminal on Radxa. Copy the script, run it in that terminal, then enter this short-lived ticket when prompted.'
                   )}
                 </span>
                 <div className='flex items-center gap-1.5'>
@@ -247,6 +273,48 @@ export function AgentBridgeCard({
                     )}
                   </Button>
                 </div>
+                <div className='flex flex-wrap items-center gap-2 text-[11px]'>
+                  <span className='text-muted-foreground'>
+                    {t('Pairing ID')}
+                  </span>
+                  <code className='bg-muted rounded px-1.5 py-0.5'>
+                    {pairingId ?? '—'}
+                  </code>
+                  <Button
+                    disabled={busy}
+                    onClick={() => void copyPairingScript()}
+                    size='sm'
+                    variant='outline'
+                  >
+                    {copiedScript ? <Check /> : <Copy />}
+                    {copiedScript
+                      ? t('Copied')
+                      : t('Copy Radxa pairing script')}
+                  </Button>
+                  <Button
+                    disabled={busy}
+                    onClick={() => void createPairing()}
+                    size='sm'
+                    variant='ghost'
+                  >
+                    <RefreshCw />
+                    {t('Generate a new ticket')}
+                  </Button>
+                </div>
+                <p className='text-muted-foreground text-[11px] leading-4'>
+                  {t(
+                    'Keep that terminal open while you confirm here. The script stores the device credential in an owner-only file and never prints it.'
+                  )}
+                </p>
+                <a
+                  className='text-primary inline-flex items-center gap-1 text-xs underline-offset-4 hover:underline'
+                  href='https://github.com/lilyco-42/new-api/blob/agent-ui/tauri/agent-companion/README.md'
+                  rel='noreferrer'
+                  target='_blank'
+                >
+                  {t('Radxa companion setup guide')}
+                  <ExternalLink className='size-3' aria-hidden='true' />
+                </a>
                 <div className='flex gap-2'>
                   <input
                     aria-label={t('Confirmation ticket')}

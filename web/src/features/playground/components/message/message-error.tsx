@@ -54,10 +54,20 @@ interface MessageErrorProps {
   message: Message
   className?: string
   actions?: ReactNode
+  onChooseModel?: () => void
 }
 
-function displayErrorContent(content: string, translate: (key: string) => string): string {
-  if (/(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(content)) {
+function isRateLimitedError(content: string): boolean {
+  return /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
+    content
+  )
+}
+
+function displayErrorContent(
+  content: string,
+  translate: (key: string) => string
+): string {
+  if (isRateLimitedError(content)) {
     return translate(
       'The selected model is temporarily rate limited. Retry shortly or choose another model.'
     )
@@ -73,6 +83,7 @@ export function MessageError({
   message,
   className = '',
   actions,
+  onChooseModel,
 }: MessageErrorProps) {
   const { t } = useTranslation()
   const user = useAuthStore((s) => s.auth.user)
@@ -120,9 +131,12 @@ export function MessageError({
       <AlertCircle />
       <AlertTitle>{t('Error')}</AlertTitle>
       <AlertDescription className='space-y-2'>
-        <p>
-          {content}
-        </p>
+        <p>{content}</p>
+        {isRateLimitedError(errorState.content) && onChooseModel && (
+          <Button variant='outline' size='sm' onClick={onChooseModel}>
+            {t('Choose a different model')}
+          </Button>
+        )}
         {actions}
       </AlertDescription>
     </Alert>

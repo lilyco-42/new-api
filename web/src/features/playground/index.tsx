@@ -87,6 +87,18 @@ export function Playground({
     clearMessages()
   }
 
+  const handleChooseModel = () => {
+    const selector = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        '[data-agent-model-selector-trigger="true"]'
+      )
+    ).find((element) => element.getClientRects().length > 0)
+
+    if (!selector) return
+    selector.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.requestAnimationFrame(() => selector.click())
+  }
+
   const { isLoadingModels } = usePlaygroundOptions({
     currentGroup: config.group,
     currentModel: config.model,
@@ -108,6 +120,7 @@ export function Playground({
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteMessage}
           onSelectPrompt={handleSendMessage}
+          onChooseModel={handleChooseModel}
           isGenerating={isGenerating}
           editingKey={editingMessageKey}
           onCancelEdit={handleEditOpenChange}

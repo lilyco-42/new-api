@@ -55,6 +55,7 @@ interface PlaygroundChatProps {
   onEditMessage?: (message: MessageType) => void
   onDeleteMessage?: (message: MessageType) => void
   onSelectPrompt?: (prompt: string) => void
+  onChooseModel?: () => void
   isGenerating?: boolean
   isLoadingMessages?: boolean
   editingKey?: string | null
@@ -73,6 +74,7 @@ export function PlaygroundChat({
   onEditMessage,
   onDeleteMessage,
   onSelectPrompt,
+  onChooseModel,
   isGenerating = false,
   isLoadingMessages = false,
   editingKey,
@@ -169,6 +171,7 @@ export function PlaygroundChat({
               }
               isSourceVisible={isSourceVisible}
               message={message}
+              onChooseModel={onChooseModel}
               errorActions={
                 isError ? (
                   <MessageErrorActions

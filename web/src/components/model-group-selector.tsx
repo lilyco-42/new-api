@@ -668,6 +668,7 @@ export const ModelGroupSelector: React.FC<ModelGroupSelectorProps> = ({
         className
       )}
       disabled={disabled}
+      data-agent-model-selector-trigger='true'
       role='combobox'
       size='sm'
       variant='outline'

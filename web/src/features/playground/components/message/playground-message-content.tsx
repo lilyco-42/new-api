@@ -58,6 +58,7 @@ type PlaygroundMessageContentProps = {
   actions: ReactNode
   alignment: MessageAlignment
   errorActions?: ReactNode
+  onChooseModel?: () => void
   isSourceVisible?: boolean
   message: Message
   versionContent: string
@@ -67,6 +68,7 @@ export function PlaygroundMessageContent({
   actions,
   alignment,
   errorActions,
+  onChooseModel,
   isSourceVisible = false,
   message,
   versionContent,
@@ -132,7 +134,11 @@ export function PlaygroundMessageContent({
 
       {isError && (
         <>
-          <MessageError message={message} className='mb-2' />
+          <MessageError
+            message={message}
+            className='mb-2'
+            onChooseModel={onChooseModel}
+          />
           <MessageMetadata alignment={alignment} message={message} />
           {errorActions}
         </>
