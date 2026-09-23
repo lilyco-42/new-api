@@ -4,7 +4,7 @@
 
 **Severity**: HIGH
 
-**Status**: SOURCE FIXED; production deployment pending
+**Status**: FIXED AND DEPLOYED
 
 ## Problem
 
@@ -42,7 +42,16 @@ remain directly serveable.
 - [x] Regression test asserts `/agent` and `/agent/` both serve the SPA without
   redirecting.
 - [x] `go test ./common ./router`
-- [ ] Verify `/agent`, `/agent/`, and the WASM asset over the production host
+- [x] `go test ./...`
+- [x] Production `agent-c1b50d2` is healthy; `/agent`, `/agent/`, and the WASM
+  asset each return HTTP 200 without redirects.
+- [x] Browser navigation with a cache-busting query reaches the sign-in page.
+
+## Existing Browser Cache
+
+Browsers that cached both old permanent redirects may continue looping on the
+bare `/agent` URL. Open `/agent?cacheBust=c1b50d2` once or clear that site's
+cached redirects; the deployed server now serves both URL forms directly.
 
 ## Prevention
 

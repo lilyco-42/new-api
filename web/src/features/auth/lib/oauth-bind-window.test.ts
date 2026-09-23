@@ -136,7 +136,7 @@ describe('OAuth bind popup lifecycle', () => {
     expect(messages.length).toBe(1)
   })
 
-  test('waits 30 seconds for the opener response and can be cancelled', () => {
+  test('waits 60 seconds for the opener response and can be cancelled', () => {
     const timer = fakeTimerRuntime()
     let timedOut = false
     const cancel = startOAuthBindResponseDeadline(
@@ -147,7 +147,7 @@ describe('OAuth bind popup lifecycle', () => {
       timer.runtime
     )
 
-    expect(timer.delay).toBe(30_000)
+    expect(timer.delay).toBe(60_000)
     cancel()
     timer.fire()
     expect(timedOut).toBe(false)

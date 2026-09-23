@@ -97,7 +97,10 @@ export function postTelegramBindResult(
 
 export function startOAuthBindResponseDeadline(
   onTimeout: () => void,
-  delay = 30_000,
+  // GitHub OAuth completion makes two sequential requests to GitHub (token
+  // exchange and user lookup), each with a 20-second server-side timeout.
+  // Keep the popup open long enough for both requests plus network overhead.
+  delay = 60_000,
   runtime: TimerRuntime = timeoutRuntime
 ): () => void {
   let active = true
