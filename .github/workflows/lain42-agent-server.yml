@@ -1,0 +1,81 @@
+name: Build Lain42 Agent Server
+
+on:
+  push:
+    branches:
+      - agent-ui
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'relaykit/**'
+      - 'web/**'
+      - 'VERSION'
+      - '.github/workflows/lain42-agent-server.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Linux amd64 server artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CGO_ENABLED: '0'
+      GOWORK: 'off'
+      GOOS: linux
+      GOARCH: amd64
+      GOEXPERIMENT: greenteagc
+      GOPROXY: https://goproxy.cn,direct
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: web
+        run: DISABLE_ESLINT_PLUGIN=true bun run build:check
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            relaykit/go.sum
+
+      - name: Test agent API
+        run: go test ./controller
+
+      - name: Build Linux amd64 server
+        shell: bash
+        run: |
+          mkdir -p dist
+          version="agent-$(git rev-parse --short=7 HEAD)"
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/QuantumNous/new-api/common.Version=${version}" \
+            -o dist/new-api-linux-amd64 .
+          file dist/new-api-linux-amd64
+          sha256sum dist/new-api-linux-amd64
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lain42-agent-server-linux-amd64-${{ github.sha }}
+          path: dist/new-api-linux-amd64
+          if-no-files-found: error
+          retention-days: 14
