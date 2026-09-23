@@ -87,21 +87,33 @@ export function PlaygroundInput({
   const { t } = useTranslation()
   const [text, setText] = useState('')
 
-  const handleSubmit = (message: PromptInputMessage) => {
+  const handleSubmit = async (message: PromptInputMessage) => {
     const submittableText = getSubmittableInputText(message, disabled)
 
     if (!submittableText) return
-    onSubmit(
-      submittableText,
-      message.files ? filePartsToContentParts(message.files) : undefined
-    )
+    let contentParts: import('../../types').ContentPart[] | undefined
+    try {
+      contentParts = message.files?.length
+        ? await filePartsToContentParts(message.files)
+        : undefined
+    } catch (error) {
+      toast.error(
+        t(
+          error instanceof Error
+            ? error.message
+            : 'Unable to read this PDF. Check that it is not encrypted or damaged.'
+        )
+      )
+      throw error
+    }
+    onSubmit(submittableText, contentParts)
     setText('')
   }
 
   return (
     <div className='grid shrink-0 gap-4 px-3 pb-3 sm:px-4 sm:pb-4'>
       <PromptInput
-        accept='image/*,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
+        accept='image/*,application/pdf,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
         maxFileSize={8 * 1024 * 1024}
         maxFiles={5}
         multiple

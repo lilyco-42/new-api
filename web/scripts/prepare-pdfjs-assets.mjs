@@ -16,10 +16,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/// <reference types="@rsbuild/core/types" />
+import { copyFile, mkdir, readdir } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-declare module '@visactor/react-vchart' {
-  export const VChart: React.ComponentType<Record<string, unknown>>
+const projectRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..'
+)
+const sourceDirectory = path.join(
+  projectRoot,
+  'node_modules',
+  'pdfjs-dist',
+  'wasm'
+)
+const targetDirectory = path.join(projectRoot, 'public', 'pdfjs', 'wasm')
+
+await mkdir(targetDirectory, { recursive: true })
+for (const file of await readdir(sourceDirectory, { withFileTypes: true })) {
+  if (!file.isFile()) continue
+  await copyFile(
+    path.join(sourceDirectory, file.name),
+    path.join(targetDirectory, file.name)
+  )
 }
-
-declare module 'pdfjs-dist/build/pdf.worker.mjs'

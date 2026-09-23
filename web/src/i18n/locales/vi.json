@@ -5079,6 +5079,7 @@
     "Unable to parse structured pricing": "Không thể phân tích giá có cấu trúc",
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "Không thể chuẩn bị liên kết chat. Vui lòng đảm bảo bạn có khóa API được kích hoạt.",
     "Unable to read clipboard": "Không thể đọc bảng tạm",
+    "Unable to read this PDF. Check that it is not encrypted or damaged.": "Không thể đọc PDF này. Hãy kiểm tra tệp không bị mã hóa hoặc hỏng.",
     "Unauthorized": "Chưa xác thực",
     "Unauthorized Access": "Truy cập trái phép",
     "Unbind": "Hủy liên kết",

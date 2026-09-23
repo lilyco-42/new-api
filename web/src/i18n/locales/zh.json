@@ -5079,6 +5079,7 @@
     "Unable to parse structured pricing": "无法解析为结构化价格",
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "无法准备聊天链接。请确保您有一个已启用的 API 密钥。",
     "Unable to read clipboard": "无法读取剪贴板",
+    "Unable to read this PDF. Check that it is not encrypted or damaged.": "无法读取此 PDF。请确认文件未加密或损坏。",
     "Unauthorized": "未授权",
     "Unauthorized Access": "未经授权的访问",
     "Unbind": "解绑",

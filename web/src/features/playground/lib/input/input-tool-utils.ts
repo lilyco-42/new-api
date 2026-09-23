@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 
 import type { ContentPart } from '../../types'
+import { MAX_PDF_PAGES, extractPdfText } from './extract-pdf-text'
 
 type AttachmentAction = {
   action: string
@@ -75,6 +76,8 @@ const TEXT_ATTACHMENT_TYPES = new Set([
   'text/yaml',
 ])
 
+const MAX_ATTACHMENT_TEXT_CHARS = 120_000
+
 function decodeDataUrl(url: string): string | null {
   const match = url.match(/^data:[^,]*,([\s\S]*)$/i)
   if (!match) return null
@@ -101,9 +104,19 @@ function isTextAttachment(file: FileUIPart): boolean {
   )
 }
 
+function isPdfAttachment(file: FileUIPart): boolean {
+  return (
+    file.mediaType?.toLowerCase() === 'application/pdf' ||
+    file.filename?.toLowerCase().endsWith('.pdf') === true
+  )
+}
+
 /** Convert PromptInput files into OpenAI-compatible request content parts. */
-export function filePartsToContentParts(files: FileUIPart[]): ContentPart[] {
+export async function filePartsToContentParts(
+  files: FileUIPart[]
+): Promise<ContentPart[]> {
   const parts: ContentPart[] = []
+  let remainingTextChars = MAX_ATTACHMENT_TEXT_CHARS
 
   for (const file of files) {
     const filename = file.filename || 'attachment'
@@ -118,13 +131,53 @@ export function filePartsToContentParts(files: FileUIPart[]): ContentPart[] {
       continue
     }
 
+    if (isPdfAttachment(file)) {
+      if (remainingTextChars <= 0) {
+        parts.push({
+          type: 'text',
+          text: `[Attached PDF: ${filename}]\n[PDF text omitted because the attachment text limit was reached.]`,
+        })
+        continue
+      }
+
+      try {
+        const pdf = await extractPdfText(url, remainingTextChars)
+        let status = ''
+        if (!pdf.text.trim()) {
+          status =
+            '\n[No selectable text was found. This may be a scanned PDF; OCR is not available.]'
+        } else if (pdf.truncated) {
+          status = `\n[PDF text was limited to ${MAX_PDF_PAGES} pages or the attachment text limit.]`
+        }
+        const pageLabel = pdf.totalPages === 1 ? 'page' : 'pages'
+        const text = `[Attached PDF: ${filename}; ${pdf.totalPages} ${pageLabel}]\n${pdf.text}${status}\n[End attached PDF]`
+        parts.push({ type: 'text', text })
+        remainingTextChars = Math.max(
+          0,
+          remainingTextChars - pdf.text.length - status.length
+        )
+      } catch {
+        throw new Error(
+          'Unable to read this PDF. Check that it is not encrypted or damaged.'
+        )
+      }
+      continue
+    }
+
     if (isTextAttachment(file)) {
       const text = decodeDataUrl(url)
       if (text !== null) {
+        const boundedText = text.slice(0, remainingTextChars)
+        const truncated = boundedText.length < text.length
+        const status = truncated ? '\n[File text was truncated.]' : ''
         parts.push({
           type: 'text',
-          text: `[Attached file: ${filename}]\n${text.slice(0, 120_000)}\n[End attached file]`,
+          text: `[Attached file: ${filename}]\n${boundedText}${status}\n[End attached file]`,
         })
+        remainingTextChars = Math.max(
+          0,
+          remainingTextChars - boundedText.length - status.length
+        )
         continue
       }
     }

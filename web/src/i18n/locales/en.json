@@ -5079,6 +5079,7 @@
     "Unable to parse structured pricing": "Unable to parse structured pricing",
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "Unable to prepare chat link. Please ensure you have an enabled API key.",
     "Unable to read clipboard": "Unable to read clipboard",
+    "Unable to read this PDF. Check that it is not encrypted or damaged.": "Unable to read this PDF. Check that it is not encrypted or damaged.",
     "Unauthorized": "Unauthorized",
     "Unauthorized Access": "Unauthorized Access",
     "Unbind": "Unbind",

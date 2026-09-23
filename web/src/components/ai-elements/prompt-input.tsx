@@ -739,7 +739,11 @@ export const PromptInput = ({
     // Convert blob URLs to data URLs asynchronously
     Promise.all(
       files.map(async ({ id, ...item }) => {
+        const isPdf =
+          item.mediaType?.toLowerCase() === 'application/pdf' ||
+          item.filename?.toLowerCase().endsWith('.pdf') === true
         if (item.url && item.url.startsWith('blob:')) {
+          if (isPdf) return item
           return {
             ...item,
             url: await convertBlobUrlToDataUrl(item.url),

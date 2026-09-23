@@ -5079,6 +5079,7 @@
     "Unable to parse structured pricing": "構造化された価格を解析できません",
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "チャットリンクを準備できません。有効な API キーが設定されていることを確認してください。",
     "Unable to read clipboard": "クリップボードを読み取れません",
+    "Unable to read this PDF. Check that it is not encrypted or damaged.": "この PDF を読み取れません。暗号化または破損していないか確認してください。",
     "Unauthorized": "未認証",
     "Unauthorized Access": "不正アクセス",
     "Unbind": "連携解除",
