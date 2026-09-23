@@ -116,10 +116,60 @@ function OAuthCallback() {
       return
     }
 
+    const safeNavigate = (target: unknown, fallback = '/dashboard') => {
+      const href =
+        sanitizeAuthRedirect(target, window.location.origin) ?? fallback
+      void navigate({ href, replace: true })
+    }
+
     if (mode === 'bind') {
+      if (!code && !search.error) {
+        toast.error(i18next.t('Missing code'))
+        safeNavigate(provider === 'github' ? '/agent' : '/profile')
+        return
+      }
       const opener = window.opener
       if (!opener || opener.closed) {
-        toast.error(i18next.t('OAuth binding window is no longer available'))
+        const params: Record<string, string> = { state }
+        if (code) params.code = code
+        if (search.error) params.error = search.error
+        if (search.error_description) {
+          params.error_description = search.error_description
+        }
+        void api
+          .get(`/api/oauth/${provider}`, {
+            params,
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          })
+          .then((response) => {
+            if (response.data?.success) {
+              toast.success(i18next.t('Binding successful!'))
+            } else {
+              const messageKey = getServerErrorMessageKey(response.data)
+              toast.error(
+                (messageKey && i18next.t(messageKey)) ||
+                  response.data?.message ||
+                  i18next.t('OAuth failed')
+              )
+            }
+          })
+          .catch((error: unknown) => {
+            const messageKey = getServerErrorMessageKey(error)
+            const responseMessage = (
+              error as { response?: { data?: { message?: string } } }
+            ).response?.data?.message
+            toast.error(
+              (messageKey && i18next.t(messageKey)) ||
+                responseMessage ||
+                (error instanceof Error
+                  ? error.message
+                  : i18next.t('OAuth failed'))
+            )
+          })
+          .finally(() => {
+            safeNavigate(provider === 'github' ? '/agent' : '/profile')
+          })
         return
       }
 
@@ -172,12 +222,6 @@ function OAuthCallback() {
         cancelResultTimeout()
         if (delayedClose !== undefined) window.clearTimeout(delayedClose)
       }
-    }
-
-    const safeNavigate = (target: unknown, fallback = '/dashboard') => {
-      const href =
-        sanitizeAuthRedirect(target, window.location.origin) ?? fallback
-      void navigate({ href, replace: true })
     }
 
     if (!code && !search.error) {

@@ -97,17 +97,17 @@ export function markOAuthBindPopup(
 /**
  * Resolve how a callback on `/oauth/:provider` should be handled.
  *
- * A bind requires all three pieces of evidence: our own stamp for this exact
- * provider and state, plus a live opener to hand the result back to. Anything
- * else is a login, which is also the safe default — a login callback recovers
- * on its own, while a wrongly assumed bind can only time out.
+ * A bind requires our own stamp for this exact provider and state. The stamp
+ * is written into a same-origin popup before it leaves for the provider, so it
+ * is positive proof of a bind flow even when browser isolation severs opener.
+ * The callback can then finish the bind itself as a fallback.
  */
 export function resolveOAuthCallbackMode(
   provider: string,
   state: string,
-  { opener, storage }: OAuthCallbackModeContext
+  { storage }: OAuthCallbackModeContext
 ): OAuthCallbackMode {
-  if (!opener || opener.closed || !storage || !state) return 'login'
+  if (!storage || !state) return 'login'
 
   let markedState: string | null = null
   try {

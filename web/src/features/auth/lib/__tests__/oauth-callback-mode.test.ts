@@ -88,7 +88,7 @@ describe('resolveOAuthCallbackMode', () => {
     ).toBe('login')
   })
 
-  test('bind marker without an opener falls back to login', () => {
+  test('bind marker without an opener stays a bind flow for direct completion', () => {
     const storage = fakeStorage()
     markOAuthBindPopup(storage, 'oidc', bindState)
 
@@ -97,10 +97,10 @@ describe('resolveOAuthCallbackMode', () => {
         opener: null,
         storage,
       })
-    ).toBe('login')
+    ).toBe('bind')
   })
 
-  test('closed opener falls back to login', () => {
+  test('closed opener stays a bind flow for direct completion', () => {
     const storage = fakeStorage()
     markOAuthBindPopup(storage, 'oidc', bindState)
 
@@ -109,7 +109,7 @@ describe('resolveOAuthCallbackMode', () => {
         opener: { closed: true },
         storage,
       })
-    ).toBe('login')
+    ).toBe('bind')
   })
 
   test('missing storage degrades to login instead of throwing', () => {

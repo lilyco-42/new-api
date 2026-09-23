@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Check, Clipboard, ExternalLink, GitBranch, Search } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -32,11 +32,15 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { createOAuthFlow } from '@/features/auth/api'
+import { OAUTH_BIND_RESULT_MESSAGE } from '@/features/auth/constants'
+import { watchOAuthPopupClosed } from '@/features/auth/lib/oauth-bind-window'
 import {
   getOAuthSessionStorage,
   markOAuthBindPopup,
 } from '@/features/auth/lib/oauth-callback-mode'
 import { api } from '@/lib/api'
+
+import { parseGitHubOAuthBindCallback } from '../lib/github-oauth-bind'
 
 type GhAuthStatus = {
   profile_id: string
@@ -70,6 +74,13 @@ type BrowserGitHubStatus = {
   login?: string
   scope?: string[]
   client_id?: string
+}
+
+type PendingGitHubOAuth = {
+  popup: Window
+  state: string
+  handlingCallback: boolean
+  stopCloseWatcher: () => void
 }
 
 type TauriWindow = Window & {
@@ -138,6 +149,7 @@ export function GithubCliCard() {
   const [browserStatus, setBrowserStatus] =
     useState<BrowserGitHubStatus | null>(null)
   const [connectingBrowser, setConnectingBrowser] = useState(false)
+  const pendingGitHubOAuth = useRef<PendingGitHubOAuth | null>(null)
 
   const refreshBrowserStatus =
     useCallback(async (): Promise<BrowserGitHubStatus | null> => {
@@ -162,7 +174,96 @@ export function GithubCliCard() {
     void refreshBrowserStatus()
   }, [refreshBrowserStatus])
 
+  const clearPendingGitHubOAuth = useCallback(
+    (expected?: PendingGitHubOAuth) => {
+      const pending = pendingGitHubOAuth.current
+      if (!pending || (expected && pending !== expected)) return
+      pending.stopCloseWatcher()
+      pendingGitHubOAuth.current = null
+    },
+    []
+  )
+
+  useEffect(() => {
+    const handleOAuthCallback = async (event: MessageEvent<unknown>) => {
+      if (event.origin !== window.location.origin) return
+      const pending = pendingGitHubOAuth.current
+      if (!pending || pending.handlingCallback) return
+      const message = parseGitHubOAuthBindCallback(
+        event.data,
+        pending.state,
+        event.source,
+        pending.popup
+      )
+      if (!message) return
+
+      pending.handlingCallback = true
+      let success = false
+      let resultMessage = t('GitHub OAuth failed.')
+      try {
+        const params: Record<string, string> = { state: pending.state }
+        if (typeof message.code === 'string') params.code = message.code
+        if (typeof message.error === 'string') params.error = message.error
+        if (typeof message.errorDescription === 'string') {
+          params.error_description = message.errorDescription
+        }
+        const response = await api.get('/api/oauth/github', {
+          params,
+          skipBusinessError: true,
+          skipErrorHandler: true,
+        })
+        success = Boolean(response.data?.success)
+        resultMessage = response.data?.message || resultMessage
+        if (success) {
+          toast.success(t('Binding successful!'))
+          const nextStatus = await refreshBrowserStatus()
+          if (!nextStatus) {
+            setBrowserStatus((previous) =>
+              previous ? { ...previous, connected: true } : previous
+            )
+          }
+        } else {
+          toast.error(resultMessage)
+        }
+      } catch (error: unknown) {
+        resultMessage =
+          (error as { response?: { data?: { message?: string } } }).response
+            ?.data?.message ||
+          (error instanceof Error ? error.message : resultMessage)
+        toast.error(resultMessage)
+      } finally {
+        clearPendingGitHubOAuth(pending)
+        setConnectingBrowser(false)
+        if (!pending.popup.closed) {
+          pending.popup.postMessage(
+            {
+              type: OAUTH_BIND_RESULT_MESSAGE,
+              provider: 'github',
+              state: pending.state,
+              success,
+              message: resultMessage,
+            },
+            window.location.origin
+          )
+        }
+      }
+    }
+
+    window.addEventListener('message', handleOAuthCallback)
+    return () => window.removeEventListener('message', handleOAuthCallback)
+  }, [clearPendingGitHubOAuth, refreshBrowserStatus, t])
+
+  useEffect(
+    () => () => {
+      const pending = pendingGitHubOAuth.current
+      clearPendingGitHubOAuth(pending ?? undefined)
+      if (pending && !pending.popup.closed) pending.popup.close()
+    },
+    [clearPendingGitHubOAuth]
+  )
+
   const connectBrowserGitHub = async () => {
+    let popup: Window | null = null
     setConnectingBrowser(true)
     try {
       const status = await refreshBrowserStatus()
@@ -173,32 +274,33 @@ export function GithubCliCard() {
           )
         )
       }
-      const popup = window.open('', '_blank', 'width=520,height=720')
+      popup = window.open('', '_blank', 'width=520,height=720')
       if (!popup) throw new Error(t('OAuth pop-up was blocked'))
       const state = await createOAuthFlow('github', 'bind')
       if (!markOAuthBindPopup(getOAuthSessionStorage(popup), 'github', state)) {
         popup.close()
         throw new Error(t('OAuth pop-up storage is unavailable'))
       }
+      const pending: PendingGitHubOAuth = {
+        popup,
+        state,
+        handlingCallback: false,
+        stopCloseWatcher: () => undefined,
+      }
+      pending.stopCloseWatcher = watchOAuthPopupClosed(popup, () => {
+        clearPendingGitHubOAuth(pending)
+        setConnectingBrowser(false)
+        void refreshBrowserStatus()
+      })
+      pendingGitHubOAuth.current = pending
       const authorization = new URL('https://github.com/login/oauth/authorize')
       authorization.searchParams.set('client_id', status.client_id)
       authorization.searchParams.set('state', state)
       authorization.searchParams.set('scope', 'repo read:user user:email')
       popup.location.replace(authorization.toString())
-      let attempts = 0
-      const poll = window.setInterval(() => {
-        attempts += 1
-        void refreshBrowserStatus().then((nextStatus) => {
-          // Stop as soon as the callback has stored the credential. The old
-          // five-minute, two-second poll could consume the critical API budget
-          // even after OAuth had already succeeded, resulting in a 429 loop.
-          if (nextStatus?.connected || popup.closed || attempts >= 8) {
-            window.clearInterval(poll)
-            setConnectingBrowser(false)
-          }
-        })
-      }, 7000)
     } catch (error) {
+      clearPendingGitHubOAuth()
+      if (popup && !popup.closed) popup.close()
       setConnectingBrowser(false)
       toast.error(
         error instanceof Error ? error.message : t('GitHub OAuth failed.')
