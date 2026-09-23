@@ -63,6 +63,7 @@ import type {
 } from '@/features/playground/types'
 import { useMediaQuery } from '@/hooks'
 
+import { getNextAgentChatId } from './agent-chat-storage'
 import {
   createBrowserAgentBridge,
   createBrowserBridgeProvider,
@@ -806,7 +807,7 @@ export function AgentWorkspace() {
   }
 
   const handleNewChat = () => {
-    setChatId((current) => current + 1)
+    setChatId((current) => getNextAgentChatId(preset.id, current))
     setSidebarOpen(false)
   }
 
