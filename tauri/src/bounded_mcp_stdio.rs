@@ -15,8 +15,9 @@ the Free Software Foundation, either version 3 of the License, or
 
 use std::{
     future::Future,
-    io::{self, Stdio},
+    io,
     pin::Pin,
+    process::Stdio,
     task::{Context, Poll},
     time::Duration,
 };
