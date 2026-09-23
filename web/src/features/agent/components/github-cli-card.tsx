@@ -160,26 +160,34 @@ export function GithubCliCard() {
   const [connectingBrowser, setConnectingBrowser] = useState(false)
   const pendingGitHubOAuth = useRef<PendingGitHubOAuth | null>(null)
 
-  const refreshBrowserStatus =
-    useCallback(async (): Promise<BrowserGitHubStatus | null> => {
-      try {
-        const response = await api.get('/api/agent/github/status', {
-          timeout: 15_000,
-          disableDuplicate: true,
-          skipErrorHandler: true,
-        })
-        const value = response.data?.data
-        if (value && typeof value === 'object') {
-          const nextStatus = value as BrowserGitHubStatus
-          setBrowserStatus(nextStatus)
-          return nextStatus
-        }
-      } catch {
-        // The page can still use the local gh CLI when the browser API is
-        // unavailable, so status refresh is intentionally best-effort.
-      }
+  const loadBrowserStatus = useCallback(async () => {
+    const response = await api.get('/api/agent/github/status', {
+      timeout: 15_000,
+      disableDuplicate: true,
+      skipErrorHandler: true,
+    })
+    const value = response.data?.data
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      typeof (value as BrowserGitHubStatus).enabled !== 'boolean' ||
+      typeof (value as BrowserGitHubStatus).connected !== 'boolean'
+    ) {
+      throw new Error(response.data?.message || t('GitHub OAuth failed.'))
+    }
+    const nextStatus = value as BrowserGitHubStatus
+    setBrowserStatus(nextStatus)
+    return nextStatus
+  }, [t])
+
+  const refreshBrowserStatus = useCallback(async () => {
+    try {
+      return await loadBrowserStatus()
+    } catch {
+      // Status refresh is best-effort outside an explicit connect attempt.
       return null
-    }, [])
+    }
+  }, [loadBrowserStatus])
 
   useEffect(() => {
     void refreshBrowserStatus()
@@ -340,7 +348,7 @@ export function GithubCliCard() {
       popup = window.open('', '_blank', 'width=520,height=720')
       if (!popup) throw new Error(t('OAuth pop-up was blocked'))
 
-      const status = await refreshBrowserStatus()
+      const status = await loadBrowserStatus()
       if (!status?.enabled || !status.client_id) {
         throw new Error(
           t(

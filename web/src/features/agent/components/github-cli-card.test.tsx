@@ -93,4 +93,39 @@ describe('GithubCliCard browser OAuth', () => {
       expect.stringContaining('GitHub OAuth is not configured')
     )
   })
+
+  test('shows a status API failure instead of reporting OAuth as unconfigured', async () => {
+    const user = userEvent.setup()
+    const popupState = { closed: false }
+    const popup = {
+      get closed() {
+        return popupState.closed
+      },
+      close: vi.fn(() => {
+        popupState.closed = true
+      }),
+    } as unknown as Window
+    const openPopup = vi.spyOn(window, 'open').mockReturnValue(popup)
+
+    render(<GithubCliCard />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalledTimes(1))
+    apiGetMock.mockRejectedValueOnce(
+      new Error('Request failed with status code 503')
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Connect GitHub in browser' })
+    )
+
+    expect(openPopup).toHaveBeenCalled()
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        'Request failed with status code 503'
+      )
+    )
+    expect(toastErrorMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('GitHub OAuth is not configured')
+    )
+    expect(popup.close).toHaveBeenCalled()
+  })
 })
