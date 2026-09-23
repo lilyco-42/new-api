@@ -63,7 +63,7 @@ jobs:
             relaykit/go.sum
 
       - name: Test agent API
-        run: go test ./controller
+        run: go test ./service ./controller
 
       - name: Build Linux amd64 server
         shell: bash

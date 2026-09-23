@@ -116,6 +116,7 @@ type AgentBridgePeer struct {
 
 type pendingAgentBridgeRequest struct {
 	browser   *AgentBridgePeer
+	desktop   *AgentBridgePeer
 	deviceID  int64
 	userID    int
 	requestID string
@@ -280,6 +281,7 @@ func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope
 	}
 	hub.pending[key] = pendingAgentBridgeRequest{
 		browser:   browser,
+		desktop:   desktop,
 		deviceID:  browser.deviceID,
 		userID:    browser.userID,
 		requestID: envelope.RequestID,
@@ -318,7 +320,7 @@ func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope
 }
 
 func (hub *AgentBridgeHub) ForwardToolResult(desktop *AgentBridgePeer, envelope AgentBridgeEnvelope) error {
-	if desktop == nil || desktop.role != "desktop" || desktop.deviceID <= 0 {
+	if desktop == nil || desktop.role != "desktop" || desktop.deviceID <= 0 || desktop.userID <= 0 {
 		return ErrAgentBridgeUnauthorized
 	}
 	if (envelope.Type != AgentBridgeMessageToolResult && envelope.Type != AgentBridgeMessageToolError) || envelope.RequestID == "" {
@@ -330,13 +332,16 @@ func (hub *AgentBridgeHub) ForwardToolResult(desktop *AgentBridgePeer, envelope 
 	key := bridgeRequestKey(desktop.deviceID, envelope.RequestID)
 	hub.mu.Lock()
 	pending, exists := hub.pending[key]
-	if exists {
-		delete(hub.pending, key)
-	}
-	hub.mu.Unlock()
-	if !exists || pending.deviceID != desktop.deviceID {
+	if !exists {
+		hub.mu.Unlock()
 		return ErrAgentBridgeInvalid
 	}
+	if hub.desktops[desktop.deviceID] != desktop || pending.desktop != desktop || pending.userID != desktop.userID {
+		hub.mu.Unlock()
+		return ErrAgentBridgeUnauthorized
+	}
+	delete(hub.pending, key)
+	hub.mu.Unlock()
 	if !pending.expires.After(time.Now()) {
 		recordAgentBridgeEvent(
 			pending.userID,
@@ -382,7 +387,7 @@ func (hub *AgentBridgeHub) Unregister(peer *AgentBridgePeer) {
 		delete(hub.desktops, peer.deviceID)
 	}
 	for key, pending := range hub.pending {
-		if pending.browser == peer || (currentDesktop && pending.deviceID == peer.deviceID) {
+		if pending.browser == peer || pending.desktop == peer {
 			delete(hub.pending, key)
 			recordAgentBridgeEvent(
 				pending.userID,
@@ -394,7 +399,7 @@ func (hub *AgentBridgeHub) Unregister(peer *AgentBridgePeer) {
 				nil,
 				"bridge_offline",
 			)
-			if pending.browser != peer {
+			if pending.browser != nil && pending.browser != peer {
 				_ = hub.write(pending.browser, AgentBridgeEnvelope{
 					Type:      AgentBridgeMessageToolError,
 					RequestID: strings.TrimPrefix(key, fmt.Sprintf("%d:", peer.deviceID)),

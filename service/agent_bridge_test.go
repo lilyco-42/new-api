@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -82,6 +83,65 @@ func TestAgentBridgeHubReportsDesktopPresenceOnlyForItsOwner(t *testing.T) {
 	require.True(t, hub.DesktopConnected(7, 12))
 	require.False(t, hub.DesktopConnected(7, 13))
 	require.False(t, hub.DesktopConnected(8, 12))
+}
+
+func TestForwardToolResultRejectsStaleOrMismatchedDesktop(t *testing.T) {
+	hub := NewAgentBridgeHub()
+	active := &AgentBridgePeer{deviceID: 7, userID: 12, role: "desktop"}
+	stale := &AgentBridgePeer{deviceID: 7, userID: 12, role: "desktop"}
+	hub.desktops[7] = active
+	key := bridgeRequestKey(7, "request-1")
+	hub.pending[key] = pendingAgentBridgeRequest{
+		browser:   &AgentBridgePeer{deviceID: 7, userID: 12, role: "browser"},
+		desktop:   active,
+		deviceID:  7,
+		userID:    12,
+		requestID: "request-1",
+		operation: "github.issues.list",
+		expires:   time.Now().Add(time.Minute),
+	}
+	envelope := AgentBridgeEnvelope{
+		Type:      AgentBridgeMessageToolResult,
+		RequestID: "request-1",
+		Result:    json.RawMessage(`{"ok":true}`),
+	}
+
+	for _, desktop := range []*AgentBridgePeer{
+		stale,
+		&AgentBridgePeer{deviceID: 7, userID: 13, role: "desktop"},
+	} {
+		require.ErrorIs(t, hub.ForwardToolResult(desktop, envelope), ErrAgentBridgeUnauthorized)
+		_, stillPending := hub.pending[key]
+		require.True(t, stillPending, "rejected responses must not consume the active request")
+	}
+}
+
+func TestUnregisterStaleDesktopOnlyInterruptsItsOwnRequests(t *testing.T) {
+	hub := NewAgentBridgeHub()
+	stale := &AgentBridgePeer{deviceID: 7, userID: 12, role: "desktop"}
+	active := &AgentBridgePeer{deviceID: 7, userID: 12, role: "desktop"}
+	hub.desktops[7] = active
+	for requestID, desktop := range map[string]*AgentBridgePeer{
+		"old-request": stale,
+		"new-request": active,
+	} {
+		hub.pending[bridgeRequestKey(7, requestID)] = pendingAgentBridgeRequest{
+			desktop:   desktop,
+			deviceID:  7,
+			userID:    12,
+			requestID: requestID,
+			operation: "github.issues.list",
+			expires:   time.Now().Add(time.Minute),
+		}
+	}
+
+	hub.Unregister(stale)
+
+	_, oldRequestRemains := hub.pending[bridgeRequestKey(7, "old-request")]
+	_, newRequestRemains := hub.pending[bridgeRequestKey(7, "new-request")]
+	require.False(t, oldRequestRemains, "the disconnected peer's request must be interrupted")
+	require.True(t, newRequestRemains, "a replacement peer's in-flight request must remain intact")
+	require.Same(t, active, hub.desktops[7], "a stale disconnect must not unregister the replacement")
 }
 
 func TestValidateAgentBridgeHelloKeepsVersionAndCapabilitiesAdditive(t *testing.T) {
