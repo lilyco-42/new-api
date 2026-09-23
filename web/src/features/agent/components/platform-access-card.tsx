@@ -39,7 +39,7 @@ import {
 
 const API_ENDPOINT = 'https://api.lain42.top/v1'
 const DESKTOP_DOWNLOAD_URL =
-  'https://github.com/lilyco-42/new-api/releases/latest'
+  'https://github.com/lilyco-42/new-api/releases/tag/agent-v0.1.1'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
