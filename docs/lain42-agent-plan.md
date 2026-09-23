@@ -2,6 +2,14 @@
 
 日期：2026-09-22。基线：`1dcadfc`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
 
+## 1.0 桥接重连结果隔离（2026-09-24）
+
+- 待处理工具请求现在绑定到发起它的桌面 WebSocket 连接和账号。设备重连后，旧连接的迟到结果不能消费新连接的请求；旧连接断开只中断自己的请求，不会注销替代连接。
+- 新增回归测试覆盖过期连接/账号提交结果，以及旧连接断开时保留新连接的任务。`go test ./service ./controller -count=1` 通过；服务器 Actions 已补上 `service` 测试。
+- GitHub Actions `35931029614` 全绿：前端构建与测试、`service`/`controller` 测试、Linux amd64 服务端构建。CI 产物 SHA-256：`242851f70682ddd51e432138de3c3ce11f5749924a7c83662d08d2b8fad97497`。
+- `agent-3281aec` 已部署；线上 `/api/status` 返回版本一致且 `github_oauth=true`，`/agent` 返回 HTTP 200，服务容器 healthy，PostgreSQL 与 Redis 持续运行。部署产物哈希与 CI 完全一致。没有操作用户的 Radxa 私人设备。
+- 按用户授权清理指定的 apt/Go 构建缓存。Go 构建缓存本已为空，apt 清理释放约 93 MB；当前根分区可用约 128 MB。其他缓存、镜像、备份和数据卷未清理。
+
 ## 0.9 搜索重复调用与工具轮次恢复（2026-09-24）
 
 - 正式站新对话确认 `web.search` 已执行并显示工具完成，但默认模型在工具返回后继续循环，78.57 秒后报“工具循环达到步数上限”。因此原来的“未批准”问题已解决，搜索后的续答仍有实际故障。
