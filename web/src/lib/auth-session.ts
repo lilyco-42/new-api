@@ -360,6 +360,10 @@ function currentValidAuthBundle(): AuthBundle | null {
   }
 }
 
+export function hasCurrentValidAuthBundle(): boolean {
+  return currentValidAuthBundle() !== null
+}
+
 export async function bootstrapAuthentication(): Promise<RefreshOutcome> {
   const bundle = currentValidAuthBundle()
   if (bundle) {

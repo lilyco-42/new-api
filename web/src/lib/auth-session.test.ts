@@ -25,6 +25,7 @@ import {
   bootstrapAuthentication,
   clearAuthenticatedClientState,
   createRefreshRunner,
+  hasCurrentValidAuthBundle,
   isAuthBundle,
   type AuthRefreshRuntime,
 } from './auth-session'
@@ -55,6 +56,20 @@ afterEach(() => {
 })
 
 describe('authentication session coordination', () => {
+  test('treats sign-in redirects as authenticated only for a complete unexpired bundle', () => {
+    useAuthStore.getState().auth.setUser(bundle.user)
+    expect(hasCurrentValidAuthBundle()).toBe(false)
+
+    useAuthStore.getState().auth.setBundle(bundle)
+    expect(hasCurrentValidAuthBundle()).toBe(true)
+
+    useAuthStore.getState().auth.setBundle({
+      ...bundle,
+      access_expires_at: Math.floor(Date.now() / 1000) - 1,
+    })
+    expect(hasCurrentValidAuthBundle()).toBe(false)
+  })
+
   test('bootstrap distinguishes a completed anonymous check from an active session', async () => {
     useAuthStore.getState().auth.reset('complete')
     expect(await bootstrapAuthentication()).toEqual({ kind: 'anonymous' })
