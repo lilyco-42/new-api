@@ -1,12 +1,16 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	stdhtml "html"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,23 +35,21 @@ type agentWebSearchItem struct {
 	Source  string `json:"source"`
 }
 
-type duckDuckGoResponse struct {
-	AbstractText string `json:"AbstractText"`
-	AbstractURL  string `json:"AbstractURL"`
-	Heading      string `json:"Heading"`
-	Related      []struct {
-		Text     string `json:"Text"`
-		FirstURL string `json:"FirstURL"`
-		Topics   []struct {
-			Text     string `json:"Text"`
-			FirstURL string `json:"FirstURL"`
-		} `json:"Topics"`
-	} `json:"RelatedTopics"`
+type bingSearchRSS struct {
+	Channel struct {
+		Items []struct {
+			Title       string `xml:"title"`
+			Link        string `xml:"link"`
+			Description string `xml:"description"`
+		} `xml:"item"`
+	} `xml:"channel"`
 }
 
-// AgentWebSearch provides a keyless, server-side web lookup for the Agent.
-// The provider is deliberately isolated behind this endpoint so a Brave,
-// Bing, or self-hosted search backend can be added without changing clients.
+var agentSearchHTMLTag = regexp.MustCompile(`<[^>]*>`)
+
+// AgentWebSearch provides a bounded web search for the Agent. Bing's RSS
+// response is used because it returns ordinary result links without requiring
+// an API key; the client-facing contract remains provider-independent.
 func AgentWebSearch(c *gin.Context) {
 	query := strings.TrimSpace(c.Query("q"))
 	if query == "" {
@@ -58,61 +60,156 @@ func AgentWebSearch(c *gin.Context) {
 		return
 	}
 	limit := parseBoundedAgentInt(c.Query("limit"), 5, 1, maxAgentSearchItems)
-	endpoint := "https://api.duckduckgo.com/?q=" + url.QueryEscape(query) + "&format=json&no_html=1&skip_disambig=1"
-	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, endpoint, nil)
+	provider := "bing"
+	var items []agentWebSearchItem
+	var err error
+	searchEndpoint := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_URL"))
+	if searchEndpoint == "" {
+		items, err = searchBingRSS(c.Request.Context(), query, limit)
+	} else {
+		provider = "searxng"
+		items, err = searchSearXNG(c.Request.Context(), searchEndpoint, query, limit)
+	}
 	if err != nil {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search is unavailable")
+		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search provider is unavailable or returned an invalid response")
 		return
 	}
-	request.Header.Set("Accept", "application/json")
+	searchURL := "https://www.bing.com/search?q=" + url.QueryEscape(query)
+	common.ApiSuccess(c, gin.H{
+		"query":      query,
+		"provider":   provider,
+		"items":      items,
+		"search_url": searchURL,
+	})
+}
+
+func searchBingRSS(ctx context.Context, query string, limit int) ([]agentWebSearchItem, error) {
+	endpoint := "https://www.bing.com/search?format=rss&q=" + url.QueryEscape(query)
+	body, err := fetchAgentSearchResponse(ctx, endpoint, "application/rss+xml, application/xml, text/xml", "cn.bing.com")
+	if err != nil {
+		return nil, err
+	}
+	return parseBingSearchRSS(body, limit)
+}
+
+func searchSearXNG(ctx context.Context, configuredEndpoint, query string, limit int) ([]agentWebSearchItem, error) {
+	endpoint, err := url.Parse(strings.TrimSpace(configuredEndpoint))
+	if err != nil || (endpoint.Scheme != "https" && endpoint.Scheme != "http") || endpoint.Host == "" || endpoint.User != nil || endpoint.Fragment != "" {
+		return nil, errors.New("invalid configured web search endpoint")
+	}
+	queryValues := endpoint.Query()
+	queryValues.Set("q", query)
+	queryValues.Set("format", "json")
+	endpoint.RawQuery = queryValues.Encode()
+	body, err := fetchAgentSearchResponse(ctx, endpoint.String(), "application/json")
+	if err != nil {
+		return nil, err
+	}
+	return parseSearXNGSearchJSON(body, limit)
+}
+
+func fetchAgentSearchResponse(ctx context.Context, endpoint, accept string, allowedRedirectHosts ...string) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", accept)
 	request.Header.Set("User-Agent", "Lain42-Agent/1.0 (+https://lain42.top/agent)")
-	client := &http.Client{Timeout: 8 * time.Second}
+	originHost := request.URL.Host
+	originScheme := request.URL.Scheme
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		CheckRedirect: func(next *http.Request, previous []*http.Request) error {
+			hostAllowed := strings.EqualFold(next.URL.Host, originHost)
+			for _, allowedHost := range allowedRedirectHosts {
+				hostAllowed = hostAllowed || strings.EqualFold(next.URL.Host, allowedHost)
+			}
+			if len(previous) >= 2 || !hostAllowed || next.URL.Scheme != originScheme {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
 	response, err := client.Do(request)
 	if err != nil {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search is unavailable")
-		return
+		return nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search provider returned an error")
-		return
+		return nil, fmt.Errorf("web search provider returned status %d", response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search response could not be read")
-		return
+		return nil, err
 	}
-	var payload duckDuckGoResponse
-	if err := json.Unmarshal(body, &payload); err != nil {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search response was invalid")
-		return
+	return body, nil
+}
+
+func parseBingSearchRSS(body []byte, limit int) ([]agentWebSearchItem, error) {
+	var feed bingSearchRSS
+	if err := xml.Unmarshal(body, &feed); err != nil {
+		return nil, err
 	}
-	items := make([]agentWebSearchItem, 0, limit)
-	if payload.AbstractURL != "" && payload.AbstractText != "" {
-		items = append(items, agentWebSearchItem{Title: firstNonEmpty(payload.Heading, query), URL: payload.AbstractURL, Snippet: payload.AbstractText, Source: "DuckDuckGo"})
-	}
-	for _, related := range payload.Related {
+	items := make([]agentWebSearchItem, 0, min(limit, len(feed.Channel.Items)))
+	for _, result := range feed.Channel.Items {
 		if len(items) >= limit {
 			break
 		}
-		if related.FirstURL != "" && related.Text != "" {
-			items = append(items, agentWebSearchItem{Title: related.Text, URL: related.FirstURL, Snippet: related.Text, Source: "DuckDuckGo"})
-		}
-		for _, nested := range related.Topics {
-			if len(items) >= limit {
-				break
-			}
-			if nested.FirstURL != "" && nested.Text != "" {
-				items = append(items, agentWebSearchItem{Title: nested.Text, URL: nested.FirstURL, Snippet: nested.Text, Source: "DuckDuckGo"})
-			}
+		if item, ok := normalizeAgentSearchItem(result.Title, result.Link, result.Description); ok {
+			items = append(items, item)
 		}
 	}
-	common.ApiSuccess(c, gin.H{
-		"query":      query,
-		"provider":   "duckduckgo",
-		"items":      items,
-		"search_url": "https://duckduckgo.com/?q=" + url.QueryEscape(query),
-	})
+	return items, nil
+}
+
+func parseSearXNGSearchJSON(body []byte, limit int) ([]agentWebSearchItem, error) {
+	var payload struct {
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	items := make([]agentWebSearchItem, 0, min(limit, len(payload.Results)))
+	for _, result := range payload.Results {
+		if len(items) >= limit {
+			break
+		}
+		if item, ok := normalizeAgentSearchItem(result.Title, result.URL, result.Content); ok {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
+func normalizeAgentSearchItem(title, rawURL, snippet string) (agentWebSearchItem, bool) {
+	parsedURL, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || (parsedURL.Scheme != "https" && parsedURL.Scheme != "http") || parsedURL.Hostname() == "" {
+		return agentWebSearchItem{}, false
+	}
+	title = cleanAgentSearchText(title, 180)
+	if title == "" {
+		return agentWebSearchItem{}, false
+	}
+	return agentWebSearchItem{
+		Title:   title,
+		URL:     parsedURL.String(),
+		Snippet: cleanAgentSearchText(snippet, 500),
+		Source:  parsedURL.Hostname(),
+	}, true
+}
+
+func cleanAgentSearchText(value string, maxRunes int) string {
+	plain := stdhtml.UnescapeString(agentSearchHTMLTag.ReplaceAllString(value, " "))
+	plain = strings.Join(strings.Fields(plain), " ")
+	runes := []rune(plain)
+	if len(runes) > maxRunes {
+		plain = string(runes[:maxRunes]) + "…"
+	}
+	return plain
 }
 
 type agentGitHubStatus struct {
@@ -252,13 +349,4 @@ func parseBoundedAgentInt(raw string, fallback, min, max int) int {
 		return fallback
 	}
 	return value
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return "Search result"
 }

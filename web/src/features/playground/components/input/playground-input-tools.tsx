@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { GlobeIcon, PaperclipIcon, Trash2Icon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -47,7 +47,7 @@ import {
 } from '@/components/ui/tooltip'
 import { api } from '@/lib/api'
 
-import { ATTACHMENT_ACTIONS } from '../../lib'
+import { ATTACHMENT_ACTIONS, PROMPT_INPUT_ATTACH_FILES_EVENT } from '../../lib'
 import type { ParameterEnabled, PlaygroundConfig } from '../../types'
 import { PlaygroundParameterPanel } from './playground-parameter-panel'
 
@@ -87,8 +87,22 @@ export function PlaygroundInputTools({
     Array<{ title: string; url: string; snippet?: string }>
   >([])
   const fallbackSearchUrl = searchQuery.trim()
-    ? `https://duckduckgo.com/?q=${encodeURIComponent(searchQuery.trim())}`
+    ? `https://www.bing.com/search?q=${encodeURIComponent(searchQuery.trim())}`
     : ''
+
+  useEffect(() => {
+    const attachFiles = (event: Event) => {
+      const detail = (event as CustomEvent<{ files?: unknown }>).detail
+      if (!Array.isArray(detail?.files)) return
+      const files = detail.files.filter(
+        (file): file is File => file instanceof File
+      )
+      if (files.length > 0) attachments.add(files)
+    }
+    window.addEventListener(PROMPT_INPUT_ATTACH_FILES_EVENT, attachFiles)
+    return () =>
+      window.removeEventListener(PROMPT_INPUT_ATTACH_FILES_EVENT, attachFiles)
+  }, [attachments.add])
 
   const captureMediaFrame = async (kind: 'screen' | 'camera') => {
     const mediaDevices = navigator.mediaDevices
@@ -157,7 +171,7 @@ export function PlaygroundInputTools({
     setSearching(true)
     // Keep a deterministic escape hatch visible even when the authenticated
     // backend search is unavailable or returns an empty provider response.
-    const fallbackUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
+    const fallbackUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}`
     setSearchFallbackUrl(fallbackUrl)
     try {
       const response = await api.get('/api/agent/search', {
@@ -282,6 +296,11 @@ export function PlaygroundInputTools({
                 {searching ? t('Searching…') : t('Search')}
               </Button>
             </div>
+            <p className='text-muted-foreground mt-2 text-[11px] leading-4'>
+              {t(
+                'Search queries are sent to the configured search provider. Do not include secrets.'
+              )}
+            </p>
             {searchResults.length > 0 && (
               <div className='mt-2 grid max-h-72 gap-1 overflow-y-auto'>
                 {searchResults.map((result) => (

@@ -56,6 +56,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Playground } from '@/features/playground'
+import { attachFilesToCurrentPromptInput } from '@/features/playground/lib/input/input-tool-utils'
 import type {
   ChatCompletionToolCall,
   LocalToolProvider,
@@ -222,10 +223,17 @@ type WorkspaceFile = {
   type: string
   size: number
   url: string
+  file: File
   text?: string
 }
 
-function WorkspaceFiles({ view }: { view: Exclude<WorkspaceView, 'tools'> }) {
+function WorkspaceFiles({
+  view,
+  onAttachFile,
+}: {
+  view: Exclude<WorkspaceView, 'tools'>
+  onAttachFile: (file: File) => void
+}) {
   const { t } = useTranslation()
   const [files, setFiles] = useState<WorkspaceFile[]>([])
   const [selectedId, setSelectedId] = useState<string>()
@@ -256,6 +264,7 @@ function WorkspaceFiles({ view }: { view: Exclude<WorkspaceView, 'tools'> }) {
           type: file.type || 'application/octet-stream',
           size: file.size,
           url: URL.createObjectURL(file),
+          file,
           ...(textLike ? { text: (await file.text()).slice(0, 120_000) } : {}),
         }
       })
@@ -278,10 +287,20 @@ function WorkspaceFiles({ view }: { view: Exclude<WorkspaceView, 'tools'> }) {
             )}
           </p>
         </div>
-        <Button onClick={() => inputRef.current?.click()} size='sm'>
-          <Upload className='mr-1.5 size-3.5' aria-hidden='true' />
-          {t('Upload files')}
-        </Button>
+        <div className='flex shrink-0 gap-1.5'>
+          <Button
+            disabled={!selected}
+            onClick={() => selected && onAttachFile(selected.file)}
+            size='sm'
+            variant='outline'
+          >
+            {t('Attach selected file')}
+          </Button>
+          <Button onClick={() => inputRef.current?.click()} size='sm'>
+            <Upload className='mr-1.5 size-3.5' aria-hidden='true' />
+            {t('Upload files')}
+          </Button>
+        </div>
       </div>
       {files.length === 0 ? (
         <button
@@ -369,11 +388,11 @@ function WorkspaceFiles({ view }: { view: Exclude<WorkspaceView, 'tools'> }) {
             </p>
           </div>
           <Button
-            onClick={() => inputRef.current?.click()}
+            onClick={() => onAttachFile(selected.file)}
             size='sm'
-            variant='outline'
+            variant='default'
           >
-            {t('Upload files')}
+            {t('Attach selected file')}
           </Button>
         </div>
         {body}
@@ -799,6 +818,16 @@ export function AgentWorkspace() {
     setSidebarOpen(false)
   }
 
+  const attachWorkspaceFile = (file: File) => {
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error(t('Maximum attachment size is 8 MB.'))
+      return
+    }
+    attachFilesToCurrentPromptInput([file])
+    setToolsOpen(false)
+    toast.success(t('File attached to the next message.'))
+  }
+
   const exportCurrentConversation = () => {
     const namespace = `agent-${preset.id}-chat-${chatId}`
     const raw = window.localStorage.getItem(`${namespace}:playground_messages`)
@@ -990,7 +1019,10 @@ export function AgentWorkspace() {
                 onCheckRemoteTools={isDesktop ? undefined : checkRemoteTools}
               />
             ) : (
-              <WorkspaceFiles view={workspaceView} />
+              <WorkspaceFiles
+                onAttachFile={attachWorkspaceFile}
+                view={workspaceView}
+              />
             )}
           </div>
         </aside>
@@ -999,33 +1031,41 @@ export function AgentWorkspace() {
       {useToolsSheet && (
         <Sheet open={toolsOpen} onOpenChange={setToolsOpen}>
           <SheetContent
-            className='w-full overflow-y-auto sm:max-w-md'
+            className='flex w-full flex-col overflow-hidden sm:max-w-md'
             side='right'
           >
-            <SheetHeader>
-              <SheetTitle>{t('Workspace tools')}</SheetTitle>
-              <SheetDescription>
-                {t('One workspace for web, desktop and mobile')}
-              </SheetDescription>
-            </SheetHeader>
-            <WorkspaceToolsCards
-              bridgeStatus={bridgeStatus}
-              deviceName={bridgeDeviceName}
-              isDesktop={isDesktop}
-              onPair={isDesktop ? pairDesktop : undefined}
-              onReconnect={isDesktop ? reconnectDesktop : undefined}
-              onCreatePairing={isDesktop ? undefined : createWebPairing}
-              onConfirmPairing={isDesktop ? undefined : confirmWebPairing}
-              pairingId={pairingSession?.id}
-              pairingTicket={pairingSession?.pairing_ticket}
-              mcpController={mcpController}
-              mcpRevision={mcpRevision}
-              onMcpChanged={() => setMcpRevision((value) => value + 1)}
-              onRemoteMcpRefresh={isDesktop ? undefined : refreshRemoteMcp}
-              remoteMcpServers={isDesktop ? undefined : remoteMcpServers}
-              journal={isDesktop ? undefined : bridgeJournal}
-              onCheckRemoteTools={isDesktop ? undefined : checkRemoteTools}
+            <WorkspacePanelHeader
+              onClose={() => setToolsOpen(false)}
+              onViewChange={setWorkspaceView}
+              view={workspaceView}
             />
+            <div className='min-h-0 flex-1 overflow-y-auto p-4'>
+              {workspaceView === 'tools' ? (
+                <WorkspaceToolsCards
+                  bridgeStatus={bridgeStatus}
+                  deviceName={bridgeDeviceName}
+                  isDesktop={isDesktop}
+                  onPair={isDesktop ? pairDesktop : undefined}
+                  onReconnect={isDesktop ? reconnectDesktop : undefined}
+                  onCreatePairing={isDesktop ? undefined : createWebPairing}
+                  onConfirmPairing={isDesktop ? undefined : confirmWebPairing}
+                  pairingId={pairingSession?.id}
+                  pairingTicket={pairingSession?.pairing_ticket}
+                  mcpController={mcpController}
+                  mcpRevision={mcpRevision}
+                  onMcpChanged={() => setMcpRevision((value) => value + 1)}
+                  onRemoteMcpRefresh={isDesktop ? undefined : refreshRemoteMcp}
+                  remoteMcpServers={isDesktop ? undefined : remoteMcpServers}
+                  journal={isDesktop ? undefined : bridgeJournal}
+                  onCheckRemoteTools={isDesktop ? undefined : checkRemoteTools}
+                />
+              ) : (
+                <WorkspaceFiles
+                  onAttachFile={attachWorkspaceFile}
+                  view={workspaceView}
+                />
+              )}
+            </div>
           </SheetContent>
         </Sheet>
       )}

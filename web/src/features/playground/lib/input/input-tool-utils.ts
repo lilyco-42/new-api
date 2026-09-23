@@ -44,6 +44,18 @@ export const ATTACHMENT_ACTIONS = [
   { action: 'take-photo', icon: CameraIcon, label: 'Take photo' },
 ] satisfies AttachmentAction[]
 
+export const PROMPT_INPUT_ATTACH_FILES_EVENT =
+  'lain42:prompt-input-attach-files'
+
+export function attachFilesToCurrentPromptInput(files: File[]) {
+  if (typeof window === 'undefined' || files.length === 0) return
+  window.dispatchEvent(
+    new CustomEvent(PROMPT_INPUT_ATTACH_FILES_EVENT, {
+      detail: { files },
+    })
+  )
+}
+
 const TEXT_ATTACHMENT_TYPES = new Set([
   'application/json',
   'application/ld+json',
