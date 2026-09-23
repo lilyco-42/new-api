@@ -27,6 +27,12 @@ describe('AgentBridgeCard Radxa onboarding', () => {
 
   test('offers restart for an already paired offline device without creating a duplicate', async () => {
     const user = userEvent.setup()
+    // userEvent installs its own clipboard implementation during setup.
+    // Restore our spy afterward so this test observes the component's write.
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: clipboardWriteTextMock },
+    })
     const createPairing = vi.fn()
 
     render(
