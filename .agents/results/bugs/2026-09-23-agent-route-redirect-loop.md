@@ -22,18 +22,25 @@ The existence check also left opened filesystem handles unclosed.
 ## Fix
 
 Only report regular files or directories containing `index.html` as static
-assets, and close handles after inspecting them. Asset-only directories now fall
-through to the SPA handler while their nested files remain directly serveable.
+assets, and close handles after inspecting them. Both `/agent` page forms are
+also registered as explicit SPA routes before the plugin router snapshots its
+static route table. Asset-only directories fall through while nested files
+remain directly serveable.
 
 ## Files Modified
 
 - `common/embed-file-system.go`
 - `common/embed-file-system_test.go`
+- `router/main.go`
+- `router/web-router.go`
+- `router/web-router_test.go`
 
 ## Testing
 
 - [x] Regression test failed before the fix because `/agent` was considered an
   existing static path.
+- [x] Regression test asserts `/agent` and `/agent/` both serve the SPA without
+  redirecting.
 - [x] `go test ./common ./router`
 - [ ] Verify `/agent`, `/agent/`, and the WASM asset over the production host
 

@@ -53,3 +53,19 @@ func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.Han
 		},
 	)
 }
+
+func setAgentPageRoutes(router *gin.Engine, indexPage []byte) {
+	serveIndex := func(c *gin.Context) {
+		c.Header("Cache-Control", "no-cache")
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexPage)
+	}
+	handlers := []gin.HandlerFunc{
+		middleware.RouteTag("web"),
+		gzip.Gzip(gzip.DefaultCompression),
+		middleware.GlobalWebRateLimit(),
+		middleware.Cache(),
+		serveIndex,
+	}
+	router.GET("/agent", handlers...)
+	router.GET("/agent/", handlers...)
+}

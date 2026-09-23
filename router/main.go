@@ -19,12 +19,18 @@ func SetRouter(router *gin.Engine, assets WebAssets) {
 	SetTaskPluginProtocolRouter(router)
 	SetVideoRouter(router)
 	SetTaskRouter(router)
-	pluginDispatcher := SetPluginRouter(router)
 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")
 	if common.IsMasterNode && frontendBaseUrl != "" {
 		frontendBaseUrl = ""
 		common.SysLog("FRONTEND_BASE_URL is ignored on master node")
 	}
+	if frontendBaseUrl == "" {
+		// Register both Agent URL forms before the plugin router snapshots the
+		// static route table; otherwise an asset-only /agent directory can
+		// redirect through a stale trailing-slash cache or be claimed by a plugin.
+		setAgentPageRoutes(router, assets.IndexPage)
+	}
+	pluginDispatcher := SetPluginRouter(router)
 	if frontendBaseUrl == "" {
 		SetWebRouter(router, assets, pluginDispatcher)
 	} else {
