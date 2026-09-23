@@ -335,6 +335,11 @@ export function GithubCliCard() {
     let popup: Window | null = null
     setConnectingBrowser(true)
     try {
+      // Open synchronously while the click still has user activation. If we
+      // await a status request first, browsers may block the later popup.
+      popup = window.open('', '_blank', 'width=520,height=720')
+      if (!popup) throw new Error(t('OAuth pop-up was blocked'))
+
       const status = await refreshBrowserStatus()
       if (!status?.enabled || !status.client_id) {
         throw new Error(
@@ -343,8 +348,6 @@ export function GithubCliCard() {
           )
         )
       }
-      popup = window.open('', '_blank', 'width=520,height=720')
-      if (!popup) throw new Error(t('OAuth pop-up was blocked'))
       const state = await createOAuthFlow('github', 'bind')
       if (!markOAuthBindPopup(getOAuthSessionStorage(popup), 'github', state)) {
         popup.close()

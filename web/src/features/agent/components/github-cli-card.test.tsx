@@ -1,0 +1,96 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+
+import { GithubCliCard } from './github-cli-card'
+
+const { apiGetMock, toastErrorMock } = vi.hoisted(() => ({
+  apiGetMock: vi.fn(),
+  toastErrorMock: vi.fn(),
+}))
+
+vi.mock('@/lib/api', () => ({ api: { get: apiGetMock } }))
+vi.mock('sonner', () => ({
+  toast: { error: toastErrorMock, success: vi.fn() },
+}))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
+describe('GithubCliCard browser OAuth', () => {
+  beforeEach(() => {
+    apiGetMock.mockReset()
+    toastErrorMock.mockReset()
+    apiGetMock.mockResolvedValue({
+      data: {
+        success: true,
+        data: { enabled: true, connected: false, client_id: 'client-id' },
+      },
+    })
+  })
+
+  test('opens the popup before waiting for the browser OAuth status request', async () => {
+    const user = userEvent.setup()
+    const delayedStatus = deferred<{
+      data: {
+        success: boolean
+        data: { enabled: boolean; connected: boolean; client_id?: string }
+      }
+    }>()
+    const popupState = { closed: false }
+    const popup = {
+      get closed() {
+        return popupState.closed
+      },
+      close: vi.fn(() => {
+        popupState.closed = true
+      }),
+    } as unknown as Window
+    const openPopup = vi.spyOn(window, 'open').mockReturnValue(popup)
+
+    render(<GithubCliCard />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalledTimes(1))
+    apiGetMock.mockImplementationOnce(() => delayedStatus.promise)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Connect GitHub in browser' })
+    )
+
+    expect(openPopup).toHaveBeenCalledWith('', '_blank', 'width=520,height=720')
+    expect(apiGetMock).toHaveBeenCalledTimes(2)
+
+    delayedStatus.resolve({
+      data: {
+        success: true,
+        data: { enabled: false, connected: false },
+      },
+    })
+    await waitFor(() => expect(popup.close).toHaveBeenCalled())
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('GitHub OAuth is not configured')
+    )
+  })
+})
