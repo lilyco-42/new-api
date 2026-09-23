@@ -2,6 +2,13 @@
 
 日期：2026-09-22。基线：`1dcadfc`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
 
+## 0.3 本轮增量（2026-09-23）
+
+- Agent 现在实际公开只读的 `vcs.history`、`code.search`、`code.graph`、`files.browse` 和 `files.preview`，分别驱动 `jj`、`ast-grep`、CodeGraph 与内置文件接口；不是只显示安装状态。
+- CLI 查询只从管理员配置的 `LAIN42_AGENT_WORKSPACE` 运行。路径必须留在该根目录，目录浏览忽略符号链接；文件预览限制 16 KiB UTF-8、屏蔽常见凭据路径，并在网页确认后才把内容发给选定模型。
+- 这些新操作已加入 Go 配对桥接白名单、Rust companion 和 Agent 工具 schema。尚未在 Radxa 实机安装/配置，因此不能声称线上节点已经可用；需要把工作区路径授予服务账号只读权限。
+- Rust companion 13 项测试通过，目标 Go 桥接测试通过；全 `web` 构建检查仍在运行。仓库全量前端 lint 当前存在大量与本改动无关的既有错误。
+
 ## 0.1 本轮增量（2026-09-23）
 
 - Radxa 配对卡片现在展示 pairing ID，并提供可复制的一次性 claim/redeem 脚本。脚本要求 HTTPS、拒绝重定向、隐藏输入短期票据，不输出设备凭证，并将凭证写入 `~/.config/lain42/agent-companion.env`（目录 `0700`、文件 `0600`）；随后仍需按安装指南构建并启动 companion。

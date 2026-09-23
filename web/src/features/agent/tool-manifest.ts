@@ -25,7 +25,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-export type AgentToolProtocol = 'cli' | 'mcp'
+export type AgentToolProtocol = 'cli' | 'mcp' | 'builtin'
 
 export const AGENT_TOOL_MANIFEST_VERSION = 1 as const
 
@@ -62,11 +62,22 @@ export const AGENT_TOOL_MANIFEST: AgentToolManifest[] = [
     id: 'yazi',
     protocol: 'cli',
     name: 'Yazi',
-    description: 'Rust 终端文件管理器，快速浏览、预览和批量处理文件。',
-    capabilities: ['files.browse', 'files.preview'],
+    description:
+      'Rust 终端文件管理器；Agent 文件浏览使用独立的受限工作区接口。',
+    capabilities: ['terminal.ui'],
     command: 'yazi',
     installCommand: 'cargo binstall yazi-fm',
     url: 'https://yazi-rs.github.io/docs/installation',
+    icon: Folder,
+  },
+  {
+    id: 'workspace-files',
+    protocol: 'builtin',
+    name: '工作区文件浏览',
+    description: '在管理员指定的目录内只读浏览和预览文本文件；预览前需要确认。',
+    capabilities: ['files.browse', 'files.preview'],
+    command: 'files.browse · files.preview',
+    installCommand: '配置 LAIN42_AGENT_WORKSPACE',
     icon: Folder,
   },
   {
@@ -116,7 +127,8 @@ export const AGENT_TOOL_MANIFEST: AgentToolManifest[] = [
     id: 'lilyco',
     protocol: 'mcp',
     name: 'Lilyco framework',
-    description: '同一份 Rust schema 可渲染 CLI、TUI、Web 和 MCP，适合长期扩展工具。',
+    description:
+      '同一份 Rust schema 可渲染 CLI、TUI、Web 和 MCP，适合长期扩展工具。',
     capabilities: ['mcp.tools', 'schema.shared', 'agent.extensions'],
     command: 'lilyco --mcp',
     installCommand: 'cargo binstall lilyco',

@@ -30,6 +30,11 @@ func TestValidateAgentBridgeEnvelopeAcceptsReadonlyGithubOperations(t *testing.T
 		"github.auth.status",
 		"github.repositories.search",
 		"github.pull_requests.list",
+		"vcs.history",
+		"code.search",
+		"code.graph",
+		"files.browse",
+		"files.preview",
 	} {
 		envelope := AgentBridgeEnvelope{
 			Type:      AgentBridgeMessageToolRequest,
@@ -45,6 +50,13 @@ func TestValidateAgentBridgeEnvelopeAcceptsReadonlyGithubOperations(t *testing.T
 		Error:     "tool failed",
 	}
 	require.NoError(t, validateAgentBridgeEnvelope(result))
+}
+
+func TestAgentBridgeCapabilitiesAdvertiseWorkspaceReadTools(t *testing.T) {
+	capabilities := AgentBridgeCapabilities()
+	require.Contains(t, capabilities, "workspace.read")
+	require.Contains(t, capabilities, "code.search")
+	require.Contains(t, capabilities, "vcs.history")
 }
 
 func TestValidateAgentBridgeEnvelopeAcceptsBoundedMcpOperations(t *testing.T) {

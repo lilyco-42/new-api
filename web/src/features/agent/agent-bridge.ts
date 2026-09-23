@@ -21,6 +21,9 @@ export const AGENT_BRIDGE_PROTOCOL_VERSION = 1 as const
 const AGENT_BRIDGE_CAPABILITIES = [
   'github.read',
   'developer.cli.status',
+  'workspace.read',
+  'code.search',
+  'vcs.history',
   'mcp.list',
   'mcp.call',
 ] as const
@@ -450,7 +453,19 @@ export function createBrowserBridgeProvider(
         throw new Error('GitHub issue arguments must be valid JSON.')
       }
       if (!params || typeof params !== 'object' || Array.isArray(params)) {
-        throw new Error('GitHub issue arguments must be a JSON object.')
+        throw new Error('Tool arguments must be a JSON object.')
+      }
+      if (call.function.name === 'files.preview') {
+        const filePath = (params as Record<string, unknown>).path
+        if (
+          typeof window === 'undefined' ||
+          typeof window.confirm !== 'function' ||
+          !window.confirm(
+            `Read ${String(filePath ?? '')} and send its contents to the selected AI model? Credential and key files are blocked.`
+          )
+        ) {
+          throw new Error('File preview was not approved.')
+        }
       }
       const result = await client.request(
         call.function.name,
@@ -488,17 +503,12 @@ export async function startDesktopAgentBridge(
   const removeEnvelope = client.onEnvelope(async (envelope) => {
     if (envelope.type !== 'tool_request') return
     const operation = envelope.operation
+    const isCliTool = localAgentToolProvider.tools.some(
+      (tool) => tool.function.name === operation
+    )
     if (
       !operation ||
-      ![
-        'developer.tools.status',
-        'github.auth.status',
-        'github.issues.list',
-        'github.repositories.search',
-        'github.pull_requests.list',
-        'mcp.list',
-        'mcp.call',
-      ].includes(operation) ||
+      (!isCliTool && operation !== 'mcp.list' && operation !== 'mcp.call') ||
       !envelope.request_id
     ) {
       await client.send({

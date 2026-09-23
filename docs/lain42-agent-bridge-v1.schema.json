@@ -47,6 +47,11 @@
         "github.issues.list",
         "github.repositories.search",
         "github.pull_requests.list",
+        "vcs.history",
+        "code.search",
+        "code.graph",
+        "files.browse",
+        "files.preview",
         "mcp.list",
         "mcp.call"
       ]

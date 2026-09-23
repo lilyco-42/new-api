@@ -146,12 +146,130 @@ const PULL_REQUESTS_TOOL: ChatCompletionTool = {
   },
 }
 
+const HISTORY_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'vcs.history',
+    description:
+      'Read a bounded recent change history from the explicitly configured workspace using jj. This operation is read-only.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 30, default: 20 },
+      },
+    },
+  },
+}
+
+const AST_GREP_LANGUAGES = [
+  'bash',
+  'c',
+  'cpp',
+  'csharp',
+  'css',
+  'elixir',
+  'go',
+  'haskell',
+  'hcl',
+  'html',
+  'java',
+  'javascript',
+  'json',
+  'kotlin',
+  'lua',
+  'nix',
+  'php',
+  'python',
+  'ruby',
+  'rust',
+  'scala',
+  'solidity',
+  'swift',
+  'tsx',
+  'typescript',
+  'yaml',
+] as const
+
+const CODE_SEARCH_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'code.search',
+    description:
+      'Search source code structurally with an ast-grep pattern in the configured workspace. Search only; never rewrite files.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        pattern: { type: 'string', minLength: 1, maxLength: 512 },
+        language: {
+          type: 'string',
+          enum: [...AST_GREP_LANGUAGES],
+        },
+      },
+      required: ['pattern'],
+    },
+  },
+}
+
+const CODE_GRAPH_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'code.graph',
+    description:
+      'Explore symbols and code relationships in the configured workspace with CodeGraph. This operation is read-only.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { query: { type: 'string', minLength: 1, maxLength: 500 } },
+      required: ['query'],
+    },
+  },
+}
+
+const FILES_BROWSE_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'files.browse',
+    description:
+      'List files and directories under the node administrator configured workspace. Paths are workspace-relative and symlinks are omitted.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        path: { type: 'string', maxLength: 1024, default: '.' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+      },
+    },
+  },
+}
+
+const FILES_PREVIEW_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'files.preview',
+    description:
+      'Read a small UTF-8 text file under the configured workspace after the user confirms sending its contents to the selected model. Credential files and binary files are blocked.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { path: { type: 'string', minLength: 1, maxLength: 1024 } },
+      required: ['path'],
+    },
+  },
+}
+
 const TOOLS: ChatCompletionTool[] = [
   DEVELOPER_STATUS_TOOL,
   AUTH_STATUS_TOOL,
   ISSUES_TOOL,
   REPOSITORY_SEARCH_TOOL,
   PULL_REQUESTS_TOOL,
+  HISTORY_TOOL,
+  CODE_SEARCH_TOOL,
+  CODE_GRAPH_TOOL,
+  FILES_BROWSE_TOOL,
+  FILES_PREVIEW_TOOL,
 ]
 
 function getInvoke(): TauriInvoke | null {
@@ -189,6 +307,105 @@ function parseToolArguments(
       throw new Error(`${name} does not accept arguments.`)
     }
     return {}
+  }
+
+  if (name === HISTORY_TOOL.function.name) {
+    if (Object.keys(params).some((key) => key !== 'limit')) {
+      throw new Error(`Arguments for ${name} contain an unsupported field.`)
+    }
+    const limit = params.limit ?? 20
+    if (
+      typeof limit !== 'number' ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 30
+    ) {
+      throw new Error('History limit must be an integer between 1 and 30.')
+    }
+    return { limit }
+  }
+
+  if (name === CODE_SEARCH_TOOL.function.name) {
+    if (
+      Object.keys(params).some((key) => key !== 'pattern' && key !== 'language')
+    ) {
+      throw new Error(`Arguments for ${name} contain an unsupported field.`)
+    }
+    if (
+      typeof params.pattern !== 'string' ||
+      !params.pattern.trim() ||
+      params.pattern.length > 512
+    ) {
+      throw new Error('The code search pattern must contain 1–512 characters.')
+    }
+    const language = params.language
+    if (
+      language !== undefined &&
+      (typeof language !== 'string' ||
+        !AST_GREP_LANGUAGES.includes(
+          language as (typeof AST_GREP_LANGUAGES)[number]
+        ))
+    ) {
+      throw new Error('The code search language is not supported.')
+    }
+    return { pattern: params.pattern.trim(), ...(language ? { language } : {}) }
+  }
+
+  if (name === CODE_GRAPH_TOOL.function.name) {
+    if (Object.keys(params).some((key) => key !== 'query')) {
+      throw new Error(`Arguments for ${name} contain an unsupported field.`)
+    }
+    if (
+      typeof params.query !== 'string' ||
+      !params.query.trim() ||
+      params.query.length > 500
+    ) {
+      throw new Error('The code graph query must contain 1–500 characters.')
+    }
+    return { query: params.query.trim() }
+  }
+
+  if (
+    name === FILES_BROWSE_TOOL.function.name ||
+    name === FILES_PREVIEW_TOOL.function.name
+  ) {
+    const allowed =
+      name === FILES_BROWSE_TOOL.function.name
+        ? new Set(['path', 'limit'])
+        : new Set(['path'])
+    if (Object.keys(params).some((key) => !allowed.has(key))) {
+      throw new Error(`Arguments for ${name} contain an unsupported field.`)
+    }
+    const path = params.path ?? '.'
+    if (typeof path !== 'string' || path.length > 1024 || path.includes('\0')) {
+      throw new Error('Workspace path is invalid or too long.')
+    }
+    if (
+      path.startsWith('/') ||
+      path.startsWith('\\\\') ||
+      /^[A-Za-z]:/.test(path) ||
+      path.split(/[\\/]/).some((part) => part === '..')
+    ) {
+      throw new Error(
+        'Workspace paths must stay inside the configured directory.'
+      )
+    }
+    if (name === FILES_PREVIEW_TOOL.function.name && !path.trim()) {
+      throw new Error('A workspace-relative file path is required.')
+    }
+    if (name === FILES_BROWSE_TOOL.function.name) {
+      const limit = params.limit ?? 50
+      if (
+        typeof limit !== 'number' ||
+        !Number.isInteger(limit) ||
+        limit < 1 ||
+        limit > 100
+      ) {
+        throw new Error('File list limit must be an integer between 1 and 100.')
+      }
+      return { path: path.trim() || '.', limit }
+    }
+    return { path: path.trim() }
   }
 
   const allowed =
@@ -297,6 +514,17 @@ export const localAgentToolProvider: LocalToolProvider = {
       call.function.name,
       call.function.arguments
     )
+    if (call.function.name === FILES_PREVIEW_TOOL.function.name) {
+      const confirmation =
+        typeof window !== 'undefined' && typeof window.confirm === 'function'
+          ? window.confirm(
+              `Read ${String(params.path)} and send its contents to the selected AI model? Credential and key files are blocked.`
+            )
+          : false
+      if (!confirmation) {
+        throw new Error('File preview was not approved.')
+      }
+    }
     const result = readCliResult(
       await invokeWithAbort(
         invoke,
@@ -316,7 +544,9 @@ export const localAgentToolProvider: LocalToolProvider = {
       (result.status !== 'succeeded' || typeof result.stdout !== 'string')
     ) {
       const detail = result.stderr?.trim()
-      throw new Error(detail || 'GitHub CLI could not complete the request.')
+      throw new Error(
+        detail || 'The approved local tool could not complete the request.'
+      )
     }
 
     let data: unknown = result.stdout ?? ''
@@ -330,12 +560,22 @@ export const localAgentToolProvider: LocalToolProvider = {
       try {
         data = JSON.parse(result.stdout ?? '')
       } catch {
-        throw new Error('GitHub CLI returned invalid JSON.')
+        if (
+          call.function.name === HISTORY_TOOL.function.name ||
+          call.function.name === CODE_GRAPH_TOOL.function.name
+        ) {
+          data = { text: result.stdout ?? '' }
+        } else {
+          throw new Error('The approved local tool returned invalid JSON.')
+        }
       }
     }
 
     return JSON.stringify({
-      source: result.tool_id === 'gh' ? 'local gh cli' : 'local approved cli',
+      source:
+        result.tool_id === 'gh'
+          ? 'local gh cli'
+          : `local ${result.tool_id ?? 'approved'} tool`,
       operation: result.operation ?? call.function.name,
       truncated: Boolean(result.truncated),
       data,

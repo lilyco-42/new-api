@@ -721,6 +721,9 @@ fn run_connection(
             capabilities: Some(vec![
                 "github.read".to_string(),
                 "developer.cli.status".to_string(),
+                "workspace.read".to_string(),
+                "code.search".to_string(),
+                "vcs.history".to_string(),
                 "mcp.list".to_string(),
                 "mcp.call".to_string(),
             ]),

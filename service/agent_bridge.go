@@ -33,6 +33,9 @@ const (
 var agentBridgeCapabilities = []string{
 	"github.read",
 	"developer.cli.status",
+	"workspace.read",
+	"code.search",
+	"vcs.history",
 	"mcp.list",
 	"mcp.call",
 }
@@ -153,7 +156,7 @@ func validateAgentBridgeEnvelope(envelope AgentBridgeEnvelope) error {
 	}
 	if envelope.Type == AgentBridgeMessageToolRequest {
 		switch envelope.Operation {
-		case "developer.tools.status", "github.auth.status", "github.issues.list", "github.repositories.search", "github.pull_requests.list", "mcp.list", "mcp.call":
+		case "developer.tools.status", "github.auth.status", "github.issues.list", "github.repositories.search", "github.pull_requests.list", "vcs.history", "code.search", "code.graph", "files.browse", "files.preview", "mcp.list", "mcp.call":
 		default:
 			return ErrAgentBridgeInvalid
 		}

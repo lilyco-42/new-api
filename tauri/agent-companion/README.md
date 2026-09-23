@@ -4,6 +4,10 @@ Radxa A7A 是 headless 执行节点。此二进制不链接 Tauri、WebView、KD
 
 节点不会接受任意 shell 文本。GitHub 操作使用共享的固定操作协议；MCP 必须由节点管理员在本地配置文件中逐项允许。设备凭证、GitHub 登录态和 MCP token 都留在节点上，错误、工具目录和日志不会回传这些值。
 
+jj 历史、ast-grep 搜索、CodeGraph 查询和工作区文件浏览只在显式配置的
+`LAIN42_AGENT_WORKSPACE` 子目录内运行；这些操作只读。文件预览最多 16 KiB，
+常见密钥/凭据文件会被拒绝，并且网页会先向用户确认是否把文件内容发送给所选模型。
+
 ## 构建和直接启动
 
 在 Radxa A7A 的 Debian/Ubuntu/Radxa OS 上安装 Rust 后，只需要常规 Rust/TLS 构建依赖；不需要桌面环境或 Tauri CLI：
@@ -36,6 +40,7 @@ export LAIN42_AGENT_DEVICE_ID="123"
 export LAIN42_AGENT_CREDENTIAL="<redeemed-device-credential>"
 export LAIN42_AGENT_PROFILE="radxa-a7a"
 export LAIN42_GH_CONFIG_DIR="$HOME/.config/lain42/gh/radxa-a7a"
+export LAIN42_AGENT_WORKSPACE="/srv/workspace"
 exec tauri/agent-companion/target/release/lain42-agent-companion
 ```
 
@@ -146,4 +151,4 @@ sudo systemctl enable --now lain42-agent-companion
 sudo systemctl status lain42-agent-companion
 ```
 
-若以 `lain42-agent` 用户运行，环境文件中的 `LAIN42_GH_CONFIG_DIR` 和 `LAIN42_MCP_CONFIG_FILE` 应在该用户 home 下，并归该用户所有。服务模板使用 `UMask=0077`、受限写目录和 `wss://` 出站模式；不需要也不会启动任何桌面服务。
+在 `/etc/lain42-agent-companion.env` 中另行设置 `LAIN42_AGENT_WORKSPACE=/srv/workspace`（替换为你授权的实际目录）。`lain42-agent` 必须拥有该目录的只读遍历/读取权限；不要把整个用户 home 或含凭据的目录作为工作区。若以 `lain42-agent` 用户运行，环境文件中的 `LAIN42_GH_CONFIG_DIR` 和 `LAIN42_MCP_CONFIG_FILE` 应在该用户 home 下，并归该用户所有。服务模板使用 `UMask=0077`、受限写目录和 `wss://` 出站模式；不需要也不会启动任何桌面服务。

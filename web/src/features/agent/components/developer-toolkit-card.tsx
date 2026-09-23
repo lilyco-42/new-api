@@ -99,7 +99,7 @@ export function DeveloperToolkitCard({
       const result = invoke
         ? await invoke('tool_status', {
             tool_ids: DEVELOPER_TOOLS.filter(
-              (tool) => tool.protocol === 'cli'
+              (tool) => tool.protocol === 'cli' || tool.protocol === 'builtin'
             ).map((tool) => tool.id),
           })
         : await onCheckRemoteTools?.()
@@ -161,6 +161,14 @@ export function DeveloperToolkitCard({
           const Icon = tool.icon
           const status = statusFor(tool.id)
           const command = status?.installed ? tool.command : tool.installCommand
+          let statusLabel = ''
+          if (status?.installed) {
+            statusLabel = status.version || t('Ready')
+          } else if (status && tool.protocol === 'builtin') {
+            statusLabel = t('Not configured')
+          } else if (status) {
+            statusLabel = t('Not installed')
+          }
 
           return (
             <div
@@ -182,9 +190,7 @@ export function DeveloperToolkitCard({
                         className='h-5 px-1.5 text-[10px]'
                         variant={status.installed ? 'secondary' : 'outline'}
                       >
-                        {status.installed
-                          ? status.version || t('Ready')
-                          : t('Not installed')}
+                        {statusLabel}
                       </Badge>
                     )}
                   </div>

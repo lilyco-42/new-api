@@ -14,8 +14,9 @@ mod mcp_client;
 mod tool_runtime;
 
 use tool_runtime::{
-    cli_tool_spec, detect_cli_tool, execute_operation, CancellationToken, CliExecRequest,
-    CliExecResult, DeveloperToolStatus, OperationRequest, ProfileCredentials, CLI_TOOL_REGISTRY,
+    cli_tool_spec, detect_cli_tool, execute_operation, workspace_status, CancellationToken,
+    CliExecRequest, CliExecResult, DeveloperToolStatus, OperationRequest, ProfileCredentials,
+    CLI_TOOL_REGISTRY,
 };
 
 const DEFAULT_AGENT_URL: &str = "https://api.lain42.top/agent";
@@ -62,8 +63,15 @@ fn tool_status(app: AppHandle, tool_ids: Option<Vec<String>>) -> Vec<DeveloperTo
     });
     let credentials = profile_credentials(&app).ok();
     ids.into_iter()
-        .filter_map(|id| cli_tool_spec(&id).ok())
-        .map(|spec| detect_cli_tool(spec.id, credentials.as_ref()))
+        .filter_map(|id| {
+            if id == "workspace-files" {
+                Some(workspace_status())
+            } else {
+                cli_tool_spec(&id)
+                    .ok()
+                    .map(|spec| detect_cli_tool(spec.id, credentials.as_ref()))
+            }
+        })
         .collect()
 }
 
