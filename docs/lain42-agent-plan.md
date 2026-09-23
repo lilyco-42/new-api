@@ -8,8 +8,16 @@
 - 设备仍是当前网站账号私有的 headless 执行节点：只出站连接 WSS，不开放公网 SSH，也不登记为共享算力供其他用户使用。已有设备离线时提供重启命令，不创建重复设备。
 - `lain42-agent-v0.1.0` 已由 GitHub Actions 构建、测试并发布安装脚本、ARM64 压缩包和 SHA-256 文件；下载后重新计算的校验值一致，普通用户无需在 Radxa 安装 Rust 或本地编译。
 - `agent-v0.1.1` 已通过 GitHub Actions 发布 Windows x64、macOS ARM64 和 Linux x64 桌面安装包及校验文件；三个平台的公开下载地址均返回 HTTP 200。Agent 的桌面下载按钮固定指向此桌面版 Release，不再使用会被 Radxa 版本覆盖的通用 latest 页面。
-- `agent-c193aaa` 已部署到 `api.lain42.top`；公开状态接口报告相同版本，Agent 页面返回 HTTP 200，异步加载的桌面卡片包含精确 Release 地址，服务容器健康，PostgreSQL 和 Redis 未重启。前端 73 个测试文件、450 项全部通过。
+- `agent-696ac2b` 已部署到 `api.lain42.top`；公开状态接口报告相同版本，Agent 页面返回 HTTP 200，服务容器健康，PostgreSQL 和 Redis 未重启。GitHub Actions 的前端构建、74 个测试文件/454 项前端测试、Agent API 测试及 Linux amd64 构建全部通过。
 - 仍需在真实 Radxa A7A 上验证首次配对、systemd 开机启动、断线重连与手机网页工具调用，才能把 A2/A9 实机验收标为完成。当前不把脚本/CI 通过当成设备已连接证据；设备只会由账号所有者自行配对为私有节点。
+
+## 0.7 线上回归与对话隔离修复（2026-09-24）
+
+- 修复“新聊天”在页面重载后把编号重置为 0、从而重新打开已有 `chat 1` 的问题。新聊天编号现在扫描当前 Agent 类型的本地会话键并选择未使用的编号；存储不可用时至少从当前会话编号递增。4 项回归测试覆盖重载冲突、当前最大编号、不同 Agent 隔离和存储读取失败。
+- `35701cc` 的首轮远端 CI 抓到测试 fixture 的 TypeScript 返回类型错误；修正后 `696ac2b` 的 GitHub Actions 全绿。部署版本 `agent-696ac2b` 的公开状态接口、Agent 页面与容器健康均验证通过；刷新页面后再次点击“新聊天”显示空白起始态，既有聊天仍保留。
+- 当前账号的 OAuth 状态显示 `lilyco-42`；页面 GitHub 仓库搜索 `rust` 返回 `rust-lang/rust` 等结果，`rust-lang/rust` 的 Issue 和 PR 只读列表返回公开记录。Agent 聊天实际调用 `github.oauth.repositories.search` 并成功回答 `rust-lang/rust`，证明工具返回已进入后续回答。
+- 同一模型普通对话返回 `OK`（2.87 秒）；另一次 OAuth 状态工具调用已执行，但最终续答 41.88 秒后返回 `openai_error`，之后的仓库搜索续答成功（24.45 秒）。这说明上游/工具续答路径仍有间歇故障，当前证据不足以归因为稳定的代码错误或宣称已完全解决；后续需要增加脱敏的请求阶段与渠道错误诊断。
+- 尚未在真实 Radxa A7A 上验证首次配对、systemd 开机启动、断线重连与手机网页工具调用；未操作该个人设备，也未把它作为共享算力。完整 P0-E / A1–A11 验收仍未完成。
 
 ## 0.3 本轮增量（2026-09-23）
 
@@ -44,12 +52,12 @@
 
 - 网页搜索返回普通网页标题、摘要和链接，默认从 Bing RSS 获取；查询词不会写入应用日志。管理员可设置 `AGENT_WEB_SEARCH_URL` 指向 SearXNG `/search` JSON 接口。聊天工具和输入框搜索共用这个后端接口，搜索失败时仍提供 Bing 结果页链接。
 - 工作区附件已上线：图片作为图片内容传给模型，文本/代码作为文本内容传递；文件留在浏览器，不先上传到 Lain42 文件存储。限制为单文件 8 MiB、单条消息最多 5 个附件；移动端可在 Tools、Files 和 Preview 间切换。
-- GitHub 网页 OAuth、仓库搜索、Issue 和 PR 只读查询已接入 Agent；本地 `gh` CLI 仍由配对桌面/Radxa 执行，网页不读取本机或浏览器 Cookie。GitHub 最终授权需要用户本人完成，不能据此记录为已连接。OAuth `repo` scope 仍比当前只读 API 所需权限宽，迁移到只读 GitHub App 仍是后续安全项。
+- GitHub 网页 OAuth、仓库搜索、Issue 和 PR 只读查询已接入 Agent；本地 `gh` CLI 仍由配对桌面/Radxa 执行，网页不读取本机或浏览器 Cookie。2026-09-24 当前登录账号的浏览器绑定往返显示 `OAuth connected · lilyco-42`，没有暴露 token；这只证明该账号当前连接，不代表其他账号已连接。OAuth `repo` scope 仍比当前只读 API 所需权限宽，迁移到只读 GitHub App 仍是后续安全项。
 - 429 错误现在显示可操作提示并提供切换模型入口；它不能消除上游免费模型限流，模型是否可用仍取决于已配置渠道。
 - 邮箱、QQ、微信和 Telegram 的自动回复连接器仍未实现，需要各平台官方应用/机器人凭据、回调与逐条发送确认策略。
 - 已将 `agent-20260923-c2f68fa` 发布到 `api.lain42.top`。线上 Agent 页面返回 HTTP 200，版本头与新构建一致，应用容器健康；PostgreSQL、Redis 和数据卷未重启或更改。前端 `build:check`、附件/流处理 11 项测试和 `go test ./controller` 均通过。
 - 新增 `agent-ui` 专用 GitHub Actions 工作流：远端执行前端生产构建、Agent API 测试和 Linux amd64 交叉构建，并上传 14 天有效的服务器产物；不向镜像仓库发布，也不会自动部署生产。
-- 尚未由用户登录态完成真实聊天、GitHub 授权和附件发送的浏览器验收，也未做手机 E2E、Radxa 实机配对或 A1–A11 全链路验收。
+- 当时尚未由用户登录态完成真实聊天、GitHub 授权和附件发送的浏览器验收；2026-09-24 后续回归见上文 0.7。真实附件发送、手机 E2E、Radxa 实机配对和 A1–A11 全链路验收仍未完成。
 
 ## 0. 实现进度（2026-09-22）
 
