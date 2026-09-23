@@ -115,7 +115,7 @@ describe('client-side WASM crawler', () => {
     )
   })
 
-  it('searches public indexes directly from the browser without sending cookies', async () => {
+  it('uses only relevant default indexes and sends no cookies', async () => {
     fetchMock.mockImplementation(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input))
@@ -158,13 +158,68 @@ describe('client-side WASM crawler', () => {
     )
 
     expect(result.execution).toBe('browser-wasm')
-    expect(result.sources).toEqual(['GitHub', 'Hugging Face', 'OpenAlex'])
+    expect(result.sources).toEqual(['GitHub', 'Hugging Face'])
     expect(result.items.map((item) => item.source)).toEqual([
       'GitHub',
       'Hugging Face',
-      'OpenAlex',
     ])
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('searches papers only on request and removes off-topic OpenAlex results', async () => {
+    fetchMock.mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input))
+        expect(init?.credentials).toBe('omit')
+        if (url.hostname !== 'api.openalex.org') {
+          throw new Error(`Unexpected source: ${url.hostname}`)
+        }
+        return Response.json({
+          results: [
+            {
+              title: 'C++ development, 2006–2020',
+              id: 'https://openalex.org/W-off-topic',
+              publication_year: 2021,
+            },
+            {
+              title: 'Async cancellation behavior in Rust runtimes',
+              id: 'https://openalex.org/W-relevant',
+              publication_year: 2026,
+            },
+          ],
+        })
+      }
+    )
+
+    const result = await searchClientSources(
+      'Rust async cancellation papers',
+      5,
+      new AbortController().signal
+    )
+
+    expect(result.sources).toEqual(['OpenAlex'])
+    expect(result.items.map((item) => item.title)).toEqual([
+      'Async cancellation behavior in Rust runtimes',
+    ])
+    expect(result.warnings).toContain(
+      'OpenAlex: filtered 1 result(s) with weak query-term overlap.'
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not substitute indexed results for general website searches', async () => {
+    const result = await searchClientSources(
+      'Search the RustCC blog for async cancellation',
+      5,
+      new AbortController().signal
+    )
+
+    expect(result.sources).toEqual([])
+    expect(result.items).toEqual([])
+    expect(result.warnings[0]).toContain(
+      'not indexed by the available client search adapters'
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('rejects local-network targets before making a request', async () => {

@@ -5601,6 +5601,8 @@
     "Select at least one source before exporting.": "Select at least one source before exporting.",
     "Export plan saved: {{sources}} as {{format}}.": "Export plan saved: {{sources}} as {{format}}.",
     "Research sources": "Research sources",
+    "Search GitHub/Hugging Face for technical discovery. OpenAlex is searched only for paper queries. RustCC, CodeReset and GHFind are links, not indexed sources. Provide a public HTTPS URL for browser reading when CORS allows. No cookies are sent.": "La recherche technique interroge GitHub et Hugging Face. OpenAlex n’est utilisé que pour les demandes d’articles scientifiques. RustCC, CodeReset et GHFind sont des liens, pas des sources indexées. Fournissez une URL HTTPS publique pour lire la page dans le navigateur si le site autorise CORS. Aucun cookie n’est envoyé.",
+    "Papers and scholarly works": "Articles scientifiques et travaux de recherche",
     "Open trusted public sources while you ask the Agent to compare findings.": "Open trusted public sources while you ask the Agent to compare findings.",
     "Search queries are sent to the configured search provider. Do not include secrets.": "Search queries are sent to the configured search provider. Do not include secrets.",
     "Attach selected file": "Attach to message",

@@ -40,6 +40,13 @@ export type ClientSearchResponse = {
   items: ClientSearchResult[]
 }
 
+export type ClientSearchScope =
+  | 'auto'
+  | 'github'
+  | 'huggingface'
+  | 'papers'
+  | 'all'
+
 export type ClientCrawlResponse = {
   execution: 'browser-wasm'
   start_url: string
@@ -95,6 +102,29 @@ const MAX_PAGE_TEXT = 12_000
 const PAGE_TIMEOUT_MS = 10_000
 const MAX_CRAWL_PAGES = 5
 const CRAWLER_WASM_URL = '/agent/crawler_core.wasm'
+const OPENALEX_QUERY_STOP_WORDS = new Set([
+  'about',
+  'academic',
+  'article',
+  'articles',
+  'find',
+  'from',
+  'into',
+  'latest',
+  'literature',
+  'paper',
+  'papers',
+  'please',
+  'research',
+  'search',
+  'scholarly',
+  'study',
+  'studies',
+  'the',
+  'this',
+  'using',
+  'with',
+])
 
 let crawlerCorePromise: Promise<CrawlerCore> | undefined
 
@@ -523,25 +553,82 @@ async function searchOpenAlex(
 export async function searchClientSources(
   rawQuery: string,
   requestedLimit: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  requestedScope: ClientSearchScope = 'auto'
 ): Promise<ClientSearchResponse> {
   const query = rawQuery.trim()
   const limit = Math.max(1, Math.min(8, requestedLimit))
-  const perSourceLimit = Math.max(1, Math.ceil(limit / 3))
-  const sources = [
-    {
-      name: 'GitHub',
-      search: () => searchGitHub(query, perSourceLimit, signal),
-    },
-    {
-      name: 'Hugging Face',
-      search: () => searchHuggingFace(query, perSourceLimit, signal),
-    },
-    {
-      name: 'OpenAlex',
-      search: () => searchOpenAlex(query, perSourceLimit, signal),
-    },
-  ]
+  const wantsPapers =
+    /\b(?:papers?|research|stud(?:y|ies)|academic|scholarly|arxiv|doi|literature|citations?)\b|论文|研究|学术|预印本|引用/iu.test(
+      query
+    )
+  const wantsGitHub =
+    /\b(?:github|repos?|repositories|issues?|pull requests?|trending|projects?|code|source code|open source|stars?)\b|仓库|代码|项目|开源|议题|拉取请求/iu.test(
+      query
+    )
+  const wantsHuggingFace =
+    /\b(?:hugging[ -]?face|hf|models?|datasets?|spaces?|checkpoints?|weights?)\b|模型|数据集|权重|模型卡/iu.test(
+      query
+    )
+  const asksForWebsiteSearch =
+    /\b(?:website|web site|site search|blog|news|forum|community|rustcc|code[ -]?reset|ghfind)\b|网页搜索|网站|官网|博客|新闻|论坛|社区/iu.test(
+      query
+    )
+  const explicitlyNamesSupportedIndex =
+    /\b(?:github|hugging[ -]?face|hf|openalex)\b/iu.test(query)
+
+  let selectedNames: string[]
+  switch (requestedScope) {
+    case 'github':
+      selectedNames = ['GitHub']
+      break
+    case 'huggingface':
+      selectedNames = ['Hugging Face']
+      break
+    case 'papers':
+      selectedNames = ['OpenAlex']
+      break
+    case 'all':
+      selectedNames = ['GitHub', 'Hugging Face', 'OpenAlex']
+      break
+    default: {
+      selectedNames = []
+      if (asksForWebsiteSearch && !explicitlyNamesSupportedIndex) break
+      if (wantsGitHub) selectedNames.push('GitHub')
+      if (wantsHuggingFace) selectedNames.push('Hugging Face')
+      if (wantsPapers) selectedNames.push('OpenAlex')
+      if (selectedNames.length === 0 && !asksForWebsiteSearch) {
+        // General technical discovery uses project/model indexes. Scholarly
+        // search is opt-in so unrelated papers do not pollute ordinary queries.
+        selectedNames = ['GitHub', 'Hugging Face']
+      }
+      break
+    }
+  }
+
+  if (selectedNames.length === 0) {
+    return {
+      execution: 'browser-wasm',
+      query,
+      fetched_at: new Date().toISOString(),
+      sources: [],
+      warnings: [
+        'This query targets general websites or community pages, which are not indexed by the available client search adapters. Provide a public HTTPS URL for the browser-side reader when the site allows CORS.',
+      ],
+      items: [],
+    }
+  }
+
+  const perSourceLimit = Math.max(1, Math.ceil(limit / selectedNames.length))
+  const adapters = {
+    GitHub: () => searchGitHub(query, perSourceLimit, signal),
+    'Hugging Face': () => searchHuggingFace(query, perSourceLimit, signal),
+    OpenAlex: () => searchOpenAlex(query, perSourceLimit, signal),
+  }
+  const sources = selectedNames.map((name) => ({
+    name,
+    search: adapters[name as keyof typeof adapters],
+  }))
   const results = await Promise.allSettled(
     sources.map((source) => source.search())
   )
@@ -564,12 +651,39 @@ export async function searchClientSources(
       'Client search could not reach any public source. Check this device’s network; the search was not routed through the Lain42 server.'
     )
   }
+
+  const queryTerms = [
+    ...new Set(
+      (query.toLowerCase().match(/[a-z0-9]+/g) || []).filter(
+        (term) => term.length > 2 && !OPENALEX_QUERY_STOP_WORDS.has(term)
+      )
+    ),
+  ]
+  const matchText = (value: string) =>
+    value.toLowerCase().replaceAll('asynchronous', 'async')
+  const minOpenAlexMatches =
+    queryTerms.length > 0 ? Math.min(2, Math.ceil(queryTerms.length / 2)) : 0
+  const relevantItems = items.filter((item) => {
+    if (item.source !== 'OpenAlex' || minOpenAlexMatches === 0) return true
+    const searchableText = matchText(`${item.title} ${item.snippet || ''}`)
+    const matchingTerms = queryTerms.filter((term) =>
+      searchableText.includes(matchText(term))
+    )
+    return matchingTerms.length >= minOpenAlexMatches
+  })
+  const filteredOpenAlexCount = items.length - relevantItems.length
+  if (filteredOpenAlexCount > 0) {
+    warnings.push(
+      `OpenAlex: filtered ${filteredOpenAlexCount} result(s) with weak query-term overlap.`
+    )
+  }
+
   return {
     execution: 'browser-wasm',
     query,
     fetched_at: new Date().toISOString(),
     sources: successfulSources,
     warnings: warnings.slice(0, 3),
-    items: items.filter((item) => item.url).slice(0, limit),
+    items: relevantItems.filter((item) => item.url).slice(0, limit),
   }
 }

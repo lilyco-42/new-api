@@ -5601,6 +5601,8 @@
     "Select at least one source before exporting.": "导出前至少选择一个来源。",
     "Export plan saved: {{sources}} as {{format}}.": "导出计划已保存：{{sources}}，格式为 {{format}}。",
     "Research sources": "研究来源",
+    "Search GitHub/Hugging Face for technical discovery. OpenAlex is searched only for paper queries. RustCC, CodeReset and GHFind are links, not indexed sources. Provide a public HTTPS URL for browser reading when CORS allows. No cookies are sent.": "技术探索会搜索 GitHub 和 Hugging Face；只有论文查询才会搜索 OpenAlex。RustCC、CodeReset 和 GHFind 仅提供外链，尚未接入搜索索引。提供公开 HTTPS 地址后，可在目标站允许跨域读取时由浏览器读取。不会发送 Cookie。",
+    "Papers and scholarly works": "学术论文与研究成果",
     "Open trusted public sources while you ask the Agent to compare findings.": "让 Agent 对比结论时打开可信的公开来源。",
     "Search queries are sent to the configured search provider. Do not include secrets.": "搜索词会发送到网站配置的搜索服务，请勿包含密钥等敏感信息。",
     "Attach selected file": "附加到消息",

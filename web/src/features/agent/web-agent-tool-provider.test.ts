@@ -157,7 +157,8 @@ describe('webAgentToolProvider', () => {
     expect(searchClientSources).toHaveBeenCalledWith(
       'rust ai',
       8,
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      'auto'
     )
     expect(api.get).not.toHaveBeenCalled()
   })
@@ -171,7 +172,36 @@ describe('webAgentToolProvider', () => {
     expect(searchClientSources).toHaveBeenCalledWith(
       'rust ai',
       5,
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      'auto'
+    )
+  })
+
+  it('preserves an explicit paper search scope', async () => {
+    await webAgentToolProvider.invoke(
+      toolCall('web.search', {
+        query: 'Rust async cancellation',
+        scope: 'papers',
+      }),
+      new AbortController().signal
+    )
+
+    expect(searchClientSources).toHaveBeenCalledWith(
+      'Rust async cancellation',
+      5,
+      expect.any(AbortSignal),
+      'papers'
+    )
+  })
+
+  it('rejects unsupported search scopes', async () => {
+    await expect(
+      webAgentToolProvider.invoke(
+        toolCall('web.search', { query: 'Rust', scope: 'rustcc' }),
+        new AbortController().signal
+      )
+    ).rejects.toThrow(
+      'Search scope must be auto, github, huggingface, papers, or all.'
     )
   })
 

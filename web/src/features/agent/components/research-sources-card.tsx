@@ -67,9 +67,9 @@ const SOURCES: Source[] = [
     icon: Search,
   },
   {
-    name: 'Papers',
-    description: '论文预印本与研究动态',
-    url: 'https://arxiv.org/',
+    name: 'OpenAlex',
+    description: 'Papers and scholarly works',
+    url: 'https://openalex.org/',
     icon: BookOpen,
   },
   {
@@ -92,7 +92,7 @@ export function ResearchSourcesCard() {
         </CardTitle>
         <CardDescription className='text-xs leading-5'>
           {t(
-            'Search GitHub, Hugging Face and research indexes from this browser. Give the Agent a public HTTPS URL to read; the client-side WASM reader follows up to five same-site pages where CORS allows. No cookies are sent.'
+            'Search GitHub/Hugging Face for technical discovery. OpenAlex is searched only for paper queries. RustCC, CodeReset and GHFind are links, not indexed sources. Provide a public HTTPS URL for browser reading when CORS allows. No cookies are sent.'
           )}
         </CardDescription>
       </CardHeader>

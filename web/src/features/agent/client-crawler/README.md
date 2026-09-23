@@ -12,9 +12,13 @@ folder contains the browser runtime behind those tools.
   confirmation because extracted text is included in the selected model's
   conversation.
 - `web.search` calls public GitHub, Hugging Face, and OpenAlex APIs directly
-  from the browser. Each source adapter normalizes results to title, URL,
-  snippet, and source, and partial source failures do not discard successful
-  results.
+  from the browser. Auto routing uses GitHub/Hugging Face for general technical
+  discovery and includes OpenAlex only when the query explicitly asks for
+  papers or research; callers can select one index or all supported indexes.
+  OpenAlex results also need lexical overlap with the query before they are
+  shown. RustCC, CodeReset, GHFind, blogs, and forums are links only, not search
+  adapters. Each source normalizes results to title, URL, snippet, and source,
+  and partial source failures do not discard successful results.
 - No page fetch or search query is proxied through the Lain42 server. The
   extracted text is returned to the Agent conversation for the selected model.
 

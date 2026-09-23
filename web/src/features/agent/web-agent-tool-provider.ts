@@ -11,6 +11,7 @@ import {
   crawlClientSite,
   fetchClientPage,
   searchClientSources,
+  type ClientSearchScope,
 } from './client-crawler/client-crawler'
 import { combineLocalToolProviders } from './mcp-tool-provider'
 
@@ -19,7 +20,7 @@ const WEB_SEARCH_TOOL: ChatCompletionTool = {
   function: {
     name: 'web.search',
     description:
-      'Search public GitHub repositories, Hugging Face models, and scholarly works directly from the user’s browser. Search requests are not sent to the Lain42 server.',
+      'Search supported public indexes directly from the user’s browser. Auto mode searches GitHub repositories and Hugging Face models for general technical discovery, and OpenAlex only for explicit paper/research queries. This is not general web search; RustCC, CodeReset, GHFind, blogs, and community pages are not indexed. Search requests are not sent to the Lain42 server.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -35,6 +36,13 @@ const WEB_SEARCH_TOOL: ChatCompletionTool = {
           minimum: 1,
           maximum: 8,
           default: 5,
+        },
+        scope: {
+          type: 'string',
+          enum: ['auto', 'github', 'huggingface', 'papers', 'all'],
+          default: 'auto',
+          description:
+            'Choose auto for intent-based routing; use papers only for scholarly material, or all when the user asks to search every supported index.',
         },
       },
       required: ['query'],
@@ -266,13 +274,23 @@ function parseToolArguments(
   const params = parseArguments(call)
   switch (call.function.name) {
     case 'web.search': {
-      const allowed = new Set(['query', 'limit'])
+      const allowed = new Set(['query', 'limit', 'scope'])
       if (Object.keys(params).some((key) => !allowed.has(key))) {
         throw new Error('Unsupported web.search argument.')
+      }
+      const scope = params.scope ?? 'auto'
+      if (
+        typeof scope !== 'string' ||
+        !['auto', 'github', 'huggingface', 'papers', 'all'].includes(scope)
+      ) {
+        throw new Error(
+          'Search scope must be auto, github, huggingface, papers, or all.'
+        )
       }
       return {
         query: queryString(params.query, 'Search query'),
         limit: boundedLimit(params.limit, 5, 8),
+        scope,
       }
     }
     case 'web.fetch': {
@@ -428,7 +446,8 @@ export const webAgentToolProvider: LocalToolProvider = {
           await searchClientSources(
             params.query as string,
             params.limit as number,
-            signal
+            signal,
+            params.scope as ClientSearchScope
           )
         )
       case 'web.fetch':
