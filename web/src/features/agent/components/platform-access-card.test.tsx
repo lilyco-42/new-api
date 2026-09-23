@@ -13,11 +13,15 @@ import { PlatformAccessCard } from './platform-access-card'
 
 describe('PlatformAccessCard', () => {
   test('links to the desktop release instead of the latest platform release', () => {
-    render(<PlatformAccessCard />)
+    const { container } = render(<PlatformAccessCard />)
+    const desktopLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://github.com/lilyco-42/new-api/releases/tag/agent-v0.1.1"]'
+    )
 
     expect(
-      screen.getByRole('link', { name: /Download Lain42 Agent desktop app/ })
-    ).toHaveAttribute(
+      screen.getByText('Download Lain42 Agent desktop app')
+    ).toBeInTheDocument()
+    expect(desktopLink).toHaveAttribute(
       'href',
       'https://github.com/lilyco-42/new-api/releases/tag/agent-v0.1.1'
     )
