@@ -14,7 +14,10 @@
 
 - 调查发现 rmcp 3.4.0 的 stdio `read_until` 会先累积整行再解析，已有 64 KiB 检查只限制解析后的工具响应，挡不住超长行在缓冲阶段占用内存；HTTPS Streamable HTTP 的 SSE 事件大小限制仍有效。
 - 桌面端和 headless companion 改为共用读取适配器，在字节进入 RMCP 前限制每条 JSON-RPC 行为 64 KiB；继续用 `process-wrap` 管理子进程生命周期，HTTP 路径不变。回归测试覆盖边界行、LF 后重置和超限拒收。
-- 尚未在本机运行 Rust 构建或测试，等待 GitHub Actions 的桌面、companion 测试及 Windows/Linux/macOS 构建验证；通过后再决定是否发布。
+- 没有在本机运行 Rust 构建或测试，也没有使用用户的 Radxa。首次 CI 暴露 `Stdio` 导入路径错误，已在 `380caf7` 修正。
+- GitHub Actions `35934190654` 全绿：Rust 格式检查、desktop runtime、工具调用循环、headless companion 测试，以及 Windows x64 / Linux x64 / macOS 构建和产物上传均通过；桌面产物为 Actions artifacts，未发布 Release。
+- GitHub Actions `35935880713` 全绿：ARM64 companion 格式与测试、release 构建、安装包校验和 artifact 上传通过；发布 Release 步骤按 tag 条件跳过。
+- 上述为客户端运行时变更，不涉及 Go 服务端代码；本轮没有部署服务器，也没有声称完成 MCP 真实服务器互操作或 Android 实机验收。
 
 ## 0.9 搜索重复调用与工具轮次恢复（2026-09-24）
 
