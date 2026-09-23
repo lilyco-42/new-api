@@ -2,6 +2,13 @@
 
 日期：2026-09-22。基线：`1dcadfc`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
 
+## 0.6 Radxa 首次接入交付（2026-09-24）
+
+- 配对卡片改为复制固定版本的安装命令；安装器下载 GitHub Actions 构建的 ARM64 包，校验 SHA-256，隐藏读取短时票据，等待网页确认后写入仅当前用户可读的凭证并启用 systemd 服务。
+- 设备仍是当前网站账号私有的 headless 执行节点：只出站连接 WSS，不开放公网 SSH，也不登记为共享算力供其他用户使用。已有设备离线时提供重启命令，不创建重复设备。
+- `lain42-agent-v*` 发布由 GitHub Actions 构建/测试并附带安装资产；普通用户无需在 Radxa 安装 Rust 或本地编译。
+- 待 CI 发布新标签并在真实 Radxa A7A 上验证首次配对、systemd 开机启动、断线重连与手机网页工具调用后，才能把 A2/A9 实机验收标为完成。当前不把脚本/CI 通过当成设备已连接证据。
+
 ## 0.3 本轮增量（2026-09-23）
 
 - Agent 现在实际公开只读的 `vcs.history`、`code.search`、`code.graph`、`files.browse` 和 `files.preview`，分别驱动 `jj`、`ast-grep`、CodeGraph 与内置文件接口；不是只显示安装状态。

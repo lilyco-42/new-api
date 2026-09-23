@@ -12,6 +12,7 @@ on:
     tags:
       - '*'
       - '!*-alpha*'
+      - '!lain42-agent-v*'
 
 jobs:
   linux:

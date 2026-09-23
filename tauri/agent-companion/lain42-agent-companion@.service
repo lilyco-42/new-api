@@ -1,0 +1,25 @@
+[Unit]
+Description=Lain42 Agent personal headless companion (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+EnvironmentFile=%h/.config/lain42/agent-companion.env
+WorkingDirectory=/opt/lain42-agent-companion
+ExecStart=/opt/lain42-agent-companion/lain42-agent-companion
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

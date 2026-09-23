@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - agent-ui
+    tags:
+      - 'lain42-agent-v*'
     paths:
       - 'tauri/agent-companion/**'
       - 'tauri/src/tool_runtime.rs'
@@ -30,6 +32,7 @@ jobs:
       - name: Check and test
         working-directory: tauri/agent-companion
         run: |
+          bash -n install-radxa.sh
           cargo fmt --all --check
           cargo test --locked
 
@@ -37,9 +40,54 @@ jobs:
         working-directory: tauri/agent-companion
         run: cargo build --release --locked
 
+      - name: Package prebuilt Radxa installer
+        working-directory: tauri/agent-companion
+        run: |
+          mkdir -p dist
+          install -m 0755 target/release/lain42-agent-companion dist/lain42-agent-companion
+          install -m 0644 lain42-agent-companion@.service dist/lain42-agent-companion@.service
+          install -m 0755 install-radxa.sh dist/install.sh
+          tar -czf dist/lain42-agent-companion-linux-arm64.tar.gz \
+            -C dist lain42-agent-companion lain42-agent-companion@.service
+          (cd dist && sha256sum lain42-agent-companion-linux-arm64.tar.gz > lain42-agent-companion-linux-arm64.tar.gz.sha256)
+
+      - name: Verify release package
+        working-directory: tauri/agent-companion/dist
+        run: |
+          sha256sum -c lain42-agent-companion-linux-arm64.tar.gz.sha256
+          test "$(tar -tzf lain42-agent-companion-linux-arm64.tar.gz)" = $'lain42-agent-companion\nlain42-agent-companion@.service'
+
       - name: Upload headless companion
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lain42-agent-companion-linux-arm64
           if-no-files-found: error
-          path: tauri/agent-companion/target/release/lain42-agent-companion
+          path: |
+            tauri/agent-companion/dist/install.sh
+            tauri/agent-companion/dist/lain42-agent-companion-linux-arm64.tar.gz
+            tauri/agent-companion/dist/lain42-agent-companion-linux-arm64.tar.gz.sha256
+
+  release:
+    name: Publish Radxa companion release
+    if: startsWith(github.ref, 'refs/tags/lain42-agent-v')
+    needs: build-arm64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download companion package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: lain42-agent-companion-linux-arm64
+          path: release-assets
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          files: |
+            release-assets/install.sh
+            release-assets/lain42-agent-companion-linux-arm64.tar.gz
+            release-assets/lain42-agent-companion-linux-arm64.tar.gz.sha256
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

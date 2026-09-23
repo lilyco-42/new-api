@@ -70,6 +70,7 @@ export function AgentBridgeCard({
   const [confirmationTicket, setConfirmationTicket] = useState('')
   const [copied, setCopied] = useState(false)
   const [copiedScript, setCopiedScript] = useState(false)
+  const [copiedRestartCommand, setCopiedRestartCommand] = useState(false)
   let deviceStatusMessage = t(
     'Create a short-lived ticket, claim it on Radxa, then paste the confirmation ticket here.'
   )
@@ -77,9 +78,9 @@ export function AgentBridgeCard({
     deviceStatusMessage = t(
       'The paired device is connected. Local tools are ready.'
     )
-  } else if (status === 'offline' && deviceName) {
+  } else if (deviceName && status !== 'connecting') {
     deviceStatusMessage = t(
-      'The paired device is offline. Restart its bridge to use local tools; web and GitHub API tools remain available.'
+      'This device is already paired. Run the command below on Radxa to restart its private service.'
     )
   }
 
@@ -168,7 +169,26 @@ export function AgentBridgeCard({
       toast.error(
         error instanceof Error
           ? error.message
-          : t('Could not copy Radxa pairing script.')
+          : t('Could not copy Radxa installer command.')
+      )
+    }
+  }
+
+  const copyRestartCommand = async () => {
+    try {
+      if (!navigator.clipboard) {
+        throw new Error('Clipboard access is unavailable.')
+      }
+      await navigator.clipboard.writeText(
+        'sudo systemctl restart "lain42-agent-companion@$(id -un).service"'
+      )
+      setCopiedRestartCommand(true)
+      window.setTimeout(() => setCopiedRestartCommand(false), 1600)
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Could not copy restart command.')
       )
     }
   }
@@ -246,7 +266,22 @@ export function AgentBridgeCard({
             <p className='text-muted-foreground text-xs leading-5'>
               {deviceStatusMessage}
             </p>
-            {status !== 'connected' && onCreatePairing && !pairingTicket && (
+            {deviceName && status !== 'connected' && status !== 'connecting' && (
+              <Button
+                onClick={() => void copyRestartCommand()}
+                size='sm'
+                variant='outline'
+              >
+                {copiedRestartCommand ? <Check /> : <RefreshCw />}
+                {copiedRestartCommand
+                  ? t('Copied')
+                  : t('Copy restart command')}
+              </Button>
+            )}
+            {status !== 'connected' &&
+              !deviceName &&
+              onCreatePairing &&
+              !pairingTicket && (
               <Button
                 disabled={busy}
                 onClick={() => void createPairing()}
@@ -261,7 +296,7 @@ export function AgentBridgeCard({
               <div className='grid gap-2 rounded-lg border border-dashed p-2'>
                 <span className='text-muted-foreground text-[11px]'>
                   {t(
-                    'Open a terminal on Radxa. Copy the script, run it in that terminal, then enter this short-lived ticket when prompted.'
+                    'In the Radxa terminal, run the installer command. It downloads the prebuilt ARM64 companion, may ask for your sudo password, and starts a private service after you enter the short-lived ticket and confirm here.'
                   )}
                 </span>
                 <div className='flex items-center gap-1.5'>
@@ -297,7 +332,7 @@ export function AgentBridgeCard({
                     {copiedScript ? <Check /> : <Copy />}
                     {copiedScript
                       ? t('Copied')
-                      : t('Copy Radxa pairing script')}
+                      : t('Copy Radxa installer command')}
                   </Button>
                   <Button
                     disabled={busy}
@@ -311,7 +346,7 @@ export function AgentBridgeCard({
                 </div>
                 <p className='text-muted-foreground text-[11px] leading-4'>
                   {t(
-                    'Keep that terminal open while you confirm here. The script stores the device credential in an owner-only file and never prints it.'
+                    'Keep this terminal open until you confirm in the browser. The ticket is hidden while typing, and the device credential is never printed.'
                   )}
                 </p>
                 <a
