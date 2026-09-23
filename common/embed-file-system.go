@@ -16,11 +16,30 @@ type embedFileSystem struct {
 }
 
 func (e *embedFileSystem) Exists(prefix string, path string) bool {
-	_, err := e.Open(path)
+	file, err := e.Open(path)
 	if err != nil {
 		return false
 	}
-	return true
+	info, err := file.Stat()
+	_ = file.Close()
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return true
+	}
+
+	indexPath := path
+	if len(indexPath) == 0 || indexPath[len(indexPath)-1] != '/' {
+		indexPath += "/"
+	}
+	index, err := e.Open(indexPath + static.INDEX)
+	if err != nil {
+		return false
+	}
+	indexInfo, err := index.Stat()
+	_ = index.Close()
+	return err == nil && !indexInfo.IsDir()
 }
 
 func (e *embedFileSystem) Open(name string) (http.File, error) {
