@@ -157,6 +157,7 @@ export function GithubCliCard() {
   const [copied, setCopied] = useState(false)
   const [browserStatus, setBrowserStatus] =
     useState<BrowserGitHubStatus | null>(null)
+  const [browserStatusLoading, setBrowserStatusLoading] = useState(true)
   const [connectingBrowser, setConnectingBrowser] = useState(false)
   const pendingGitHubOAuth = useRef<PendingGitHubOAuth | null>(null)
 
@@ -181,11 +182,14 @@ export function GithubCliCard() {
   }, [t])
 
   const refreshBrowserStatus = useCallback(async () => {
+    setBrowserStatusLoading(true)
     try {
       return await loadBrowserStatus()
     } catch {
       // Status refresh is best-effort outside an explicit connect attempt.
       return null
+    } finally {
+      setBrowserStatusLoading(false)
     }
   }, [loadBrowserStatus])
 
@@ -377,6 +381,12 @@ export function GithubCliCard() {
           )
         )
       }
+      if (status.connected) {
+        setBrowserStatus(status)
+        popup.close()
+        setConnectingBrowser(false)
+        return
+      }
       const state = await createOAuthFlow('github', 'bind')
       if (!markOAuthBindPopup(getOAuthSessionStorage(popup), 'github', state)) {
         popup.close()
@@ -420,6 +430,10 @@ export function GithubCliCard() {
       )
     }
   }
+
+  let connectButtonLabel = t('Connect GitHub in browser')
+  if (browserStatusLoading) connectButtonLabel = t('Checking…')
+  if (connectingBrowser) connectButtonLabel = t('Waiting for GitHub…')
 
   const disconnectBrowserGitHub = async () => {
     try {
@@ -587,16 +601,16 @@ export function GithubCliCard() {
       </CardHeader>
       <CardContent className='grid gap-3'>
         <div className='flex flex-wrap items-center gap-2'>
-          <Button
-            disabled={connectingBrowser}
-            onClick={() => void connectBrowserGitHub()}
-            size='sm'
-            variant='default'
-          >
-            {connectingBrowser
-              ? t('Waiting for GitHub…')
-              : t('Connect GitHub in browser')}
-          </Button>
+          {!browserStatus?.connected && (
+            <Button
+              disabled={connectingBrowser || browserStatusLoading}
+              onClick={() => void connectBrowserGitHub()}
+              size='sm'
+              variant='default'
+            >
+              {connectButtonLabel}
+            </Button>
+          )}
           {browserStatus?.connected && (
             <Badge variant='secondary'>
               {t('OAuth connected{{account}}', {

@@ -22,12 +22,16 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { GithubCliCard } from './github-cli-card'
 
-const { apiGetMock, toastErrorMock } = vi.hoisted(() => ({
+const { apiGetMock, createOAuthFlowMock, toastErrorMock } = vi.hoisted(() => ({
   apiGetMock: vi.fn(),
+  createOAuthFlowMock: vi.fn(),
   toastErrorMock: vi.fn(),
 }))
 
 vi.mock('@/lib/api', () => ({ api: { get: apiGetMock } }))
+vi.mock('@/features/auth/api', () => ({
+  createOAuthFlow: createOAuthFlowMock,
+}))
 vi.mock('sonner', () => ({
   toast: { error: toastErrorMock, success: vi.fn() },
 }))
@@ -42,7 +46,9 @@ function deferred<T>() {
 
 describe('GithubCliCard browser OAuth', () => {
   beforeEach(() => {
+    vi.restoreAllMocks()
     apiGetMock.mockReset()
+    createOAuthFlowMock.mockReset()
     toastErrorMock.mockReset()
     apiGetMock.mockResolvedValue({
       data: {
@@ -72,7 +78,12 @@ describe('GithubCliCard browser OAuth', () => {
     const openPopup = vi.spyOn(window, 'open').mockReturnValue(popup)
 
     render(<GithubCliCard />)
-    await waitFor(() => expect(apiGetMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => {
+      expect(apiGetMock).toHaveBeenCalledTimes(1)
+      expect(
+        screen.getByRole('button', { name: 'Connect GitHub in browser' })
+      ).toBeEnabled()
+    })
     apiGetMock.mockImplementationOnce(() => delayedStatus.promise)
 
     await user.click(
@@ -108,7 +119,12 @@ describe('GithubCliCard browser OAuth', () => {
     const openPopup = vi.spyOn(window, 'open').mockReturnValue(popup)
 
     render(<GithubCliCard />)
-    await waitFor(() => expect(apiGetMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => {
+      expect(apiGetMock).toHaveBeenCalledTimes(1)
+      expect(
+        screen.getByRole('button', { name: 'Connect GitHub in browser' })
+      ).toBeEnabled()
+    })
     apiGetMock.mockRejectedValueOnce(
       Object.assign(new Error('Request failed with status code 503'), {
         isAxiosError: true,
@@ -130,5 +146,80 @@ describe('GithubCliCard browser OAuth', () => {
       expect.stringContaining('GitHub OAuth is not configured')
     )
     expect(popup.close).toHaveBeenCalled()
+  })
+
+  test('keeps the connect action disabled while initial OAuth status is loading', async () => {
+    const user = userEvent.setup()
+    const delayedStatus = deferred<{
+      data: {
+        success: boolean
+        data: { enabled: boolean; connected: boolean; client_id?: string }
+      }
+    }>()
+    const openPopup = vi.spyOn(window, 'open').mockReturnValue(null)
+    apiGetMock.mockImplementationOnce(() => delayedStatus.promise)
+
+    render(<GithubCliCard />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalledTimes(1))
+    const checkingButton = screen.getByRole('button', { name: 'Checking…' })
+    expect(checkingButton).toBeDisabled()
+    await user.click(checkingButton)
+    expect(openPopup).not.toHaveBeenCalled()
+
+    delayedStatus.resolve({
+      data: {
+        success: true,
+        data: { enabled: true, connected: false, client_id: 'client-id' },
+      },
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Connect GitHub in browser' })
+      ).toBeEnabled()
+    )
+  })
+
+  test('does not start a second OAuth flow if status is already connected', async () => {
+    const user = userEvent.setup()
+    const popupState = { closed: false }
+    const popup = {
+      get closed() {
+        return popupState.closed
+      },
+      close: vi.fn(() => {
+        popupState.closed = true
+      }),
+    } as unknown as Window
+    vi.spyOn(window, 'open').mockReturnValue(popup)
+
+    render(<GithubCliCard />)
+    await waitFor(() => {
+      expect(apiGetMock).toHaveBeenCalledTimes(1)
+      expect(
+        screen.getByRole('button', { name: 'Connect GitHub in browser' })
+      ).toBeEnabled()
+    })
+    apiGetMock.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          enabled: true,
+          connected: true,
+          login: 'lilyco-42',
+          client_id: 'client-id',
+        },
+      },
+    })
+
+    await user.click(
+      screen.getByRole('button', { name: 'Connect GitHub in browser' })
+    )
+
+    await waitFor(() => expect(popup.close).toHaveBeenCalled())
+    expect(createOAuthFlowMock).not.toHaveBeenCalled()
+    expect(screen.getByText('OAuth connected · lilyco-42')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Connect GitHub in browser' })
+    ).not.toBeInTheDocument()
   })
 })
