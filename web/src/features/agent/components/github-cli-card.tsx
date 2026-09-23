@@ -348,7 +348,28 @@ export function GithubCliCard() {
       popup = window.open('', '_blank', 'width=520,height=720')
       if (!popup) throw new Error(t('OAuth pop-up was blocked'))
 
-      const status = await loadBrowserStatus()
+      let status: BrowserGitHubStatus | null
+      try {
+        status = await loadBrowserStatus()
+      } catch (error) {
+        const requestError = error as {
+          isAxiosError?: boolean
+          response?: { status?: unknown }
+        }
+        if (typeof requestError.response?.status === 'number') {
+          throw new Error(
+            t('Could not check GitHub OAuth status (HTTP {{status}}).', {
+              status: requestError.response.status,
+            })
+          )
+        }
+        if (requestError.isAxiosError) {
+          throw new Error(
+            t('Could not check GitHub OAuth status. Please retry.')
+          )
+        }
+        throw error
+      }
       if (!status?.enabled || !status.client_id) {
         throw new Error(
           t(

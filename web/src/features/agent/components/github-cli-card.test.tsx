@@ -110,7 +110,10 @@ describe('GithubCliCard browser OAuth', () => {
     render(<GithubCliCard />)
     await waitFor(() => expect(apiGetMock).toHaveBeenCalledTimes(1))
     apiGetMock.mockRejectedValueOnce(
-      new Error('Request failed with status code 503')
+      Object.assign(new Error('Request failed with status code 503'), {
+        isAxiosError: true,
+        response: { status: 503 },
+      })
     )
 
     await user.click(
@@ -120,7 +123,7 @@ describe('GithubCliCard browser OAuth', () => {
     expect(openPopup).toHaveBeenCalled()
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledWith(
-        'Request failed with status code 503'
+        'Could not check GitHub OAuth status (HTTP 503).'
       )
     )
     expect(toastErrorMock).not.toHaveBeenCalledWith(
