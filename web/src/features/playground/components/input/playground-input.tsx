@@ -29,7 +29,11 @@ import {
   type PromptInputMessage,
 } from '@/components/ai-elements/prompt-input'
 
-import { filePartsToContentParts, getSubmittableInputText } from '../../lib'
+import {
+  filePartsToContentParts,
+  getSubmittableInputText,
+  MAX_ATTACHMENT_FILE_SIZE_BYTES,
+} from '../../lib'
 import type {
   ModelOption,
   GroupOption,
@@ -114,7 +118,7 @@ export function PlaygroundInput({
     <div className='grid shrink-0 gap-4 px-3 pb-3 sm:px-4 sm:pb-4'>
       <PromptInput
         accept='image/*,application/pdf,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
-        maxFileSize={8 * 1024 * 1024}
+        maxFileSize={MAX_ATTACHMENT_FILE_SIZE_BYTES}
         maxFiles={5}
         multiple
         className='relative'

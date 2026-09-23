@@ -56,14 +56,16 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Playground } from '@/features/playground'
-import { attachFilesToCurrentPromptInput } from '@/features/playground/lib/input/input-tool-utils'
+import {
+  attachFilesToCurrentPromptInput,
+  MAX_ATTACHMENT_FILE_SIZE_BYTES,
+} from '@/features/playground/lib/input/input-tool-utils'
 import type {
   ChatCompletionToolCall,
   LocalToolProvider,
 } from '@/features/playground/types'
 import { useMediaQuery } from '@/hooks'
 
-import { getNextAgentChatId } from './agent-chat-storage'
 import {
   createBrowserAgentBridge,
   createBrowserBridgeProvider,
@@ -77,6 +79,7 @@ import {
   type AgentPairingSession,
   type AgentRunEvent,
 } from './agent-bridge'
+import { getNextAgentChatId } from './agent-chat-storage'
 import { localAgentToolProvider } from './agent-tool-provider'
 import { AgentBridgeCard } from './components/agent-bridge-card'
 import { AgentSidebar, type AgentPreset } from './components/agent-sidebar'
@@ -95,6 +98,10 @@ import {
   createBrowserAgentToolProvider,
   webAgentToolProvider,
 } from './web-agent-tool-provider'
+import {
+  readWorkspaceTextPreview,
+  selectWorkspaceFiles,
+} from './workspace-file-utils'
 
 const LYCO_DEFAULT_SYSTEM_PROMPT = `你是云枢智创 Agent，采用 lyco-skill 的务实工作方法。
 
@@ -255,26 +262,39 @@ function WorkspaceFiles({
   const selected = files.find((file) => file.id === selectedId)
   const loadFiles = async (incoming: FileList | null) => {
     if (!incoming?.length) return
-    const next = [...incoming].slice(0, 10)
-    const loaded = await Promise.all(
-      next.map(async (file, index) => {
-        const id = `${file.name}-${file.lastModified}-${index}`
-        const textLike =
-          file.type.startsWith('text/') ||
-          /\.(c|cc|cpp|css|csv|go|h|hpp|html?|java|js|json|md|py|rs|sql|toml|ts|tsx|txt|vue|xml|ya?ml)$/i.test(
-            file.name
-          )
-        return {
-          id,
-          name: file.name,
-          type: file.type || 'application/octet-stream',
-          size: file.size,
-          url: URL.createObjectURL(file),
-          file,
-          ...(textLike ? { text: (await file.text()).slice(0, 120_000) } : {}),
-        }
-      })
-    )
+    const selection = selectWorkspaceFiles([...incoming])
+    if (selection.oversized.length > 0) {
+      toast.error(t('Maximum attachment size is 8 MB.'))
+    }
+    if (selection.overLimit.length > 0) {
+      toast.error(t('Only the first 10 workspace files can be loaded.'))
+    }
+    const next = selection.accepted
+    if (next.length === 0) return
+    let prepared: Array<Omit<WorkspaceFile, 'url'>>
+    try {
+      prepared = await Promise.all(
+        next.map(async (file, index) => {
+          const id = `${file.name}-${file.lastModified}-${index}`
+          const text = await readWorkspaceTextPreview(file)
+          return {
+            id,
+            name: file.name,
+            type: file.type || 'application/octet-stream',
+            size: file.size,
+            file,
+            ...(text !== undefined ? { text } : {}),
+          }
+        })
+      )
+    } catch {
+      toast.error(t('Could not read the selected workspace files.'))
+      return
+    }
+    const loaded: WorkspaceFile[] = prepared.map((file) => ({
+      ...file,
+      url: URL.createObjectURL(file.file),
+    }))
     setFiles((previous) => {
       previous.forEach((file) => URL.revokeObjectURL(file.url))
       return loaded
@@ -290,6 +310,11 @@ function WorkspaceFiles({
           <p className='text-muted-foreground text-xs'>
             {t(
               'Files stay in this browser until you attach them to a message.'
+            )}
+          </p>
+          <p className='text-muted-foreground mt-1 text-[10px]'>
+            {t(
+              'Workspace file limits: 10 files, 8 MB each; text previews read up to 120 KB.'
             )}
           </p>
         </div>
@@ -825,7 +850,7 @@ export function AgentWorkspace() {
   }
 
   const attachWorkspaceFile = (file: File) => {
-    if (file.size > 8 * 1024 * 1024) {
+    if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
       toast.error(t('Maximum attachment size is 8 MB.'))
       return
     }

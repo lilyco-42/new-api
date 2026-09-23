@@ -48,6 +48,8 @@ export const ATTACHMENT_ACTIONS = [
 export const PROMPT_INPUT_ATTACH_FILES_EVENT =
   'lain42:prompt-input-attach-files'
 
+export const MAX_ATTACHMENT_FILE_SIZE_BYTES = 8 * 1024 * 1024
+
 export function attachFilesToCurrentPromptInput(files: File[]) {
   if (typeof window === 'undefined' || files.length === 0) return
   window.dispatchEvent(
