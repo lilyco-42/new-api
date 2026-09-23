@@ -10,6 +10,12 @@
 - `agent-3281aec` 已部署；线上 `/api/status` 返回版本一致且 `github_oauth=true`，`/agent` 返回 HTTP 200，服务容器 healthy，PostgreSQL 与 Redis 持续运行。部署产物哈希与 CI 完全一致。没有操作用户的 Radxa 私人设备。
 - 按用户授权清理指定的 apt/Go 构建缓存。Go 构建缓存本已为空，apt 清理释放约 93 MB；当前根分区可用约 128 MB。其他缓存、镜像、备份和数据卷未清理。
 
+## 1.1 MCP stdio 帧内存上限（2026-09-24）
+
+- 调查发现 rmcp 3.4.0 的 stdio `read_until` 会先累积整行再解析，已有 64 KiB 检查只限制解析后的工具响应，挡不住超长行在缓冲阶段占用内存；HTTPS Streamable HTTP 的 SSE 事件大小限制仍有效。
+- 桌面端和 headless companion 改为共用读取适配器，在字节进入 RMCP 前限制每条 JSON-RPC 行为 64 KiB；继续用 `process-wrap` 管理子进程生命周期，HTTP 路径不变。回归测试覆盖边界行、LF 后重置和超限拒收。
+- 尚未在本机运行 Rust 构建或测试，等待 GitHub Actions 的桌面、companion 测试及 Windows/Linux/macOS 构建验证；通过后再决定是否发布。
+
 ## 0.9 搜索重复调用与工具轮次恢复（2026-09-24）
 
 - 正式站新对话确认 `web.search` 已执行并显示工具完成，但默认模型在工具返回后继续循环，78.57 秒后报“工具循环达到步数上限”。因此原来的“未批准”问题已解决，搜索后的续答仍有实际故障。

@@ -29,7 +29,7 @@ use rmcp::{
     service::{ClientLifecycleMode, RoleClient, RunningService},
     transport::{
         streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
-        StreamableHttpClientTransport, TokioChildProcess,
+        StreamableHttpClientTransport,
     },
     ClientServiceExt,
 };
@@ -37,6 +37,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::State;
 use tokio::{net::lookup_host, sync::Mutex, time::timeout};
+
+#[path = "bounded_mcp_stdio.rs"]
+mod bounded_mcp_stdio;
+use bounded_mcp_stdio::BoundedMcpStdioTransport;
 
 const MAX_SERVERS: usize = 16;
 const MAX_TOOLS_PER_SERVER: usize = 128;
@@ -344,10 +348,11 @@ async fn connect_client(request: &McpConnectRequest) -> Result<McpClient, String
     match request.transport.as_str() {
         "stdio" => {
             let (command, args) = validate_stdio(request)?;
-            let transport = TokioChildProcess::new(
+            let transport = BoundedMcpStdioTransport::spawn(
                 tokio::process::Command::new(command).configure(|process| {
                     process.args(args);
                 }),
+                MAX_RESPONSE_BYTES,
             )
             .map_err(|_| "Unable to start the selected MCP command.".to_string())?;
             timeout(

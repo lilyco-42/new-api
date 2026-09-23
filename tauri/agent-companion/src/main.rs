@@ -28,7 +28,7 @@ use rmcp::{
     service::{ClientLifecycleMode, RoleClient, RunningService},
     transport::{
         streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
-        StreamableHttpClientTransport, TokioChildProcess,
+        StreamableHttpClientTransport,
     },
     ClientServiceExt,
 };
@@ -37,6 +37,10 @@ use serde_json::{json, Value};
 use tokio::{net::lookup_host, runtime::Runtime, time::timeout};
 use tungstenite::{connect, Message};
 use url::Url;
+
+#[path = "../../src/bounded_mcp_stdio.rs"]
+mod bounded_mcp_stdio;
+use bounded_mcp_stdio::BoundedMcpStdioTransport;
 
 #[path = "../../src/tool_runtime.rs"]
 mod tool_runtime;
@@ -475,10 +479,11 @@ async fn connect_client(server: &McpServerConfig) -> Result<McpClient, String> {
         "stdio" => {
             validate_stdio(server)?;
             let command = server.command.as_deref().expect("validated command").trim();
-            let transport = TokioChildProcess::new(
+            let transport = BoundedMcpStdioTransport::spawn(
                 tokio::process::Command::new(command).configure(|process| {
                     process.args(&server.args);
                 }),
+                MAX_RESPONSE_BYTES,
             )
             .map_err(|_| "Unable to start the configured MCP command.".to_string())?;
             timeout(

@@ -1840,6 +1840,7 @@ name = "lain42-agent"
 version = "0.1.1"
 dependencies = [
  "libc",
+ "process-wrap",
  "reqwest",
  "rmcp",
  "serde",

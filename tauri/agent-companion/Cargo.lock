@@ -747,6 +747,7 @@ name = "lain42-agent-companion"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "process-wrap",
  "reqwest",
  "rmcp",
  "serde",
