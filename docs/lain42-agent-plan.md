@@ -25,7 +25,8 @@
 - `ad3b999` 的 GitHub Actions 全绿：前端生产构建、75 个测试文件/458 项前端测试、Agent API 测试和 Linux amd64 构建通过。已部署为 `agent-ad3b999`；公开状态接口版本匹配，`/agent` 返回 HTTP 200，容器 healthy，PostgreSQL/Redis 持续运行。
 - 正式站浏览器用合成文本样本验证：130 KB 文件只显示 120,000 字节并带截断提示；8 MiB+1 字节文件被拒绝且没有加入列表；“附加到消息”将文件放入本地草稿并可移除，未发送测试内容。390 px 移动视口下文档宽度也是 390 px，没有横向溢出；这不是 Android 实机验收。
 - 复测发现 OAuth 初始状态加载期间按钮可点，且已连接状态也允许再次启动授权。`b0e87ef` 增加加载禁用、已连接隐藏和点击时二次状态保护；两项新回归测试覆盖加载竞态与状态变化。CI `35920583075` 全绿，当前本地完整测试为 75 个文件/460 项通过，定向 lint、格式和类型检查通过。
-- `b0e87ef` 尚未部署：正式机根分区只剩约 40 MB；前次明确批准的 apt archives 与 Go build cache 当前分别仅 60 KB/4 KB。部署前需另行授权清理其他路径，避免在空间不足时写入服务器。
+- `b0e87ef` 已使用 GitHub Actions 构建产物部署；先按用户确认清理 apt archives / Go build cache（当时分别仅 60 KB/4 KB），再清理并告知用户可重建的两个 apt 索引文件（合计约 93 MiB）。没有碰 5.9 GB 的 Python/uv 缓存。服务器公开状态版本为 `agent-b0e87ef`、`github_oauth=true`，`/agent` 返回 HTTP 200，容器 healthy，PostgreSQL 和 Redis 持续运行；部署后根分区可用空间约 132 MB。
+- 强制刷新线上 Agent 后，GitHub 卡片显示 `OAuth connected · lilyco-42` 和断开按钮，不再显示“Connect GitHub in browser”；已连接用户不会误开第二个授权弹窗。首次加载禁用和竞态保护由本地回归测试覆盖，本轮没有触发新的授权。
 - 仓库级 `bun run lint` 与 `format:check` 仍被多处未涉及文件的既有问题挡住；本轮变更文件的 lint 与格式检查均通过。
 - 其余 P0-E / A1–A11 仍未完成，特别是用户自有 Radxa A7A 的首次配对与断线恢复（需要用户本人设备）、手机实机 E2E、官方 MCP 互操作、双用户隔离和间歇模型续答失败；没有把网页视口检查或模拟测试当作这些实机证据。
 
