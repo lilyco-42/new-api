@@ -7,7 +7,12 @@
 - Agent 现在实际公开只读的 `vcs.history`、`code.search`、`code.graph`、`files.browse` 和 `files.preview`，分别驱动 `jj`、`ast-grep`、CodeGraph 与内置文件接口；不是只显示安装状态。
 - CLI 查询只从管理员配置的 `LAIN42_AGENT_WORKSPACE` 运行。路径必须留在该根目录，目录浏览忽略符号链接；文件预览限制 16 KiB UTF-8、屏蔽常见凭据路径，并在网页确认后才把内容发给选定模型。
 - 这些新操作已加入 Go 配对桥接白名单、Rust companion 和 Agent 工具 schema。尚未在 Radxa 实机安装/配置，因此不能声称线上节点已经可用；需要把工作区路径授予服务账号只读权限。
-- Rust companion 13 项测试通过，目标 Go 桥接测试通过；全 `web` 构建检查仍在运行。仓库全量前端 lint 当前存在大量与本改动无关的既有错误。
+- Rust companion 13 项测试通过，目标 Go 桥接测试通过；全 `web` 构建检查通过。仓库全量前端 lint 当前存在大量与本改动无关的既有错误。
+
+## 0.4 本轮增量（2026-09-23）
+
+- Agent 的 GitHub 状态轮询不再消耗 IP 共享的关键请求额度；网页搜索、仓库搜索、Issue 和 PR 读取改为按登录用户应用现有搜索限流。撤销 GitHub 授权仍受关键请求限流和同源校验保护。
+- 这修复的是 Agent 只读 API 与 OAuth 轮询触发网站自身 429 的问题；上游免费模型的 429 仍需切换可用模型或等待供应商恢复。
 
 ## 0.1 本轮增量（2026-09-23）
 

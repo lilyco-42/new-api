@@ -72,14 +72,25 @@ func SetApiRouter(router *gin.Engine) {
 			// budget on a long-lived WebSocket handshake.
 			browserBridgeRoute.Use(middleware.DisableCache())
 			browserBridgeRoute.GET("/bridge/browser", middleware.SessionCookieOriginGuard(), controller.AgentBridgeBrowser)
+			// OAuth completion polling checks this lightweight status endpoint
+			// every few seconds. Keep it out of the IP-wide critical-request
+			// bucket so a normal GitHub link flow cannot block unrelated user
+			// actions or hit a 429 before it completes.
+			browserAgentStatusRoute := agentRoute.Group("")
+			browserAgentStatusRoute.Use(middleware.UserAuth(), middleware.DisableCache())
+			browserAgentStatusRoute.GET("/github/status", controller.AgentGitHubStatus)
+			// Search and GitHub reads are bounded per authenticated user. They
+			// are frequent, read-only Agent tools and should not consume the
+			// shared IP-wide critical-request budget used by login and billing.
 			browserAgentRoute := agentRoute.Group("")
-			browserAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
+			browserAgentRoute.Use(middleware.UserAuth(), middleware.SearchRateLimit(), middleware.DisableCache())
 			browserAgentRoute.GET("/search", controller.AgentWebSearch)
-			browserAgentRoute.GET("/github/status", controller.AgentGitHubStatus)
-			browserAgentRoute.DELETE("/github/authorization", middleware.SessionCookieOriginGuard(), controller.AgentGitHubDisconnect)
 			browserAgentRoute.GET("/github/repositories/search", controller.AgentGitHubRepositoriesSearch)
 			browserAgentRoute.GET("/github/issues", controller.AgentGitHubIssues)
 			browserAgentRoute.GET("/github/pull-requests", controller.AgentGitHubPullRequests)
+			browserAgentMutationRoute := agentRoute.Group("")
+			browserAgentMutationRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
+			browserAgentMutationRoute.DELETE("/github/authorization", middleware.SessionCookieOriginGuard(), controller.AgentGitHubDisconnect)
 		}
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
