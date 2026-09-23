@@ -56,6 +56,37 @@ function provider(invoke: LocalToolProvider['invoke']): LocalToolProvider {
 }
 
 describe('local structured tool loop', () => {
+  test('returns a provider preflight answer without calling the model or tools', async () => {
+    const localAnswer = response({
+      role: 'assistant',
+      content: 'Please add context for this number.',
+    })
+    const request = async () => {
+      throw new Error('The model must not be called for this input.')
+    }
+    const invoke = async () => {
+      throw new Error('A tool must not run for this input.')
+    }
+    const guardedProvider: LocalToolProvider = {
+      ...provider(invoke),
+      preflight: (messages) =>
+        messages.at(-1)?.content === '1123' ? localAnswer : null,
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [{ role: 'user', content: '1123' }],
+      },
+      guardedProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result).toBe(localAnswer)
+  })
+
   test('executes a structured call and gives the result back to the model', async () => {
     const requests: ChatCompletionRequest[] = []
     const events: string[] = []

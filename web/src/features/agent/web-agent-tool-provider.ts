@@ -1,4 +1,6 @@
 import type {
+  ChatCompletionMessage,
+  ChatCompletionResponse,
   ChatCompletionTool,
   ChatCompletionToolCall,
   LocalToolProvider,
@@ -360,6 +362,37 @@ async function invokeApi(
 export const webAgentToolProvider: LocalToolProvider = {
   tools: WEB_AGENT_TOOLS,
   isAvailable: () => true,
+  preflight: (messages) => {
+    let latestUserMessage: ChatCompletionMessage | undefined
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === 'user') {
+        latestUserMessage = messages[index]
+        break
+      }
+    }
+    const text = latestUserMessage?.content
+    if (typeof text !== 'string' || !/^\p{N}+$/u.test(text.trim())) {
+      return null
+    }
+
+    const response: ChatCompletionResponse = {
+      id: 'local-ambiguous-number',
+      object: 'chat.completion',
+      created: Date.now(),
+      model: 'local-preflight',
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: `你发来的是一个数字（${text.trim()}）。你希望我帮你做什么？可以补充计算、编号查询或相关背景。`,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }
+    return response
+  },
   requiresApproval: async (call, signal) => {
     if (signal.aborted) return false
     if (

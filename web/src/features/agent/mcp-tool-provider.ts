@@ -414,6 +414,13 @@ export function combineLocalToolProviders(
   return {
     tools: [...toolsByName.values()],
     isAvailable: () => providers.some((provider) => provider.isAvailable()),
+    preflight: (messages) => {
+      for (const provider of providers) {
+        const response = provider.preflight?.(messages)
+        if (response) return response
+      }
+      return null
+    },
     requiresApproval: async (call, signal) => {
       const provider = findProvider(call.function.name)
       if (!provider) {

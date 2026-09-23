@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { runLocalToolLoop } from '@/features/playground/hooks/local-tool-loop'
 import type {
+  ChatCompletionRequest,
   ChatCompletionToolCall,
   LocalToolProvider,
 } from '@/features/playground/types'
@@ -69,6 +71,34 @@ describe('webAgentToolProvider', () => {
       pages: [],
       warnings: [],
     })
+  })
+
+  it('asks for context locally instead of searching for a standalone number', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [{ role: 'user', content: '1123' }],
+      stream: false,
+    }
+    const request = vi.fn(async () => {
+      throw new Error('No model request should be made.')
+    })
+    const bridgeProvider: LocalToolProvider = {
+      tools: [],
+      isAvailable: () => true,
+      invoke: async () => '',
+    }
+
+    const response = await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(bridgeProvider),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain('你发来的是一个数字')
+    expect(request).not.toHaveBeenCalled()
+    expect(searchClientSources).not.toHaveBeenCalled()
   })
 
   it('clamps model-generated search limits to the supported maximum', async () => {

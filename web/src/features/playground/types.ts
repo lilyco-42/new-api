@@ -89,6 +89,10 @@ export interface ChatCompletionTool {
 export interface LocalToolProvider {
   tools: ChatCompletionTool[]
   isAvailable: () => boolean
+  /** Return a local answer before making a model or tool request, when needed. */
+  preflight?: (
+    messages: ChatCompletionMessage[]
+  ) => ChatCompletionResponse | null
   /**
    * Optional approval gate for tools that can affect external systems. The
    * loop must wait for a user decision before invoking the tool.

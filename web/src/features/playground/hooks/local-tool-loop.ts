@@ -111,6 +111,9 @@ export async function runLocalToolLoop(
   onEvent?: (event: LocalToolLoopEvent) => void,
   request = sendChatCompletion
 ): Promise<ChatCompletionResponse> {
+  assertSignal(signal)
+  const preflightResponse = provider.preflight?.(initialPayload.messages)
+  if (preflightResponse) return preflightResponse
   if (!provider.isAvailable()) return request(initialPayload, signal)
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
