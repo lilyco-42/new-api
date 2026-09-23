@@ -101,7 +101,7 @@ const WEB_CRAWL_TOOL: ChatCompletionTool = {
 const GITHUB_STATUS_TOOL: ChatCompletionTool = {
   type: 'function',
   function: {
-    name: 'github.auth.status',
+    name: 'github.oauth.auth.status',
     description:
       'Check the browser GitHub OAuth connection without exposing its token.',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
@@ -111,7 +111,7 @@ const GITHUB_STATUS_TOOL: ChatCompletionTool = {
 const GITHUB_REPOSITORY_SEARCH_TOOL: ChatCompletionTool = {
   type: 'function',
   function: {
-    name: 'github.repositories.search',
+    name: 'github.oauth.repositories.search',
     description:
       'Search public and authorized GitHub repositories from the linked account.',
     parameters: {
@@ -140,7 +140,7 @@ const GITHUB_ACTIVITY_PROPERTIES = {
 const GITHUB_ISSUES_TOOL: ChatCompletionTool = {
   type: 'function',
   function: {
-    name: 'github.issues.list',
+    name: 'github.oauth.issues.list',
     description:
       'Read recently updated issues from a public or authorized GitHub repository.',
     parameters: {
@@ -155,7 +155,7 @@ const GITHUB_ISSUES_TOOL: ChatCompletionTool = {
 const GITHUB_PULL_REQUESTS_TOOL: ChatCompletionTool = {
   type: 'function',
   function: {
-    name: 'github.pull_requests.list',
+    name: 'github.oauth.pull_requests.list',
     description:
       'Read pull requests from a public or authorized GitHub repository.',
     parameters: {
@@ -300,12 +300,12 @@ function parseToolArguments(
         max_pages: boundedLimit(params.max_pages, 3, 5),
       }
     }
-    case 'github.auth.status':
+    case 'github.oauth.auth.status':
       if (Object.keys(params).length > 0) {
         throw new Error('GitHub auth status does not accept arguments.')
       }
       return {}
-    case 'github.repositories.search': {
+    case 'github.oauth.repositories.search': {
       const allowed = new Set(['query', 'limit'])
       if (Object.keys(params).some((key) => !allowed.has(key))) {
         throw new Error('Unsupported GitHub repository argument.')
@@ -315,8 +315,8 @@ function parseToolArguments(
         limit: boundedLimit(params.limit, 10, 20),
       }
     }
-    case 'github.issues.list':
-    case 'github.pull_requests.list': {
+    case 'github.oauth.issues.list':
+    case 'github.oauth.pull_requests.list': {
       const allowed = new Set(['repo', 'state', 'limit', 'sort'])
       if (Object.keys(params).some((key) => !allowed.has(key))) {
         throw new Error(`Unsupported ${call.function.name} argument.`)
@@ -444,17 +444,17 @@ export const webAgentToolProvider: LocalToolProvider = {
             signal
           )
         )
-      case 'github.auth.status':
+      case 'github.oauth.auth.status':
         return invokeApi('/api/agent/github/status', {}, signal)
-      case 'github.repositories.search':
+      case 'github.oauth.repositories.search':
         return invokeApi(
           '/api/agent/github/repositories/search',
           { q: params.query, limit: params.limit },
           signal
         )
-      case 'github.issues.list':
+      case 'github.oauth.issues.list':
         return invokeApi('/api/agent/github/issues', params, signal)
-      case 'github.pull_requests.list':
+      case 'github.oauth.pull_requests.list':
         return invokeApi('/api/agent/github/pull-requests', params, signal)
       default:
         throw new Error(

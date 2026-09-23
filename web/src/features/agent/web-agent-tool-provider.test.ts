@@ -230,21 +230,32 @@ describe('webAgentToolProvider', () => {
     )
   })
 
-  it('uses account-backed GitHub tools before a paired device bridge', async () => {
+  it('keeps browser OAuth and paired gh CLI tools separately routable', async () => {
     const githubStatusTool = webAgentToolProvider.tools.find(
-      (tool) => tool.function.name === 'github.auth.status'
+      (tool) => tool.function.name === 'github.oauth.auth.status'
     )
     if (!githubStatusTool) throw new Error('GitHub status tool is missing.')
+    const cliStatusTool = {
+      type: 'function' as const,
+      function: {
+        name: 'github.auth.status',
+        parameters: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+    }
     const bridgeInvoke = vi.fn().mockResolvedValue('bridge-status')
     const bridgeProvider: LocalToolProvider = {
-      tools: [githubStatusTool],
+      tools: [cliStatusTool],
       isAvailable: () => true,
       invoke: bridgeInvoke,
     }
     const provider = createBrowserAgentToolProvider(bridgeProvider)
 
     await provider.invoke(
-      toolCall('github.auth.status', {}),
+      toolCall('github.oauth.auth.status', {}),
       new AbortController().signal
     )
 
@@ -253,6 +264,11 @@ describe('webAgentToolProvider', () => {
       expect.objectContaining({ params: {} })
     )
     expect(bridgeInvoke).not.toHaveBeenCalled()
+    await provider.invoke(
+      toolCall('github.auth.status', {}),
+      new AbortController().signal
+    )
+    expect(bridgeInvoke).toHaveBeenCalledOnce()
   })
 
   it('does not advertise paired-device tools while that device is offline', () => {
@@ -281,6 +297,12 @@ describe('webAgentToolProvider', () => {
     )
     expect(offline.tools.map((tool) => tool.function.name)).toContain(
       'web.search'
+    )
+    expect(offline.tools.map((tool) => tool.function.name)).toContain(
+      'github.oauth.issues.list'
+    )
+    expect(offline.tools.map((tool) => tool.function.name)).not.toContain(
+      'github.issues.list'
     )
   })
 
