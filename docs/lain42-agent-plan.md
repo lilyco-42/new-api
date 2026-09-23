@@ -7,7 +7,8 @@
 - 配对卡片改为复制固定版本的安装命令；安装器下载 GitHub Actions 构建的 ARM64 包，校验 SHA-256，隐藏读取短时票据，等待网页确认后写入仅当前用户可读的凭证并启用 systemd 服务。
 - 设备仍是当前网站账号私有的 headless 执行节点：只出站连接 WSS，不开放公网 SSH，也不登记为共享算力供其他用户使用。已有设备离线时提供重启命令，不创建重复设备。
 - `lain42-agent-v0.1.0` 已由 GitHub Actions 构建、测试并发布安装脚本、ARM64 压缩包和 SHA-256 文件；下载后重新计算的校验值一致，普通用户无需在 Radxa 安装 Rust 或本地编译。
-- `agent-23c3b45` 已部署到 `api.lain42.top`；公开状态接口报告相同版本，Agent 页面返回 HTTP 200，服务容器健康，PostgreSQL 和 Redis 未重启。
+- `agent-v0.1.1` 已通过 GitHub Actions 发布 Windows x64、macOS ARM64 和 Linux x64 桌面安装包及校验文件；三个平台的公开下载地址均返回 HTTP 200。Agent 的桌面下载按钮固定指向此桌面版 Release，不再使用会被 Radxa 版本覆盖的通用 latest 页面。
+- `agent-c193aaa` 已部署到 `api.lain42.top`；公开状态接口报告相同版本，Agent 页面返回 HTTP 200，异步加载的桌面卡片包含精确 Release 地址，服务容器健康，PostgreSQL 和 Redis 未重启。前端 73 个测试文件、450 项全部通过。
 - 仍需在真实 Radxa A7A 上验证首次配对、systemd 开机启动、断线重连与手机网页工具调用，才能把 A2/A9 实机验收标为完成。当前不把脚本/CI 通过当成设备已连接证据；设备只会由账号所有者自行配对为私有节点。
 
 ## 0.3 本轮增量（2026-09-23）
