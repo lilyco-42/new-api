@@ -144,6 +144,7 @@ function readActivity(value: unknown): GhActivity[] {
 
 export function GithubCliCard() {
   const { t } = useTranslation()
+  const hasLocalGhRuntime = Boolean(getInvoke())
   const [status, setStatus] = useState<GhAuthStatus | null>(null)
   const [query, setQuery] = useState('rust ai')
   const [repo, setRepo] = useState('')
@@ -628,22 +629,24 @@ export function GithubCliCard() {
             </Button>
           )}
         </div>
-        <div className='flex items-center gap-2'>
-          <Button
-            disabled={checking}
-            onClick={checkGh}
-            size='sm'
-            variant='outline'
-          >
-            {checking ? t('Checking…') : t('Check gh login')}
-          </Button>
-          {status && (
-            <Badge variant={status.authenticated ? 'secondary' : 'warning'}>
-              {getStatusLabel()}
-            </Badge>
-          )}
-        </div>
-        {status && !status.authenticated && (
+        {hasLocalGhRuntime && (
+          <div className='flex items-center gap-2'>
+            <Button
+              disabled={checking}
+              onClick={checkGh}
+              size='sm'
+              variant='outline'
+            >
+              {checking ? t('Checking…') : t('Check gh login')}
+            </Button>
+            {status && (
+              <Badge variant={status.authenticated ? 'secondary' : 'warning'}>
+                {getStatusLabel()}
+              </Badge>
+            )}
+          </div>
+        )}
+        {hasLocalGhRuntime && status && !status.authenticated && (
           <div className='bg-muted/30 grid gap-2 rounded-lg p-2 text-xs'>
             <span className='text-muted-foreground'>{t(status.message)}</span>
             <div className='flex items-center gap-2'>
@@ -769,15 +772,17 @@ export function GithubCliCard() {
             ))}
           </div>
         )}
-        <a
-          className='text-primary inline-flex items-center gap-1 text-xs hover:underline'
-          href='https://cli.github.com/manual/gh_auth_login'
-          rel='noreferrer'
-          target='_blank'
-        >
-          {t('How to connect your own GitHub token')}
-          <ExternalLink className='size-3' />
-        </a>
+        {hasLocalGhRuntime && (
+          <a
+            className='text-primary inline-flex items-center gap-1 text-xs hover:underline'
+            href='https://cli.github.com/manual/gh_auth_login'
+            rel='noreferrer'
+            target='_blank'
+          >
+            {t('How to connect your own GitHub token')}
+            <ExternalLink className='size-3' />
+          </a>
+        )}
       </CardContent>
     </Card>
   )

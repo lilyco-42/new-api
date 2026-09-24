@@ -222,4 +222,23 @@ describe('GithubCliCard browser OAuth', () => {
       screen.queryByRole('button', { name: 'Connect GitHub in browser' })
     ).not.toBeInTheDocument()
   })
+
+  test('does not present local gh login instructions in a browser session', async () => {
+    render(<GithubCliCard />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Connect GitHub in browser' })
+      ).toBeEnabled()
+    )
+
+    expect(
+      screen.queryByRole('button', { name: 'Check gh login' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', {
+        name: 'How to connect your own GitHub token',
+      })
+    ).not.toBeInTheDocument()
+  })
 })
