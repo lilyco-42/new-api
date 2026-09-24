@@ -448,6 +448,8 @@ export const webAgentToolProvider: LocalToolProvider = {
   tools: WEB_AGENT_TOOLS,
   isAvailable: () => true,
   shouldRunTool: (call, messages) => shouldRunWebAgentTool(call, messages),
+  shouldRequireToolCall: (messages) =>
+    getGitHubReadIntent(latestUserRequestText(messages)) !== null,
   preflight: (messages) => {
     let latestUserMessage: ChatCompletionMessage | undefined
     for (let index = messages.length - 1; index >= 0; index -= 1) {

@@ -424,6 +424,78 @@ describe('webAgentToolProvider', () => {
     expect(names).not.toContain('github.auth.status')
   })
 
+  it('requires a GitHub OAuth tool call instead of letting the model guess repository access', async () => {
+    const provider = createBrowserAgentToolProvider(undefined, false)
+    const request = vi.fn(async (payload: ChatCompletionRequest) => {
+      expect(payload.tool_choice).toBe('required')
+      return {
+        id: 'repo-list',
+        object: 'chat.completion',
+        created: 1,
+        model: 'test-model',
+        choices: [
+          {
+            index: 0,
+            finish_reason: 'tool_calls',
+            message: {
+              role: 'assistant' as const,
+              content: null,
+              tool_calls: [
+                {
+                  id: 'repo-list-call',
+                  type: 'function' as const,
+                  function: {
+                    name: 'github.oauth.repositories.list',
+                    arguments: '{}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }
+    })
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          items: [
+            {
+              full_name: 'lilyco-42/new-api',
+              html_url: 'https://github.com/lilyco-42/new-api',
+              private: false,
+              stargazers_count: 1,
+            },
+          ],
+        },
+      },
+    } as never)
+
+    const result = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [{ role: 'user', content: '查看我的 GitHub 仓库' }],
+        stream: false,
+      },
+      provider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/github/repositories',
+      expect.objectContaining({ params: { limit: 10 } })
+    )
+    expect(result.choices[0]?.message.content).toContain(
+      '已通过连接的 GitHub OAuth 获取到 1 个仓库'
+    )
+    expect(result.choices[0]?.message.content).toContain(
+      'lilyco-42/new-api'
+    )
+    expect(request).toHaveBeenCalledOnce()
+  })
+
   it('lists repositories through the connected GitHub OAuth account', async () => {
     const bridgeProvider: LocalToolProvider = {
       tools: [

@@ -303,7 +303,8 @@ export async function runLocalToolLoop(
   if (!provider.isAvailable()) return request(initialPayload, signal)
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
-  if (availableTools(provider, messages).length === 0) {
+  const initialTools = availableTools(provider, messages)
+  if (initialTools.length === 0) {
     return request(initialPayload, signal)
   }
   let response = await request(
@@ -311,8 +312,10 @@ export async function runLocalToolLoop(
       ...initialPayload,
       messages,
       stream: false,
-      tools: availableTools(provider, messages),
-      tool_choice: 'auto',
+      tools: initialTools,
+      tool_choice: provider.shouldRequireToolCall?.(messages)
+        ? 'required'
+        : 'auto',
     },
     signal
   )

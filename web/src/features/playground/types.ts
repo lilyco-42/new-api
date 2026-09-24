@@ -96,6 +96,8 @@ export interface LocalToolProvider {
     call: ChatCompletionToolCall,
     messages: ChatCompletionMessage[]
   ) => boolean
+  /** Require an actual structured tool call for requests that must use a tool. */
+  shouldRequireToolCall?: (messages: ChatCompletionMessage[]) => boolean
   /** Return a local answer before making a model or tool request, when needed. */
   preflight?: (
     messages: ChatCompletionMessage[]

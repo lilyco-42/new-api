@@ -446,6 +446,8 @@ export function combineLocalToolProviders(
       const provider = findProvider(call.function.name)
       return provider?.shouldRunTool?.(call, messages) ?? true
     },
+    shouldRequireToolCall: (messages) =>
+      providers.some((provider) => provider.shouldRequireToolCall?.(messages)),
     requiresApproval: async (call, signal) => {
       const provider = findProvider(call.function.name)
       if (!provider) {

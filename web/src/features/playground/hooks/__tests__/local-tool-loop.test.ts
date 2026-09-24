@@ -95,6 +95,43 @@ describe('local structured tool loop', () => {
     expect(result).toBe(localAnswer)
   })
 
+  test('requires a structured tool call when the provider marks it necessary', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const request = vi.fn(async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      return requests.length === 1
+        ? response({
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'required-tool-call',
+                type: 'function',
+                function: { name: 'github.issues.list', arguments: '{}' },
+              },
+            ],
+          })
+        : response({ role: 'assistant', content: 'tool result complete' })
+    })
+    const requiredProvider: LocalToolProvider = {
+      ...provider(async () => 'tool result'),
+      shouldRequireToolCall: () => true,
+    }
+
+    const result = await runLocalToolLoop(
+      initialPayload,
+      requiredProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(requests[0]?.tool_choice).toBe('required')
+    expect(requests[1]?.tool_choice).toBe('auto')
+    expect(result.choices[0]?.message.content).toBe('tool result complete')
+  })
+
   test('executes a structured call and gives the result back to the model', async () => {
     const requests: ChatCompletionRequest[] = []
     const events: string[] = []

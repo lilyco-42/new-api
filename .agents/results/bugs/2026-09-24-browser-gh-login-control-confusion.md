@@ -1,21 +1,21 @@
-# Browser GitHub card showed local CLI login instructions
+# Browser GitHub OAuth was confused with local CLI login
 
 **Date**: 2026-09-24  
 **Severity**: Medium (confusing authentication guidance)  
-**Status**: Fixed in source; GitHub Actions verification pending
+**Status**: Reproduced against production; source fix is being verified and deployed
 
 ## Problem
 
-The web Agent's GitHub card displayed a `Check gh login` button and a link to `gh auth login` even in a normal browser session. In that session the check handler only refreshed browser OAuth status; it could not inspect a local CLI. This made a working `OAuth connected` state appear to require an unrelated local login.
+The Agent could show `OAuth connected · lilyco-42` and still tell the user to run `gh auth login`. The browser OAuth credential and a device's `gh` login are separate, but the old production image (`agent-abe183b`) did not contain the source correction. Even after updating the site, `tool_choice: auto` still let a model answer a normal "view my GitHub repositories" request from the connection summary instead of calling the OAuth repository endpoint.
 
 ## Fix
 
-Render local `gh` status, login details, and CLI setup instructions only when the Tauri runtime is present. Browser sessions continue to use the site's GitHub OAuth API for repository search, Issues, and Pull Requests.
+Render local `gh` status, login details, and CLI setup instructions only when the Tauri runtime is present. In browser sessions, correct pasted OAuth/CLI confusion locally and require a structured GitHub read call for repository, issue, and pull-request requests. Normal browser reads use the site's GitHub OAuth API; they do not depend on device `gh` authentication.
 
 ## Regression coverage
 
-The GitHub card test asserts that a browser session can load OAuth status without showing local `gh` login controls. Existing tests continue to cover OAuth connection and browser repository search behavior.
+Tests assert that browser sessions hide local `gh` login controls, that the OAuth repository endpoint is called for "view my repositories", and that tool-required requests use the structured tool loop.
 
 ## Verification
 
-Run the frontend tests and production build in GitHub Actions. Do not use a local build for this project.
+The first deployed correction was built by GitHub Actions run `35963762736` and deployed as `agent-ae65548`; the service is healthy and serves `/agent` and `/api/status`. The follow-up that forces GitHub reads is being verified in GitHub Actions. Do not use a local build for this project.
