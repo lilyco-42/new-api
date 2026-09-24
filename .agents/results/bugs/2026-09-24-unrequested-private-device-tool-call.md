@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-24  
 **Severity**: High (unexpected access to a user's private device)  
-**Status**: Fix implemented; awaiting GitHub Actions and production verification
+**Status**: Resolved and verified in production
 
 ## Problem
 
@@ -20,4 +20,10 @@ Tests cover generic questions excluding local file/code/history/search tools, Ch
 
 ## Verification
 
-Pending GitHub Actions. Local builds and tests are intentionally not used; production verification will use the CI-built artifact.
+GitHub Actions run [`35975708173`](https://github.com/lilyco-42/new-api/actions/runs/35975708173) passed the frontend build and tests, Agent API tests, device re-pair tests, and Linux amd64 build. Production runs `lain42/new-api:agent-f1407dd`; the binary SHA-256 matches the CI artifact (`5f3209fccc0e3d4f63bd3fef6cae3aa342858945d2b4f888f152c1dddd4fbdeb`). The container is healthy, and `/agent` and `/api/status` both return HTTP 200.
+
+Two live browser checks succeeded: a plain Rust question and the same question explicitly saying not to search. Both received direct answers without `web.search`, workspace, or paired-device tool events. No local build or test was run; verification used GitHub Actions and the deployed site.
+
+## Prevention
+
+Treat tool execution as a separately authorized action: model-proposed calls are insufficient. Keep intent filters fail-closed for private-device tools, recognize negation before positive search keywords, and force text-only inference when no tools are eligible.
