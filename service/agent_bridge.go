@@ -125,16 +125,37 @@ type pendingAgentBridgeRequest struct {
 }
 
 type AgentBridgeHub struct {
-	mu       sync.Mutex
-	desktops map[int64]*AgentBridgePeer
-	pending  map[string]pendingAgentBridgeRequest
+	mu              sync.Mutex
+	desktops        map[int64]*AgentBridgePeer
+	pending         map[string]pendingAgentBridgeRequest
+	deviceLocks     map[int64]*sync.Mutex
+	revokingDevices map[int64]int
+	revokedDevices  map[int64]int
 }
 
 func NewAgentBridgeHub() *AgentBridgeHub {
 	return &AgentBridgeHub{
-		desktops: make(map[int64]*AgentBridgePeer),
-		pending:  make(map[string]pendingAgentBridgeRequest),
+		desktops:        make(map[int64]*AgentBridgePeer),
+		pending:         make(map[string]pendingAgentBridgeRequest),
+		deviceLocks:     make(map[int64]*sync.Mutex),
+		revokingDevices: make(map[int64]int),
+		revokedDevices:  make(map[int64]int),
 	}
+}
+
+func (hub *AgentBridgeHub) lockDevice(deviceID int64) func() {
+	if deviceID <= 0 {
+		return func() {}
+	}
+	hub.mu.Lock()
+	lock := hub.deviceLocks[deviceID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		hub.deviceLocks[deviceID] = lock
+	}
+	hub.mu.Unlock()
+	lock.Lock()
+	return lock.Unlock
 }
 
 var defaultAgentBridgeHub = NewAgentBridgeHub()
@@ -206,8 +227,18 @@ func (hub *AgentBridgeHub) RegisterDesktop(deviceID int64, userID int, conn *web
 	if deviceID <= 0 || userID <= 0 || conn == nil {
 		return nil, ErrAgentBridgeUnauthorized
 	}
+	unlockDevice := hub.lockDevice(deviceID)
+	defer unlockDevice()
 	peer := &AgentBridgePeer{conn: conn, deviceID: deviceID, userID: userID, role: "desktop"}
 	hub.mu.Lock()
+	if _, revoking := hub.revokingDevices[deviceID]; revoking {
+		hub.mu.Unlock()
+		return nil, ErrAgentBridgeUnauthorized
+	}
+	if _, revoked := hub.revokedDevices[deviceID]; revoked {
+		hub.mu.Unlock()
+		return nil, ErrAgentBridgeUnauthorized
+	}
 	previous := hub.desktops[deviceID]
 	hub.desktops[deviceID] = peer
 	hub.mu.Unlock()
@@ -221,7 +252,17 @@ func (hub *AgentBridgeHub) RegisterBrowser(userID int, deviceID int64, conn *web
 	if userID <= 0 || deviceID <= 0 || conn == nil {
 		return nil, ErrAgentBridgeUnauthorized
 	}
+	unlockDevice := hub.lockDevice(deviceID)
+	defer unlockDevice()
 	peer := &AgentBridgePeer{conn: conn, deviceID: deviceID, userID: userID, role: "browser"}
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	if _, revoking := hub.revokingDevices[deviceID]; revoking {
+		return nil, ErrAgentBridgeUnauthorized
+	}
+	if _, revoked := hub.revokedDevices[deviceID]; revoked {
+		return nil, ErrAgentBridgeUnauthorized
+	}
 	return peer, nil
 }
 
@@ -232,7 +273,88 @@ func (hub *AgentBridgeHub) DesktopConnected(deviceID int64, userID int) bool {
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
 	peer := hub.desktops[deviceID]
-	return peer != nil && peer.userID == userID && peer.role == "desktop"
+	_, revoking := hub.revokingDevices[deviceID]
+	_, revoked := hub.revokedDevices[deviceID]
+	return !revoking && !revoked && peer != nil && peer.userID == userID && peer.role == "desktop"
+}
+
+// RevokeDevice fences bridge traffic while the owner-scoped device record is
+// revoked. The callback persists the revocation; a failed database update
+// lifts the temporary fence, while a successful update permanently rejects
+// stale in-memory credentials for the lifetime of this hub.
+func (hub *AgentBridgeHub) RevokeDevice(userID int, deviceID int64, persist func() error) error {
+	if userID <= 0 || deviceID <= 0 || persist == nil {
+		return ErrAgentBridgeUnauthorized
+	}
+	unlockDevice := hub.lockDevice(deviceID)
+	defer unlockDevice()
+
+	hub.mu.Lock()
+	if _, revoking := hub.revokingDevices[deviceID]; revoking {
+		hub.mu.Unlock()
+		return ErrAgentBridgeUnauthorized
+	}
+	if _, revoked := hub.revokedDevices[deviceID]; revoked {
+		hub.mu.Unlock()
+		return ErrAgentBridgeUnauthorized
+	}
+	if desktop := hub.desktops[deviceID]; desktop != nil && desktop.userID != userID {
+		hub.mu.Unlock()
+		return ErrAgentBridgeUnauthorized
+	}
+	hub.revokingDevices[deviceID] = userID
+	var interrupted []pendingAgentBridgeRequest
+	for key, pending := range hub.pending {
+		if pending.deviceID == deviceID && pending.userID == userID {
+			delete(hub.pending, key)
+			interrupted = append(interrupted, pending)
+		}
+	}
+	hub.mu.Unlock()
+
+	persistErr := persist()
+	desktopError := ErrAgentBridgeUnauthorized.Error()
+	eventErrorCode := "device_revoked"
+	if persistErr != nil {
+		desktopError = ErrAgentBridgeOffline.Error()
+		eventErrorCode = "device_revoke_failed"
+	}
+	for _, pending := range interrupted {
+		recordAgentBridgeEvent(
+			pending.userID,
+			pending.deviceID,
+			pending.requestID,
+			model.AgentRunEventTypeToolInterrupted,
+			pending.operation,
+			nil,
+			nil,
+			eventErrorCode,
+		)
+		if pending.browser != nil && pending.browser.conn != nil {
+			_ = hub.write(pending.browser, AgentBridgeEnvelope{
+				Type:      AgentBridgeMessageToolError,
+				RequestID: pending.requestID,
+				Error:     desktopError,
+			})
+		}
+	}
+
+	hub.mu.Lock()
+	var desktop *AgentBridgePeer
+	if persistErr == nil {
+		if current := hub.desktops[deviceID]; current != nil && current.userID == userID {
+			delete(hub.desktops, deviceID)
+			desktop = current
+		}
+		hub.revokedDevices[deviceID] = userID
+	}
+	delete(hub.revokingDevices, deviceID)
+	hub.mu.Unlock()
+
+	if persistErr == nil && desktop != nil && desktop.conn != nil {
+		_ = desktop.conn.Close()
+	}
+	return persistErr
 }
 
 func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope AgentBridgeEnvelope) error {
@@ -245,6 +367,8 @@ func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope
 	if err := validateAgentBridgeEnvelope(envelope); err != nil {
 		return err
 	}
+	unlockDevice := hub.lockDevice(browser.deviceID)
+	defer unlockDevice()
 	key := bridgeRequestKey(browser.deviceID, envelope.RequestID)
 	now := time.Now()
 	var expired []pendingAgentBridgeRequest
@@ -270,6 +394,14 @@ func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope
 		)
 	}
 	hub.mu.Lock()
+	if _, revoking := hub.revokingDevices[browser.deviceID]; revoking {
+		hub.mu.Unlock()
+		return ErrAgentBridgeUnauthorized
+	}
+	if _, revoked := hub.revokedDevices[browser.deviceID]; revoked {
+		hub.mu.Unlock()
+		return ErrAgentBridgeUnauthorized
+	}
 	desktop = hub.desktops[browser.deviceID]
 	if desktop == nil || desktop.userID != browser.userID {
 		hub.mu.Unlock()
@@ -329,6 +461,8 @@ func (hub *AgentBridgeHub) ForwardToolResult(desktop *AgentBridgePeer, envelope 
 	if err := validateAgentBridgeEnvelope(envelope); err != nil {
 		return err
 	}
+	unlockDevice := hub.lockDevice(desktop.deviceID)
+	defer unlockDevice()
 	key := bridgeRequestKey(desktop.deviceID, envelope.RequestID)
 	hub.mu.Lock()
 	pending, exists := hub.pending[key]
@@ -381,6 +515,8 @@ func (hub *AgentBridgeHub) Unregister(peer *AgentBridgePeer) {
 	if peer == nil {
 		return
 	}
+	unlockDevice := hub.lockDevice(peer.deviceID)
+	defer unlockDevice()
 	hub.mu.Lock()
 	currentDesktop := peer.role == "desktop" && hub.desktops[peer.deviceID] == peer
 	if currentDesktop {

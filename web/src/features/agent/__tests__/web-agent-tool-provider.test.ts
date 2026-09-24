@@ -102,6 +102,40 @@ describe('webAgentToolProvider', () => {
     expect(searchClientSources).not.toHaveBeenCalled()
   })
 
+  it('corrects a false gh-login requirement when website GitHub OAuth is connected', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [
+        {
+          role: 'user',
+          content:
+            'GitHub access · OAuth connected · lilyco-42。连接了，怎么还这样？我想这是因为 GitHub CLI 还没有登录，才能搜索仓库。',
+        },
+      ],
+      stream: false,
+    }
+    const request = vi.fn(async () => {
+      throw new Error('The known OAuth/CLI confusion should be answered locally.')
+    })
+
+    const response = await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(undefined, false),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain(
+      '网站 GitHub OAuth 已连接'
+    )
+    expect(response.choices[0]?.message.content).toContain(
+      '不要求本机 gh CLI 登录'
+    )
+    expect(request).not.toHaveBeenCalled()
+    expect(api.get).not.toHaveBeenCalled()
+  })
+
   it('recognizes a numeric text part but preserves image questions for the model', () => {
     const numeric = webAgentToolProvider.preflight?.([
       { role: 'user', content: [{ type: 'text', text: '123' }] },

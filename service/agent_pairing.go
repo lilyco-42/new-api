@@ -94,7 +94,16 @@ func GetAgentDevice(userID int, deviceID int64) (*model.AgentDevice, error) {
 }
 
 func RevokeAgentDevice(userID int, deviceID int64) error {
-	return model.RevokeAgentDevice(userID, deviceID, time.Now().UTC())
+	if _, err := GetAgentDevice(userID, deviceID); err != nil {
+		return err
+	}
+	err := DefaultAgentBridgeHub().RevokeDevice(userID, deviceID, func() error {
+		return model.RevokeAgentDevice(userID, deviceID, time.Now().UTC())
+	})
+	if errors.Is(err, ErrAgentBridgeUnauthorized) {
+		return ErrAgentDeviceNotFound
+	}
+	return err
 }
 
 func IsAgentPairingClientError(err error) bool {

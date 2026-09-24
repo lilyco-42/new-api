@@ -230,6 +230,21 @@ function localPreflightResponse(
   }
 }
 
+function hasConnectedOAuthCliLoginConfusion(text: string): boolean {
+  const normalized = text.replace(/\s+/gu, ' ')
+  const oauthConnected =
+    /oauth.{0,48}(?:connected|已连接|连接成功)|(?:已连接|连接成功).{0,24}oauth/iu.test(
+      normalized
+    )
+  const cliLoginClaim =
+    /(?:gh\s*cli|github\s*cli|github命令行).{0,48}(?:not\s+(?:logged|signed)\s+in|not authenticated|未登录|没(?:有)?登录|还没(?:有)?登录|尚未登录)/iu.test(
+      normalized
+    )
+  const repositoryContext =
+    /(?:repository|repositories|\brepos?\b|仓库|代码库)/iu.test(normalized)
+  return oauthConnected && cliLoginClaim && repositoryContext
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Tool arguments must be a JSON object.')
@@ -454,6 +469,16 @@ export const webAgentToolProvider: LocalToolProvider = {
         .join('\n')
         .trim()
     }
+    if (hasConnectedOAuthCliLoginConfusion(text)) {
+      const clarification = /[\u3400-\u9fff]/u.test(text)
+        ? '按你贴出的状态，网站 GitHub OAuth 已连接。浏览器里的 GitHub 仓库列表和搜索应直接使用这个 OAuth 连接，不要求本机 gh CLI 登录。`gh auth login` 只用于你明确要求配对设备执行本地 GitHub CLI 命令时。之前把网站 OAuth 和本机 CLI 混为一谈的解释是错的；如果网站查询仍失败，应检查 OAuth 请求本身的错误，而不是让你去登录本机 CLI。'
+        : 'Based on the status you shared, website GitHub OAuth is connected. Repository lists and searches in this browser should use that OAuth connection; they do not require signing in to the local gh CLI. `gh auth login` is only needed when you explicitly ask a paired device to run a local GitHub CLI command. The earlier explanation mixed up website OAuth with local CLI authentication. If a website query still fails, the OAuth request itself needs investigation; signing in to the local CLI is not the fix.'
+      return localPreflightResponse(
+        'local-github-oauth-cli-clarification',
+        clarification
+      )
+    }
+
     if (/^\p{N}+$/u.test(text)) {
       return localPreflightResponse(
         'local-ambiguous-number',

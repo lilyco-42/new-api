@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -83,6 +84,71 @@ func TestAgentBridgeHubReportsDesktopPresenceOnlyForItsOwner(t *testing.T) {
 	require.True(t, hub.DesktopConnected(7, 12))
 	require.False(t, hub.DesktopConnected(7, 13))
 	require.False(t, hub.DesktopConnected(8, 12))
+}
+
+func TestRevokeDeviceInterruptsPendingRequestsAndFencesTheBridge(t *testing.T) {
+	hub := NewAgentBridgeHub()
+	desktop := &AgentBridgePeer{deviceID: 7, userID: 12, role: "desktop"}
+	browser := &AgentBridgePeer{deviceID: 7, userID: 12, role: "browser"}
+	hub.desktops[7] = desktop
+	key := bridgeRequestKey(7, "request-1")
+	hub.pending[key] = pendingAgentBridgeRequest{
+		browser:   browser,
+		desktop:   desktop,
+		deviceID:  7,
+		userID:    12,
+		requestID: "request-1",
+		operation: "github.issues.list",
+		expires:   time.Now().Add(time.Minute),
+	}
+	request := AgentBridgeEnvelope{
+		Type:      AgentBridgeMessageToolRequest,
+		RequestID: "request-2",
+		Operation: "github.issues.list",
+		Params:    json.RawMessage(`{"repo":"owner/name"}`),
+	}
+	persistenceCalled := false
+
+	err := hub.RevokeDevice(12, 7, func() error {
+		persistenceCalled = true
+		require.False(t, hub.DesktopConnected(7, 12), "the device is fenced while its revocation is persisted")
+		_, pending := hub.pending[key]
+		require.False(t, pending, "in-flight requests are canceled when revocation starts")
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.True(t, persistenceCalled)
+	require.False(t, hub.DesktopConnected(7, 12))
+	require.ErrorIs(t, hub.ForwardToolRequest(browser, request), ErrAgentBridgeUnauthorized)
+}
+
+func TestRevokeDeviceRestoresBridgeWhenPersistenceFails(t *testing.T) {
+	hub := NewAgentBridgeHub()
+	hub.desktops[7] = &AgentBridgePeer{deviceID: 7, userID: 12, role: "desktop"}
+	persistErr := errors.New("storage unavailable")
+
+	err := hub.RevokeDevice(12, 7, func() error { return persistErr })
+
+	require.ErrorIs(t, err, persistErr)
+	require.True(t, hub.DesktopConnected(7, 12), "a failed database update must not permanently disconnect an authorized device")
+}
+
+func TestRevokeDeviceCannotDisconnectAnotherUsersDesktop(t *testing.T) {
+	hub := NewAgentBridgeHub()
+	desktop := &AgentBridgePeer{deviceID: 7, userID: 13, role: "desktop"}
+	hub.desktops[7] = desktop
+	persistenceCalled := false
+
+	err := hub.RevokeDevice(12, 7, func() error {
+		persistenceCalled = true
+		return nil
+	})
+
+	require.ErrorIs(t, err, ErrAgentBridgeUnauthorized)
+	require.False(t, persistenceCalled)
+	require.Same(t, desktop, hub.desktops[7])
+	require.True(t, hub.DesktopConnected(7, 13))
 }
 
 func TestForwardToolResultRejectsStaleOrMismatchedDesktop(t *testing.T) {
