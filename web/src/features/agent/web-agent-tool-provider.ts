@@ -30,7 +30,7 @@ const WEB_SEARCH_TOOL: ChatCompletionTool = {
   function: {
     name: 'web.search',
     description:
-      'Search supported public indexes directly from the user’s browser. Auto mode searches GitHub repositories and Hugging Face models for general technical discovery, and OpenAlex only for explicit paper/research queries. This is not general web search; RustCC, CodeReset, GHFind, blogs, and community pages are not indexed. Search requests are not sent to the Lain42 server.',
+      'Search supported public indexes directly from the user’s browser. Use this to ground definitions of named AI providers/models (including a bare provider name such as “DeepSeek”) and general technical discovery. Auto mode searches GitHub repositories and Hugging Face models; OpenAlex is used only for explicit paper/research queries. Use returned sources to answer, and do not invent details when results are missing or unrelated. This is not general web search; RustCC, CodeReset, GHFind, blogs, and community pages are not indexed. Search requests are not sent to the Lain42 server.',
     parameters: {
       type: 'object',
       additionalProperties: false,
