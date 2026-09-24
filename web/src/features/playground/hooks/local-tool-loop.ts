@@ -143,6 +143,91 @@ function formatGitHubRepositoryList(result: string): string | null {
   }
 }
 
+function formatBrowserSearchResults(result: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(result)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    const data = parsed as Record<string, unknown>
+    if (data.execution !== 'browser-wasm' || typeof data.query !== 'string') {
+      return null
+    }
+
+    const lines = [
+      '### 浏览器搜索来源',
+      `查询：${data.query.slice(0, 200)}`,
+    ]
+    const items = Array.isArray(data.items) ? data.items : []
+    let resultCount = 0
+    for (const value of items) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      const item = value as Record<string, unknown>
+      if (typeof item.title !== 'string' || typeof item.url !== 'string') {
+        continue
+      }
+      let url: URL
+      try {
+        url = new URL(item.url)
+      } catch {
+        continue
+      }
+      if (url.protocol !== 'https:' || url.username || url.password) continue
+
+      const title = item.title.trim().slice(0, 240).replace(/[\[\]\\]/gu, '\\$&')
+      if (!title) continue
+      const source =
+        typeof item.source === 'string' ? item.source.trim().slice(0, 60) : ''
+      const snippet =
+        typeof item.snippet === 'string' ? item.snippet.trim().slice(0, 400) : ''
+      lines.push(
+        `- [${title}](${url.toString()})${source ? ` · ${source}` : ''}${snippet ? `\n  ${snippet}` : ''}`
+      )
+      resultCount += 1
+    }
+
+    if (resultCount === 0) lines.push('没有找到可展示的公开结果。')
+    if (Array.isArray(data.warnings)) {
+      for (const warning of data.warnings) {
+        if (typeof warning === 'string' && warning.trim()) {
+          lines.push(`- 搜索提示：${warning.trim().slice(0, 300)}`)
+        }
+      }
+    }
+    return lines.join('\n\n')
+  } catch {
+    return null
+  }
+}
+
+function includeBrowserSearchSources(
+  response: ChatCompletionResponse,
+  results: Array<{ name: string; result: string }>
+): ChatCompletionResponse {
+  const sourceBlock = [...results]
+    .reverse()
+    .filter(({ name }) => name === 'web.search')
+    .map(({ result }) => formatBrowserSearchResults(result))
+    .find((value): value is string => value !== null)
+  const firstChoice = response.choices[0]
+  if (!sourceBlock || !firstChoice) return response
+  const answer = firstChoice.message.content
+  const content =
+    typeof answer === 'string' && answer.trim()
+      ? `${answer.trim()}\n\n${sourceBlock}`
+      : sourceBlock
+  return {
+    ...response,
+    choices: [
+      {
+        ...firstChoice,
+        message: { ...firstChoice.message, content },
+      },
+      ...response.choices.slice(1),
+    ],
+  }
+}
+
 function fallbackToolResponse(
   response: ChatCompletionResponse,
   results: Array<{ name: string; result: string }>
@@ -174,7 +259,7 @@ function fallbackToolResponse(
       null,
       2
     )
-  return {
+  return includeBrowserSearchSources({
     ...response,
     choices: [
       {
@@ -184,7 +269,7 @@ function fallbackToolResponse(
       },
       ...remainingChoices,
     ],
-  }
+  }, results)
 }
 
 async function synthesizeToolResults(
@@ -229,7 +314,7 @@ async function synthesizeToolResults(
       finalMessage.content.trim().length > 0 &&
       !finalMessage.tool_calls?.length
     ) {
-      return finalResponse
+      return includeBrowserSearchSources(finalResponse, results)
     }
     return fallbackToolResponse(finalResponse, results)
   } catch {
@@ -322,7 +407,9 @@ export async function runLocalToolLoop(
     )
     const assistantMessage = assistantMessageFromResponse(response)
     const calls = assistantMessage.tool_calls ?? []
-    if (calls.length === 0) return response
+    if (calls.length === 0) {
+      return includeBrowserSearchSources(response, completedResults)
+    }
 
     const messagesWithoutTools: ChatCompletionMessage[] = [
       ...messages,

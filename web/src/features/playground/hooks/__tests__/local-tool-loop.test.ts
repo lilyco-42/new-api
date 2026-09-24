@@ -343,6 +343,73 @@ describe('local structured tool loop', () => {
     expect(requests[2]?.messages[1]).toMatchObject({ role: 'user' })
   })
 
+  test('shows browser search source links even when the model omits citations', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const searchResult = JSON.stringify({
+      execution: 'browser-wasm',
+      query: 'ast-grep GitHub',
+      fetched_at: '2026-09-24T10:00:00.000Z',
+      sources: ['GitHub'],
+      warnings: [],
+      items: [
+        {
+          title: 'ast-grep',
+          url: 'https://github.com/ast-grep/ast-grep',
+          snippet: 'AST-based code search and rewriting.',
+          source: 'GitHub',
+        },
+        {
+          title: 'Unsafe link',
+          url: 'javascript:alert(1)',
+          source: 'GitHub',
+        },
+      ],
+    })
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'search-source-links',
+              type: 'function',
+              function: {
+                name: 'web.search',
+                arguments: '{"query":"ast-grep GitHub","scope":"github"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({ role: 'assistant', content: '搜索已完成。' })
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [
+          { role: 'user', content: '请搜索 GitHub 上的 ast-grep 并给出来源链接。' },
+        ],
+      },
+      {
+        tools: [webTool],
+        isAvailable: () => true,
+        invoke: async () => searchResult,
+      },
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    const answer = result.choices[0]?.message.content ?? ''
+    expect(answer).toContain('[ast-grep](https://github.com/ast-grep/ast-grep)')
+    expect(answer).toContain('AST-based code search and rewriting.')
+    expect(answer).not.toContain('javascript:alert(1)')
+    expect(requests).toHaveLength(2)
+  })
+
   test('recovers from the step limit with a tool-free final synthesis', async () => {
     const requests: ChatCompletionRequest[] = []
     const invoke = vi.fn(async () => 'issue list')
