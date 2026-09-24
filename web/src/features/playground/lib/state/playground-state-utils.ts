@@ -40,6 +40,18 @@ export function getInitialMessages(namespace = ''): Message[] {
   return loadMessages(namespace) || []
 }
 
+export function reconcileSystemPrompt(
+  messages: Message[],
+  systemMessage: Message | null
+): Message[] {
+  if (!systemMessage) return messages
+
+  return [
+    systemMessage,
+    ...messages.filter((message) => message.from !== 'system'),
+  ]
+}
+
 export function applyMessageStateUpdate(
   previousMessages: Message[],
   updater: MessageStateUpdater

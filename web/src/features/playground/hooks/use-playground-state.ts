@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '../constants'
 import {
@@ -27,6 +27,7 @@ import {
   getInitialParameterEnabled,
   getInitialPlaygroundConfig,
   loadMessages,
+  reconcileSystemPrompt,
   type MessageStateUpdater,
 } from '../lib'
 import type {
@@ -75,8 +76,9 @@ export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
   const messagesSaveTimerRef = useRef<number | null>(null)
   const latestMessagesRef = useRef<Message[]>(messages)
   const hasLoadedMessagesRef = useRef(false)
-  const systemMessageRef = useRef<Message | null>(
-    systemPrompt ? createSystemMessage(systemPrompt) : null
+  const systemMessage = useMemo(
+    () => (systemPrompt ? createSystemMessage(systemPrompt) : null),
+    [systemPrompt]
   )
 
   const [models, setModels] = useState<ModelOption[]>([])
@@ -110,13 +112,10 @@ export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
 
     window.setTimeout(() => {
       const loadedMessages = loadMessages(storageNamespace) ?? []
-      const hasSystemMessage = loadedMessages.some(
-        (message) => message.from === 'system'
+      const initialMessages = reconcileSystemPrompt(
+        loadedMessages,
+        systemMessage
       )
-      const initialMessages =
-        systemMessageRef.current && !hasSystemMessage
-          ? [systemMessageRef.current, ...loadedMessages]
-          : loadedMessages
       if (cancelled) {
         return
       }
@@ -130,7 +129,7 @@ export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
     return () => {
       cancelled = true
     }
-  }, [storageNamespace])
+  }, [storageNamespace, systemMessage])
 
   useEffect(
     () => () => {
@@ -180,8 +179,8 @@ export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
 
   // Clear all messages
   const clearMessages = useCallback(() => {
-    updateMessages(systemMessageRef.current ? [systemMessageRef.current] : [])
-  }, [updateMessages])
+    updateMessages(systemMessage ? [systemMessage] : [])
+  }, [systemMessage, updateMessages])
 
   // Reset config to defaults
   const resetConfig = useCallback(() => {

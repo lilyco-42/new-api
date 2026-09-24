@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { MESSAGE_ROLES, MESSAGE_STATUS } from '../../constants'
 import type {
   ChatCompletionRequest,
   Message,
@@ -23,6 +24,26 @@ import type {
   ParameterEnabled,
 } from '../../types'
 import { formatMessageForAPI, isValidMessage } from '../message/message-utils'
+
+function excludeFailedTurns(messages: Message[]): Message[] {
+  const excludedIndices = new Set<number>()
+
+  messages.forEach((message, index) => {
+    if (
+      message.from !== MESSAGE_ROLES.ASSISTANT ||
+      message.status !== MESSAGE_STATUS.ERROR
+    ) {
+      return
+    }
+
+    excludedIndices.add(index)
+    if (messages[index - 1]?.from === MESSAGE_ROLES.USER) {
+      excludedIndices.add(index - 1)
+    }
+  })
+
+  return messages.filter((_, index) => !excludedIndices.has(index))
+}
 
 /**
  * Build API request payload from messages and config
@@ -33,7 +54,7 @@ export function buildChatCompletionPayload(
   parameterEnabled: ParameterEnabled
 ): ChatCompletionRequest {
   // Filter and format valid messages
-  const processedMessages = messages
+  const processedMessages = excludeFailedTurns(messages)
     .filter(isValidMessage)
     .map(formatMessageForAPI)
 
