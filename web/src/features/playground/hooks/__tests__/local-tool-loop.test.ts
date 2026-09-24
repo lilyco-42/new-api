@@ -142,6 +142,68 @@ describe('local structured tool loop', () => {
     expect(events).toEqual(['requested', 'running', 'completed'])
   })
 
+  test('shows OAuth repository results when the model cannot write its follow-up', async () => {
+    const repositoryTool = {
+      type: 'function' as const,
+      function: {
+        name: 'github.oauth.repositories.list',
+        parameters: { type: 'object' },
+      },
+    }
+    const request = vi.fn(async (_payload: ChatCompletionRequest) => {
+      if (request.mock.calls.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'repo-list',
+              type: 'function',
+              function: {
+                name: 'github.oauth.repositories.list',
+                arguments: '{}',
+              },
+            },
+          ],
+        })
+      }
+      throw new Error('openai_error')
+    })
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [{ role: 'user', content: '查看我的 GitHub 仓库' }],
+      },
+      {
+        tools: [repositoryTool],
+        isAvailable: () => true,
+        invoke: async () =>
+          JSON.stringify({
+            items: [
+              {
+                full_name: 'lilyco-42/rembg-ui',
+                html_url: 'https://github.com/lilyco-42/rembg-ui',
+                private: false,
+                stargazers_count: 15,
+              },
+            ],
+          }),
+      },
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toContain(
+      '已通过连接的 GitHub OAuth 获取到 1 个仓库'
+    )
+    expect(result.choices[0]?.message.content).toContain(
+      '[lilyco-42/rembg-ui](https://github.com/lilyco-42/rembg-ui)'
+    )
+    expect(result.choices[0]?.message.content).not.toContain('openai_error')
+    expect(request).toHaveBeenCalledTimes(2)
+  })
+
   test('blocks a tool call that does not match the latest user request', async () => {
     const requests: ChatCompletionRequest[] = []
     const invoke = vi.fn(async () => 'this must not be read')
