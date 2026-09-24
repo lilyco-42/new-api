@@ -72,7 +72,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/lain42-mcp-fixture"
           printf '%s\n' '{"private":true,"type":"module"}' > "$RUNNER_TEMP/lain42-mcp-fixture/package.json"
-          npm install --prefix "$RUNNER_TEMP/lain42-mcp-fixture" --no-save --no-audit --no-fund @modelcontextprotocol/server-everything@2.0.0
+          npm install --prefix "$RUNNER_TEMP/lain42-mcp-fixture" --no-save --no-audit --no-fund @modelcontextprotocol/server-everything@2026.8.31
 
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@34d2323c40447f79d77146d8269c123a27f4ced5 # main 2026-09-21

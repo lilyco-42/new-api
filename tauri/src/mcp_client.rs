@@ -711,6 +711,7 @@ mod tests {
             .close_with_timeout(CLOSE_TIMEOUT)
             .await
             .map_err(|_| "Official MCP session did not close cleanly.".to_string())
+            .map(|_| ())
     }
 
     #[tokio::test]
