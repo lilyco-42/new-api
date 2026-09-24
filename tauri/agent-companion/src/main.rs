@@ -73,7 +73,6 @@ type BridgeSocket =
     tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BridgeEnvelope {
     #[serde(rename = "type")]
     message_type: String,
@@ -890,6 +889,18 @@ mod tests {
         assert!(validate_server(&server).is_err());
         server.server_id = "workspace;rm".to_string();
         assert!(validate_server(&server).is_err());
+    }
+
+    #[test]
+    fn bridge_accepts_additive_server_hello_fields() {
+        let envelope: BridgeEnvelope = serde_json::from_str(
+            r#"{"type":"hello_ack","protocol_version":1,"capabilities":[],"device_id":42,"desktop_connected":false}"#,
+        )
+        .expect("additive bridge fields must not break older clients");
+
+        assert_eq!(envelope.message_type, "hello_ack");
+        assert_eq!(envelope.protocol_version, Some(1));
+        assert_eq!(envelope.device_id, Some(42));
     }
 
     #[test]

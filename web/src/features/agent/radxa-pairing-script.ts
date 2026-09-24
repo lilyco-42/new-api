@@ -7,7 +7,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 
-export const RADXA_COMPANION_RELEASE_TAG = 'lain42-agent-v0.1.0'
+export const RADXA_COMPANION_RELEASE_TAG = 'lain42-agent-v0.1.1'
 
 const INSTALLER_URL =
   `https://github.com/lilyco-42/new-api/releases/download/${RADXA_COMPANION_RELEASE_TAG}/install.sh`

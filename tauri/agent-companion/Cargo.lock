@@ -744,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "lain42-agent-companion"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "process-wrap",

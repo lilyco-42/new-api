@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # user's device only. The node maintains an outbound WSS connection; no SSH
 # listener or shared compute registration is configured.
 
-readonly RELEASE_TAG='lain42-agent-v0.1.0'
+readonly RELEASE_TAG='lain42-agent-v0.1.1'
 readonly RELEASE_BASE="https://github.com/lilyco-42/new-api/releases/download/${RELEASE_TAG}"
 API_ORIGIN='https://api.lain42.top'
 

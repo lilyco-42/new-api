@@ -1,6 +1,6 @@
 [package]
 name = "lain42-agent-companion"
-version = "0.1.0"
+version = "0.1.1"
 description = "Headless Lain42 Agent connector for Radxa and other Linux ARM64 devices"
 authors = ["Lain42"]
 license = "AGPL-3.0-or-later"
