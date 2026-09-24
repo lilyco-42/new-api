@@ -679,6 +679,9 @@ export function createBrowserAgentToolProvider(
   const combined = bridgeProvider
     ? combineLocalToolProviders(browserWebProvider, bridgeProvider)
     : browserWebProvider
+  const bridgeToolNames = new Set(
+    bridgeProvider?.tools.map((tool) => tool.function.name) ?? []
+  )
 
   const invokeOAuthFallback = async (
     call: ChatCompletionToolCall,
@@ -760,6 +763,7 @@ export function createBrowserAgentToolProvider(
       routedMessages = messages
       return (combined.availableTools?.(messages) ?? combined.tools).filter((tool) => {
         const name = tool.function.name
+        if (!isBridgeConnected() && bridgeToolNames.has(name)) return false
         if (name.startsWith('github.oauth.')) {
           return shouldAdvertiseBrowserGitHubTool(
             name,
