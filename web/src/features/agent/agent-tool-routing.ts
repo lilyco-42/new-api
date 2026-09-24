@@ -51,7 +51,7 @@ function explicitlyRequestsBrowserWebSearch(text: string): boolean {
   )
 }
 
-function requestsKnownAIEntityDefinition(text: string): boolean {
+export function requestsKnownAIEntityDefinition(text: string): boolean {
   const knownAIEntity =
     /\b(?:deepseek|qwen|llama|claude|chatgpt|gemini|openai|anthropic|hugging[ -]?face)\b/iu
   const isBareEntity =

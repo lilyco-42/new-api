@@ -434,6 +434,12 @@ export function combineLocalToolProviders(
       }
       return [...currentTools.values()]
     },
+    getToolChoice: (messages, tools) => {
+      const providerWithChoice = providers.find(
+        (provider) => provider.getToolChoice
+      )
+      return providerWithChoice?.getToolChoice?.(messages, tools) ?? 'auto'
+    },
     isAvailable: () => providers.some((provider) => provider.isAvailable()),
     preflight: (messages) => {
       for (const provider of providers) {

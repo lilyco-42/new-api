@@ -553,7 +553,7 @@ export async function runLocalToolLoop(
       messages,
       stream: false,
       tools,
-      tool_choice: 'auto',
+      tool_choice: provider.getToolChoice?.(messages, tools) ?? 'auto',
     },
     signal
   )
@@ -730,13 +730,15 @@ export async function runLocalToolLoop(
     }
 
     try {
+      const nextTools = availableTools(provider, messages)
       response = await request(
         {
           ...initialPayload,
           messages,
           stream: false,
-          tools: availableTools(provider, messages),
-          tool_choice: 'auto',
+          tools: nextTools,
+          tool_choice:
+            provider.getToolChoice?.(messages, nextTools) ?? 'auto',
         },
         signal
       )

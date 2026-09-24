@@ -103,6 +103,30 @@ describe('webAgentToolProvider', () => {
     expect(searchClientSources).not.toHaveBeenCalled()
   })
 
+  it('requires browser grounding for a bare known AI provider name', () => {
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: 'deepseek' },
+    ]
+    const provider = createBrowserAgentToolProvider()
+    const tools = provider.availableTools?.(messages) ?? []
+
+    expect(tools.map((tool) => tool.function.name)).toContain('web.search')
+    expect(provider.getToolChoice?.(messages, tools)).toBe('required')
+    expect(
+      provider.getToolChoice?.(
+        [
+          ...messages,
+          {
+            role: 'assistant',
+            content: null,
+            tool_calls: [toolCall('web.search', { query: 'deepseek' })],
+          },
+        ],
+        tools
+      )
+    ).toBe('auto')
+  })
+
   it('corrects a false gh login requirement when OAuth is connected', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',

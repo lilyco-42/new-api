@@ -17,6 +17,7 @@ import {
   explicitlyTargetsLocalGitHub,
   getGitHubReadIntent,
   latestUserRequestText,
+  requestsKnownAIEntityDefinition,
   shouldAdvertiseBrowserGitHubTool,
   shouldAdvertiseWebAgentTool,
   shouldRunGitHubTool,
@@ -501,6 +502,24 @@ export const webAgentToolProvider: LocalToolProvider = {
   tools: WEB_AGENT_TOOLS,
   isAvailable: () => true,
   shouldRunTool: (call, messages) => shouldRunWebAgentTool(call, messages),
+  getToolChoice: (messages, tools) => {
+    if (!requestsKnownAIEntityDefinition(latestUserRequestText(messages))) {
+      return 'auto'
+    }
+    let latestUserIndex = -1
+    messages.forEach((message, index) => {
+      if (message.role === 'user') latestUserIndex = index
+    })
+    const alreadySearchedThisTurn = messages
+      .slice(latestUserIndex + 1)
+      .some((message) =>
+        message.tool_calls?.some((call) => call.function.name === 'web.search')
+      )
+    return !alreadySearchedThisTurn &&
+      tools.some((tool) => tool.function.name === 'web.search')
+      ? 'required'
+      : 'auto'
+  },
   preflight: (messages) => {
     let latestUserMessage: ChatCompletionMessage | undefined
     for (let index = messages.length - 1; index >= 0; index -= 1) {

@@ -90,6 +90,11 @@ export interface LocalToolProvider {
   tools: ChatCompletionTool[]
   /** Current tools may change while a request is in flight (for example, when a paired device disconnects). */
   availableTools?: (messages?: ChatCompletionMessage[]) => ChatCompletionTool[]
+  /** Override automatic tool selection when an intent requires a deterministic read. */
+  getToolChoice?: (
+    messages: ChatCompletionMessage[],
+    tools: ChatCompletionTool[]
+  ) => ChatCompletionRequest['tool_choice']
   isAvailable: () => boolean
   /** Prevent a well-formed but intent-mismatched model tool call from running. */
   shouldRunTool?: (

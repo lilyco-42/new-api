@@ -167,6 +167,80 @@ describe('local structured tool loop', () => {
     expect(events).toEqual(['requested', 'running', 'completed'])
   })
 
+  test('forces a required browser search once, then returns to automatic tool choice', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'deepseek-search',
+              type: 'function',
+              function: {
+                name: 'web.search',
+                arguments: '{"query":"deepseek","scope":"auto"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({
+        role: 'assistant',
+        content: 'DeepSeek develops large language models.',
+      })
+    }
+    const groundedProvider: LocalToolProvider = {
+      tools: [webTool],
+      isAvailable: () => true,
+      getToolChoice: (messages, tools) => {
+        const searchWasRequested = messages.some((message) =>
+          message.tool_calls?.some(
+            (call) => call.function.name === 'web.search'
+          )
+        )
+        return !searchWasRequested &&
+          tools.some((item) => item.function.name === 'web.search')
+          ? 'required'
+          : 'auto'
+      },
+      invoke: async () =>
+        JSON.stringify({
+          items: [
+            {
+              title: 'DeepSeek official model information',
+              url: 'https://huggingface.co/deepseek-ai',
+            },
+          ],
+        }),
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [{ role: 'user', content: 'deepseek' }],
+      },
+      groundedProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(requests.map((item) => item.tool_choice)).toEqual([
+      'required',
+      'auto',
+    ])
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'deepseek-search',
+    })
+    expect(result.choices[0]?.message.content).toContain(
+      'DeepSeek develops large language models.'
+    )
+  })
+
   test('formats OAuth repository results without a model follow-up', async () => {
     const repositoryTool = {
       type: 'function' as const,
