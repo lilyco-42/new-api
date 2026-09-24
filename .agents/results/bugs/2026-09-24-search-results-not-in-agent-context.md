@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-24
 **Severity:** Medium
-**Status:** Fix implemented; GitHub Actions verification pending
+**Status:** Fix implemented and verified by GitHub Actions; production deployment pending
 
 ## Problem
 
@@ -28,4 +28,6 @@ The search popover and the Agent's client-side `web.search` / `web.fetch` tools 
 
 ## Verification
 
-Local builds and tests are intentionally not run. The user requires GitHub Actions for builds and tests; verification will be recorded after the branch workflow completes.
+Local builds and tests are intentionally not run. [GitHub Actions run 35998680110](https://github.com/lilyco-42/new-api/actions/runs/35998680110) passed the frontend build/typecheck, frontend tests, Agent API tests, device lifecycle tests, and Linux amd64 build.
+
+Production deployment remains pending: the host has only 1.2 GB free (97% used), while the inference guard rejects requests above 95%. The authorized cache cleanup did not recover enough space to restore inference, so the live Agent cannot yet be verified after deployment.
