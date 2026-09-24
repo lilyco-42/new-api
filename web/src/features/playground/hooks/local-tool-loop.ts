@@ -311,7 +311,51 @@ export async function runLocalToolLoop(
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
   const tools = availableTools(provider, messages)
   if (tools.length === 0) {
-    return request(initialPayload, signal)
+    const response = await request(
+      {
+        ...initialPayload,
+        stream: false,
+        tools: [],
+        tool_choice: 'none',
+      },
+      signal
+    )
+    const assistantMessage = assistantMessageFromResponse(response)
+    const calls = assistantMessage.tool_calls ?? []
+    if (calls.length === 0) return response
+
+    const messagesWithoutTools: ChatCompletionMessage[] = [
+      ...messages,
+      assistantMessage,
+    ]
+    const rejectedResults: Array<{ name: string; result: string }> = []
+    for (const [index, call] of calls.entries()) {
+      const name =
+        typeof call.function?.name === 'string'
+          ? call.function.name.slice(0, 128)
+          : 'unknown'
+      const result = JSON.stringify({
+        error:
+          'No local tools are available for this request. The proposed call was not run; answer the user directly without claiming it ran.',
+      })
+      messagesWithoutTools.push({
+        role: 'tool',
+        tool_call_id:
+          typeof call.id === 'string' && call.id
+            ? call.id
+            : `blocked-local-tool-${index}`,
+        content: result,
+      })
+      rejectedResults.push({ name, result })
+    }
+    return synthesizeToolResults(
+      initialPayload,
+      messagesWithoutTools,
+      signal,
+      request,
+      response,
+      rejectedResults
+    )
   }
   let response = await request(
     {

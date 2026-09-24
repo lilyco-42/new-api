@@ -781,18 +781,26 @@ describe('webAgentToolProvider', () => {
       invoke: vi.fn(),
     }
     const provider = createBrowserAgentToolProvider(bridgeProvider, true)
-    const messages: ChatCompletionMessage[] = [
+    const workspaceMessages: ChatCompletionMessage[] = [
       { role: 'user', content: '请列出我的工作区根目录文件' },
+    ]
+    const webSearchMessages: ChatCompletionMessage[] = [
+      { role: 'user', content: '搜索 Rust 最近的 GitHub 项目' },
     ]
 
     expect(
-      provider.availableTools?.(messages).map((tool) => tool.function.name)
+      provider
+        .availableTools?.(workspaceMessages)
+        .map((tool) => tool.function.name)
     ).toContain('agent.workspace.list')
     connected = false
-    const availableToolNames = provider
-      .availableTools?.(messages)
+    const availableWorkspaceToolNames = provider
+      .availableTools?.(workspaceMessages)
       .map((tool) => tool.function.name)
-    expect(availableToolNames).not.toContain('agent.workspace.list')
-    expect(availableToolNames).toContain('web.search')
+    const availableWebToolNames = provider
+      .availableTools?.(webSearchMessages)
+      .map((tool) => tool.function.name)
+    expect(availableWorkspaceToolNames).not.toContain('agent.workspace.list')
+    expect(availableWebToolNames).toContain('web.search')
   })
 })
