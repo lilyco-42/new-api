@@ -65,6 +65,9 @@ jobs:
       - name: Test agent API
         run: go test ./service ./controller
 
+      - name: Test agent device re-pair lifecycle
+        run: go test ./model -run 'Test(CreateAgentPairingScopesReplacementToTheCurrentUser|RedeemAgentPairingRotatesCredentialAndPreservesDeviceRecord|RedeemAgentPairingFailsIfReplacementWasRevoked)'
+
       - name: Build Linux amd64 server
         shell: bash
         run: |

@@ -37,10 +37,11 @@ import { createRadxaPairingScript } from '../radxa-pairing-script'
 type AgentBridgeCardProps = {
   isDesktop: boolean
   status: AgentBridgeStatus
+  deviceId?: number
   deviceName?: string
   onPair?: () => Promise<void>
   onReconnect?: () => Promise<void>
-  onCreatePairing?: () => Promise<void>
+  onCreatePairing?: (replaceDeviceId?: number) => Promise<void>
   onConfirmPairing?: (ticket: string) => Promise<void>
   pairingId?: number
   pairingTicket?: string
@@ -56,6 +57,7 @@ function statusVariant(status: AgentBridgeStatus) {
 export function AgentBridgeCard({
   isDesktop,
   status,
+  deviceId,
   deviceName,
   onPair,
   onReconnect,
@@ -108,9 +110,16 @@ export function AgentBridgeCard({
 
   const createPairing = async () => {
     if (!onCreatePairing) return
+    if (
+      deviceName &&
+      (deviceId === undefined || !Number.isInteger(deviceId) || deviceId <= 0)
+    ) {
+      toast.error(t('Could not identify the paired Radxa device.'))
+      return
+    }
     setBusy(true)
     try {
-      await onCreatePairing()
+      await onCreatePairing(deviceName ? deviceId : undefined)
       toast.success(t('Pairing ticket created.'))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('Pairing failed.'))
@@ -266,32 +275,51 @@ export function AgentBridgeCard({
             <p className='text-muted-foreground text-xs leading-5'>
               {deviceStatusMessage}
             </p>
-            {deviceName && status !== 'connected' && status !== 'connecting' && (
-              <Button
-                onClick={() => void copyRestartCommand()}
-                size='sm'
-                variant='outline'
-              >
-                {copiedRestartCommand ? <Check /> : <RefreshCw />}
-                {copiedRestartCommand
-                  ? t('Copied')
-                  : t('Copy restart command')}
-              </Button>
-            )}
+            {deviceName &&
+              status !== 'connected' &&
+              status !== 'connecting' &&
+              !pairingTicket && (
+                <Button
+                  onClick={() => void copyRestartCommand()}
+                  size='sm'
+                  variant='outline'
+                >
+                  {copiedRestartCommand ? <Check /> : <RefreshCw />}
+                  {copiedRestartCommand
+                    ? t('Copied')
+                    : t('Copy restart command')}
+                </Button>
+              )}
             {status !== 'connected' &&
               !deviceName &&
               onCreatePairing &&
               !pairingTicket && (
-              <Button
-                disabled={busy}
-                onClick={() => void createPairing()}
-                size='sm'
-                variant='outline'
-              >
-                {busy ? <RefreshCw className='animate-spin' /> : <Link2 />}
-                {t('Create Radxa pairing ticket')}
-              </Button>
-            )}
+                <Button
+                  disabled={busy}
+                  onClick={() => void createPairing()}
+                  size='sm'
+                  variant='outline'
+                >
+                  {busy ? <RefreshCw className='animate-spin' /> : <Link2 />}
+                  {t('Create Radxa pairing ticket')}
+                </Button>
+              )}
+            {status !== 'connected' &&
+              status !== 'connecting' &&
+              deviceName &&
+              Number.isInteger(deviceId) &&
+              onCreatePairing &&
+              !pairingTicket && (
+                <Button
+                  disabled={busy}
+                  onClick={() => void createPairing()}
+                  size='sm'
+                  variant='outline'
+                >
+                  {busy ? <RefreshCw className='animate-spin' /> : <Link2 />}
+                  {t('Create Radxa pairing ticket')}
+                </Button>
+              )}
             {pairingTicket && (
               <div className='grid gap-2 rounded-lg border border-dashed p-2'>
                 <span className='text-muted-foreground text-[11px]'>

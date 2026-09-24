@@ -36,8 +36,8 @@ type AgentDeviceCredential struct {
 	Credential string             `json:"credential"`
 }
 
-func CreateAgentPairing(userID int) (*AgentPairingCreated, error) {
-	ticket, pairing, err := model.CreateAgentPairing(userID, time.Now().UTC())
+func CreateAgentPairing(userID int, replaceDeviceID int64) (*AgentPairingCreated, error) {
+	ticket, pairing, err := model.CreateAgentPairing(userID, replaceDeviceID, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}

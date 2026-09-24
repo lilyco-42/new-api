@@ -428,10 +428,22 @@ export async function listAgentRunEvents(
   )
 }
 
-export async function createAgentPairing(): Promise<AgentPairingSession> {
-  const response = await api.post('/api/agent/pairings', undefined, {
-    skipErrorHandler: true,
-  })
+export async function createAgentPairing(
+  replaceDeviceId?: number
+): Promise<AgentPairingSession> {
+  if (
+    replaceDeviceId !== undefined &&
+    (!Number.isInteger(replaceDeviceId) || replaceDeviceId <= 0)
+  ) {
+    throw new Error('The device to re-pair is invalid.')
+  }
+  const response = await api.post(
+    '/api/agent/pairings',
+    replaceDeviceId ? { replace_device_id: replaceDeviceId } : {},
+    {
+      skipErrorHandler: true,
+    }
+  )
   return responseData<AgentPairingSession>(response.data)
 }
 
@@ -606,13 +618,7 @@ export async function pairCurrentDesktop(): Promise<{ deviceId: number }> {
     throw new Error('Pairing is available in the Lain42 desktop app.')
   }
   const publicKey = `tauri-${requestId()}`
-  const created = responseData<{ id: number; pairing_ticket: string }>(
-    (
-      await api.post('/api/agent/pairings', undefined, {
-        skipErrorHandler: true,
-      })
-    ).data
-  )
+  const created = await createAgentPairing()
   const claimed = responseData<{
     id: number
     confirmation_ticket: string

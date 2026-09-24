@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,8 +13,7 @@ import (
 )
 
 type createAgentPairingRequest struct {
-	// The platform creates a pairing session before the desktop knows its name.
-	// DeviceName and DevicePublicKey are supplied by the desktop claim step.
+	ReplaceDeviceID int64 `json:"replace_device_id,omitempty"`
 }
 
 type claimAgentPairingRequest struct {
@@ -32,9 +32,25 @@ type redeemAgentPairingRequest struct {
 }
 
 func CreateAgentPairing(c *gin.Context) {
-	pairing, err := service.CreateAgentPairing(c.GetInt("id"))
+	var request createAgentPairingRequest
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 4097))
+	if err != nil || len(body) > 4096 {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid request body")
+		return
+	}
+	if strings.TrimSpace(string(body)) != "" {
+		if err := common.Unmarshal(body, &request); err != nil {
+			writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid request body")
+			return
+		}
+	}
+	if request.ReplaceDeviceID < 0 {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid device id")
+		return
+	}
+	pairing, err := service.CreateAgentPairing(c.GetInt("id"), request.ReplaceDeviceID)
 	if err != nil {
-		writeAgentError(c, http.StatusInternalServerError, "AGENT_PAIRING_CREATE_FAILED", "unable to create pairing session")
+		writeAgentServiceError(c, err)
 		return
 	}
 	common.ApiSuccess(c, pairing)

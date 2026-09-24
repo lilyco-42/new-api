@@ -25,7 +25,7 @@ describe('AgentBridgeCard Radxa onboarding', () => {
     })
   })
 
-  test('offers restart for an already paired offline device without creating a duplicate', async () => {
+  test('offers re-pair for an offline device using its existing id', async () => {
     const user = userEvent.setup()
     // userEvent installs its own clipboard implementation during setup.
     // Restore our spy afterward so this test observes the component's write.
@@ -33,10 +33,11 @@ describe('AgentBridgeCard Radxa onboarding', () => {
       configurable: true,
       value: { writeText: clipboardWriteTextMock },
     })
-    const createPairing = vi.fn()
+    const createPairing = vi.fn().mockResolvedValue(undefined)
 
     render(
       <AgentBridgeCard
+        deviceId={41}
         isDesktop={false}
         status='offline'
         deviceName='radxa-a7a'
@@ -49,16 +50,32 @@ describe('AgentBridgeCard Radxa onboarding', () => {
         'This device is already paired. Run the command below on Radxa to restart its private service.'
       )
     ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Create Radxa pairing ticket' })
-    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', { name: 'Create Radxa pairing ticket' })
+    )
+
+    expect(createPairing).toHaveBeenCalledWith(41)
 
     await user.click(screen.getByRole('button', { name: 'Copy restart command' }))
 
     expect(clipboardWriteTextMock).toHaveBeenCalledWith(
       'sudo systemctl restart "lain42-agent-companion@$(id -un).service"'
     )
-    expect(createPairing).not.toHaveBeenCalled()
+  })
+
+  test('does not offer re-pair when the existing device id is missing', () => {
+    render(
+      <AgentBridgeCard
+        isDesktop={false}
+        status='offline'
+        deviceName='radxa-a7a'
+        onCreatePairing={vi.fn()}
+      />
+    )
+
+    expect(
+      screen.queryByRole('button', { name: 'Create Radxa pairing ticket' })
+    ).not.toBeInTheDocument()
   })
 
   test('offers pairing for a device that has not been linked', async () => {

@@ -36,6 +36,7 @@ type AgentPairing struct {
 	RedeemHash       *string    `json:"-" gorm:"type:char(64);uniqueIndex"`
 	DeviceName       string     `json:"device_name" gorm:"type:varchar(128);not null"`
 	DevicePublicKey  string     `json:"device_public_key" gorm:"type:text;not null"`
+	ReplaceDeviceID  *int64     `json:"replace_device_id,omitempty" gorm:"index"`
 	Status           string     `json:"status" gorm:"type:varchar(16);not null;index"`
 	CreatedAt        time.Time  `json:"created_at"`
 	ExpiresAt        time.Time  `json:"expires_at" gorm:"index"`
@@ -53,6 +54,7 @@ type AgentDevice struct {
 	DevicePublicKey string     `json:"device_public_key" gorm:"type:text;not null"`
 	CredentialHash  string     `json:"-" gorm:"type:char(64);not null;uniqueIndex"`
 	CreatedAt       time.Time  `json:"created_at"`
+	LastPairedAt    *time.Time `json:"last_paired_at,omitempty" gorm:"index"`
 	RevokedAt       *time.Time `json:"revoked_at,omitempty" gorm:"index"`
 }
 
@@ -63,20 +65,37 @@ func agentSecretHash(kind, value string) string {
 	return common.GenerateHMACWithKey([]byte("lain42-agent-"+kind+"-v1:"+common.SessionSecret), value)
 }
 
-func CreateAgentPairing(userID int, now time.Time) (string, *AgentPairing, error) {
+func CreateAgentPairing(userID int, replaceDeviceID int64, now time.Time) (string, *AgentPairing, error) {
 	if userID <= 0 {
 		return "", nil, ErrAgentPairingInvalid
+	}
+	if replaceDeviceID < 0 {
+		return "", nil, ErrAgentPairingInvalid
+	}
+	if replaceDeviceID > 0 {
+		var device AgentDevice
+		if err := DB.Where("id = ? AND user_id = ? AND revoked_at IS NULL", replaceDeviceID, userID).First(&device).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return "", nil, ErrAgentDeviceNotFound
+			}
+			return "", nil, err
+		}
 	}
 	pairingTicket, err := common.GenerateRandomCharsKey(64)
 	if err != nil {
 		return "", nil, err
 	}
+	var replaceID *int64
+	if replaceDeviceID > 0 {
+		replaceID = &replaceDeviceID
+	}
 	pairing := &AgentPairing{
-		UserId:      userID,
-		PairingHash: agentSecretHash("pairing", pairingTicket),
-		Status:      AgentPairingStatusPending,
-		CreatedAt:   now,
-		ExpiresAt:   now.Add(AgentPairingTTL),
+		UserId:          userID,
+		PairingHash:     agentSecretHash("pairing", pairingTicket),
+		ReplaceDeviceID: replaceID,
+		Status:          AgentPairingStatusPending,
+		CreatedAt:       now,
+		ExpiresAt:       now.Add(AgentPairingTTL),
 	}
 	if err := DB.Create(pairing).Error; err != nil {
 		return "", nil, err
@@ -213,15 +232,46 @@ func RedeemAgentPairing(pairingID int64, redeemTicket string, now time.Time) (*A
 		if pairing.Status != AgentPairingStatusConfirmed {
 			return ErrAgentPairingConfirmed
 		}
-		device = AgentDevice{
-			UserId:          pairing.UserId,
-			DeviceName:      pairing.DeviceName,
-			DevicePublicKey: pairing.DevicePublicKey,
-			CredentialHash:  agentSecretHash("credential", credential),
-			CreatedAt:       now,
-		}
-		if err := tx.Create(&device).Error; err != nil {
-			return err
+		credentialHash := agentSecretHash("credential", credential)
+		if pairing.ReplaceDeviceID != nil {
+			if err := lockForUpdate(tx).
+				Where("id = ? AND user_id = ? AND revoked_at IS NULL", *pairing.ReplaceDeviceID, pairing.UserId).
+				First(&device).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrAgentDeviceNotFound
+				}
+				return err
+			}
+			result := tx.Model(&AgentDevice{}).
+				Where("id = ? AND user_id = ? AND revoked_at IS NULL", device.Id, pairing.UserId).
+				Updates(map[string]any{
+					"device_name":       pairing.DeviceName,
+					"device_public_key": pairing.DevicePublicKey,
+					"credential_hash":   credentialHash,
+					"last_paired_at":    now,
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return ErrAgentDeviceNotFound
+			}
+			device.DeviceName = pairing.DeviceName
+			device.DevicePublicKey = pairing.DevicePublicKey
+			device.CredentialHash = credentialHash
+			device.LastPairedAt = &now
+		} else {
+			device = AgentDevice{
+				UserId:          pairing.UserId,
+				DeviceName:      pairing.DeviceName,
+				DevicePublicKey: pairing.DevicePublicKey,
+				CredentialHash:  credentialHash,
+				CreatedAt:       now,
+				LastPairedAt:    &now,
+			}
+			if err := tx.Create(&device).Error; err != nil {
+				return err
+			}
 		}
 		consumedAt := now
 		result := tx.Model(&AgentPairing{}).Where("id = ? AND status = ?", pairing.Id, AgentPairingStatusConfirmed).Updates(map[string]any{
@@ -247,7 +297,9 @@ func ListAgentDevices(userID int) ([]AgentDevice, error) {
 		return nil, ErrAgentDeviceNotFound
 	}
 	var devices []AgentDevice
-	if err := DB.Where("user_id = ?", userID).Order("created_at desc, id desc").Find(&devices).Error; err != nil {
+	if err := DB.Where("user_id = ?", userID).
+		Order("COALESCE(last_paired_at, created_at) DESC").
+		Order("id DESC").Find(&devices).Error; err != nil {
 		return nil, err
 	}
 	return devices, nil

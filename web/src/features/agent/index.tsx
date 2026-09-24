@@ -155,6 +155,7 @@ const PRESETS: AgentPreset[] = [
 
 function WorkspaceToolsCards({
   bridgeStatus,
+  deviceId,
   deviceName,
   isDesktop,
   onPair,
@@ -172,11 +173,12 @@ function WorkspaceToolsCards({
   onCheckRemoteTools,
 }: {
   bridgeStatus: AgentBridgeStatus
+  deviceId?: number
   deviceName?: string
   isDesktop: boolean
   onPair?: () => Promise<void>
   onReconnect?: () => Promise<void>
-  onCreatePairing?: () => Promise<void>
+  onCreatePairing?: (replaceDeviceId?: number) => Promise<void>
   onConfirmPairing?: (ticket: string) => Promise<void>
   pairingId?: number
   pairingTicket?: string
@@ -191,6 +193,7 @@ function WorkspaceToolsCards({
   return (
     <div className='grid gap-3'>
       <AgentBridgeCard
+        deviceId={deviceId}
         deviceName={deviceName}
         isDesktop={isDesktop}
         onConfirmPairing={onConfirmPairing}
@@ -629,6 +632,7 @@ export function AgentWorkspace() {
     useState<AgentBridgeStatus>('unavailable')
   const [bridgeProvider, setBridgeProvider] =
     useState<LocalToolProvider | null>(null)
+  const [bridgeDeviceId, setBridgeDeviceId] = useState<number>()
   const [bridgeDeviceName, setBridgeDeviceName] = useState<string>()
   const [bridgeEpoch, setBridgeEpoch] = useState(0)
   const [bridgeJournal, setBridgeJournal] = useState<AgentRunEvent[]>([])
@@ -701,6 +705,7 @@ export function AgentWorkspace() {
     setBridgeProvider(null)
     setRemoteMcpServers([])
     remoteMcpProvider.current = null
+    setBridgeDeviceId(undefined)
     setBridgeDeviceName(undefined)
     setBridgeJournal([])
     setBridgeStatus(isDesktop ? 'unavailable' : 'connecting')
@@ -733,6 +738,7 @@ export function AgentWorkspace() {
           setBridgeStatus('unavailable')
           return
         }
+        setBridgeDeviceId(device.id)
         setBridgeDeviceName(device.device_name)
         const client = createBrowserAgentBridge(device.id)
         if (!client) {
@@ -803,8 +809,8 @@ export function AgentWorkspace() {
     setBridgeEpoch((value) => value + 1)
   }
 
-  const createWebPairing = async () => {
-    const session = await createAgentPairing()
+  const createWebPairing = async (replaceDeviceId?: number) => {
+    const session = await createAgentPairing(replaceDeviceId)
     setPairingSession(session)
   }
 
@@ -1033,6 +1039,7 @@ export function AgentWorkspace() {
             {workspaceView === 'tools' ? (
               <WorkspaceToolsCards
                 bridgeStatus={bridgeStatus}
+                deviceId={bridgeDeviceId}
                 deviceName={bridgeDeviceName}
                 isDesktop={isDesktop}
                 onPair={isDesktop ? pairDesktop : undefined}
@@ -1074,6 +1081,7 @@ export function AgentWorkspace() {
               {workspaceView === 'tools' ? (
                 <WorkspaceToolsCards
                   bridgeStatus={bridgeStatus}
+                  deviceId={bridgeDeviceId}
                   deviceName={bridgeDeviceName}
                   isDesktop={isDesktop}
                   onPair={isDesktop ? pairDesktop : undefined}
