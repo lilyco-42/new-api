@@ -675,6 +675,132 @@ pub async fn mcp_disconnect(state: State<'_, McpState>, server_id: String) -> Re
 mod tests {
     use super::*;
 
+    fn official_everything_entry() -> String {
+        std::env::var("LAIN42_MCP_EVERYTHING_ENTRY")
+            .expect("Actions must install the pinned official MCP Everything server fixture")
+    }
+
+    async fn exercise_official_echo(client: McpClient) -> Result<(), String> {
+        let tools =
+            list_bounded_tools(&client, "official-everything", "Official Everything").await?;
+        if !tools.iter().any(|tool| tool.name == "echo") {
+            return Err("Official MCP server did not expose the echo tool.".to_string());
+        }
+
+        let arguments = serde_json::from_value(json!({"message": "lain42 MCP interoperability"}))
+            .map_err(|_| "Unable to prepare the MCP echo request.".to_string())?;
+        let result = client
+            .call_tool(CallToolRequestParams::new("echo").with_arguments(arguments))
+            .await
+            .map_err(|_| "Official MCP tools/call failed.".to_string())?;
+        let value = serde_json::to_value(result)
+            .map_err(|_| "Unable to encode the MCP echo response.".to_string())?;
+        let echoed = value
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|content| content.first())
+            .and_then(|item| item.get("text"))
+            .and_then(Value::as_str);
+        if echoed != Some("Echo: lain42 MCP interoperability") {
+            return Err(
+                "Official MCP echo response did not reach the client unchanged.".to_string(),
+            );
+        }
+
+        client
+            .close_with_timeout(CLOSE_TIMEOUT)
+            .await
+            .map_err(|_| "Official MCP session did not close cleanly.".to_string())
+    }
+
+    #[tokio::test]
+    #[ignore = "Run in GitHub Actions with the official MCP server fixture installed"]
+    async fn official_everything_stdio_interoperability() {
+        let request = McpConnectRequest {
+            server_id: "official-everything".to_string(),
+            name: "Official Everything".to_string(),
+            transport: "stdio".to_string(),
+            command: Some("node".to_string()),
+            args: vec![official_everything_entry(), "stdio".to_string()],
+            url: None,
+            bearer_token: None,
+        };
+        let client = connect_client(&request)
+            .await
+            .expect("official MCP stdio server should initialize");
+        exercise_official_echo(client)
+            .await
+            .expect("official MCP stdio list/call/close should interoperate");
+    }
+
+    #[tokio::test]
+    #[ignore = "Run in GitHub Actions with the official MCP server fixture installed"]
+    async fn official_everything_streamable_http_interoperability() {
+        use std::{net::TcpListener, process::Stdio, time::Instant};
+        use tokio::{net::TcpStream, process::Command, time::sleep};
+
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .expect("reserve an ephemeral local port for the test server");
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let mut server = Command::new("node")
+            .arg(official_everything_entry())
+            .arg("streamableHttp")
+            .env("PORT", port.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("start official MCP Streamable HTTP server");
+
+        let startup_deadline = Instant::now() + Duration::from_secs(15);
+        let mut ready = false;
+        while Instant::now() < startup_deadline {
+            if TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+                .await
+                .is_ok()
+            {
+                ready = true;
+                break;
+            }
+            if matches!(server.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+        if !ready {
+            let _ = server.kill().await;
+            let _ = server.wait().await;
+            panic!("official MCP Streamable HTTP server did not start");
+        }
+
+        let http_client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("create test-only HTTP client");
+        let transport_config =
+            StreamableHttpClientTransportConfig::with_uri(format!("http://127.0.0.1:{port}/mcp"))
+                .max_concurrent_requests(1)
+                .control_request_timeout(CONNECT_TIMEOUT)
+                .session_recovery_timeout(CONNECT_TIMEOUT)
+                .max_sse_event_size(MAX_RESPONSE_BYTES)
+                .reinit_on_expired_session(false);
+        let transport = StreamableHttpClientTransport::with_client(http_client, transport_config);
+        let client = timeout(
+            CONNECT_TIMEOUT,
+            client_config().serve_with_lifecycle(transport, lifecycle()),
+        )
+        .await
+        .expect("official MCP HTTP initialization should not time out")
+        .expect("official MCP HTTP initialization should succeed");
+        let result = exercise_official_echo(client).await;
+        let _ = server.kill().await;
+        let _ = server.wait().await;
+        result.expect("official MCP HTTP list/call/close should interoperate");
+    }
+
     #[test]
     fn rejects_shell_shaped_stdio_inputs() {
         let request = McpConnectRequest {
