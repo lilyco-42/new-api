@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-24  
 **Severity**: Medium (confusing authentication guidance)  
-**Status**: Reproduced against production; source fix is being verified and deployed
+**Status**: Fixed and deployed to production as `agent-08d2a63`
 
 ## Problem
 
@@ -18,4 +18,4 @@ Tests assert that browser sessions hide local `gh` login controls, that the OAut
 
 ## Verification
 
-The first deployed correction was built by GitHub Actions run `35963762736` and deployed as `agent-ae65548`; the service is healthy and serves `/agent` and `/api/status`. The follow-up that forces GitHub reads is being verified in GitHub Actions. Do not use a local build for this project.
+GitHub Actions run `35966835540` passed frontend build/tests, agent API tests, device re-pair lifecycle tests, and the Linux amd64 server build. Its binary SHA-256 (`4dbb45e316b13e7ec6a1221a251f73de4a6dad6cb4c11ab06ef831a5f5a0382a`) matches the deployed container. Production reports the new image healthy and serves both `/agent` and `/api/status` with HTTP 200. The prior image remains available for rollback. Do not use a local build for this project.
