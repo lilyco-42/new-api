@@ -49,6 +49,41 @@ func TestCreateAgentPairingScopesReplacementToTheCurrentUser(t *testing.T) {
 	require.Equal(t, device.Id, *pairing.ReplaceDeviceID)
 }
 
+func TestListAgentDevicesOnlyReturnsTheRequestingUsersDevices(t *testing.T) {
+	setupAgentDeviceModelTest(t)
+	devices := []AgentDevice{
+		{
+			UserId:          7,
+			DeviceName:      "user-7-device",
+			DevicePublicKey: "user-7-key",
+			CredentialHash:  agentSecretHash("credential", "user-7-credential"),
+			CreatedAt:       time.Unix(100, 0).UTC(),
+		},
+		{
+			UserId:          8,
+			DeviceName:      "user-8-device",
+			DevicePublicKey: "user-8-key",
+			CredentialHash:  agentSecretHash("credential", "user-8-credential"),
+			CreatedAt:       time.Unix(200, 0).UTC(),
+		},
+	}
+	for index := range devices {
+		require.NoError(t, DB.Create(&devices[index]).Error)
+	}
+
+	user7Devices, err := ListAgentDevices(7)
+	require.NoError(t, err)
+	require.Len(t, user7Devices, 1)
+	require.Equal(t, devices[0].Id, user7Devices[0].Id)
+	require.Equal(t, 7, user7Devices[0].UserId)
+
+	user8Devices, err := ListAgentDevices(8)
+	require.NoError(t, err)
+	require.Len(t, user8Devices, 1)
+	require.Equal(t, devices[1].Id, user8Devices[0].Id)
+	require.Equal(t, 8, user8Devices[0].UserId)
+}
+
 func TestRedeemAgentPairingRotatesCredentialAndPreservesDeviceRecord(t *testing.T) {
 	setupAgentDeviceModelTest(t)
 	createdAt := time.Unix(100, 0).UTC()

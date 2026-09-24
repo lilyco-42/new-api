@@ -61,6 +61,7 @@ An already-forwarded local operation may continue briefly after its socket is cl
 
 ## Validation gates
 
+- Model regression tests cover owner-scoped device listing and event-journal reads filtered by both user and device. These tests run in the server GitHub Actions workflow; they are database-layer evidence, not a substitute for the two-account end-to-end gate below.
 - CI proves user A cannot list, open, invoke, or revoke user B's device.
 - Revoking an online device immediately stops new tool requests, removes pending calls, and closes the old desktop socket.
 - Failed database persistence restores the previous authorized connectivity.

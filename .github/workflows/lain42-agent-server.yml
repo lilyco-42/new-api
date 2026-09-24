@@ -66,7 +66,7 @@ jobs:
         run: go test ./service ./controller
 
       - name: Test agent device re-pair lifecycle
-        run: go test ./model -run 'Test(CreateAgentPairingScopesReplacementToTheCurrentUser|RedeemAgentPairingRotatesCredentialAndPreservesDeviceRecord|RedeemAgentPairingFailsIfReplacementWasRevoked)'
+        run: go test ./model -run 'Test(CreateAgentPairingScopesReplacementToTheCurrentUser|ListAgentDevicesOnlyReturnsTheRequestingUsersDevices|RedeemAgentPairingRotatesCredentialAndPreservesDeviceRecord|RedeemAgentPairingFailsIfReplacementWasRevoked|AgentRunEventsAreScopedToBothUserAndDevice)'
 
       - name: Build Linux amd64 server
         shell: bash
