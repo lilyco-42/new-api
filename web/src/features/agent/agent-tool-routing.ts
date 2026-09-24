@@ -51,6 +51,21 @@ function explicitlyRequestsBrowserWebSearch(text: string): boolean {
   )
 }
 
+function requestsKnownAIEntityDefinition(text: string): boolean {
+  const knownAIEntity =
+    /\b(?:deepseek|qwen|llama|claude|chatgpt|gemini|openai|anthropic|hugging[ -]?face)\b/iu
+  const isBareEntity =
+    /^\s*(?:deepseek|qwen|llama|claude|chatgpt|gemini|openai|anthropic|hugging[ -]?face)\s*[?？!.。！]*\s*$/iu.test(
+      text
+    )
+  const asksForDefinition =
+    /(?:是什么|是什麼|是啥|指什么|指什麼|介绍一下|介紹一下|介绍下|介紹下|\bwhat\s+is\b|\bwho\s+is\b|\btell me about\b|\bdefine\b|\bexplain\b)/iu.test(
+      text
+    )
+
+  return isBareEntity || (asksForDefinition && knownAIEntity.test(text))
+}
+
 function targetsAccountRepositories(text: string): boolean {
   return /\bmy(?: own)?\s+(?:github\s+)?repos?(?:itories)?\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repos?)/iu.test(
     text
@@ -300,7 +315,7 @@ export function shouldRunWebResearchTool(
     case 'web.search':
       return /(?:搜索|搜一下|查找资料|网上查|网页搜索|研究一下|调研|找项目|探索项目|发现项目|research|web search|search the web|search online|look up online|find interesting|discover projects|latest|current|recent|today|right now|price|release notes|最新|近期|当前版本|当前价格|今天|今日|实时|现在的价格)/iu.test(
         text
-      )
+      ) || requestsKnownAIEntityDefinition(text)
     case 'web.crawl':
       return /https:\/\//iu.test(text) &&
         /(?:爬取|抓取|遍历|crawl|spider|follow links)/iu.test(text)

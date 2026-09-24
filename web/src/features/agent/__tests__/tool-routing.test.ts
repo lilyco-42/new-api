@@ -98,17 +98,33 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
-  it('keeps ordinary knowledge questions away from web search', () => {
+  it('grounds known AI entity definitions in the browser search indexes', () => {
     const messages = userMessage('DeepSeek 是什么？')
+    const bareEntity = userMessage('deepseek')
 
     expect(
       shouldRunWebAgentTool(toolCall('web.search'), messages)
-    ).toBe(false)
+    ).toBe(true)
+    expect(
+      shouldRunWebAgentTool(toolCall('web.search'), bareEntity)
+    ).toBe(true)
     expect(
       shouldRunWebAgentTool(
         toolCall('github.oauth.repositories.search'),
         messages
       )
+    ).toBe(false)
+  })
+
+  it('keeps stable general knowledge and unrelated short words away from search', () => {
+    const ownership = userMessage('用一句话解释 Rust 的所有权。')
+    const unrelatedWord = userMessage('hello')
+
+    expect(
+      shouldRunWebAgentTool(toolCall('web.search'), ownership)
+    ).toBe(false)
+    expect(
+      shouldRunWebAgentTool(toolCall('web.search'), unrelatedWord)
     ).toBe(false)
   })
 
