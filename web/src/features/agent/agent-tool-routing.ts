@@ -75,7 +75,10 @@ export function getGitHubReadIntent(
     if (/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)) {
       return 'repository_search'
     }
-    if (/(?:查看|列出|浏览|获取|show|list|view|browse|get)/iu.test(text)) {
+    if (
+      /(?:查看|看|列出|浏览|获取|show|list|view|browse|get)/iu.test(text) ||
+      /(?:我的|我自己的|我账号的|my(?: own)?)/iu.test(text)
+    ) {
       return 'repositories'
     }
   }

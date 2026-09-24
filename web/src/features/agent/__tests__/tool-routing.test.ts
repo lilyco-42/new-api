@@ -51,6 +51,23 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('routes the shorthand "gh repo 我的项目" to the connected browser OAuth', () => {
+    const messages = userMessage('gh repo 我的项目')
+
+    expect(getGitHubReadIntent(messages[0]?.content as string)).toBe(
+      'repositories'
+    )
+    expect(explicitlyTargetsLocalGitHub(messages[0]?.content as string)).toBe(
+      false
+    )
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.repositories.list'),
+        messages
+      )
+    ).toBe(true)
+  })
+
   it('does not execute a tool just because the user asks why OAuth still needs CLI login', () => {
     const complaint =
       'GitHub access · OAuth connected · lilyco-42。连接了，怎么还这样？我想这是因为 GitHub CLI 还没有登录，才能搜索仓库。'

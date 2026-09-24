@@ -139,6 +139,32 @@ describe('webAgentToolProvider', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
+  it('uses browser OAuth for the shorthand request "gh repo 我的项目"', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'gh repo 我的项目' }],
+      stream: false,
+    }
+    const request = vi.fn(async () => {
+      throw new Error('Repository requests must not ask the model to guess.')
+    })
+
+    const response = await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(undefined, false),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain('GitHub OAuth 读取成功')
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/github/repositories',
+      expect.objectContaining({ params: { limit: 10 } })
+    )
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('recognizes a numeric text part but preserves image questions for the model', () => {
     const numeric = webAgentToolProvider.preflight?.([
       { role: 'user', content: [{ type: 'text', text: '123' }] },
