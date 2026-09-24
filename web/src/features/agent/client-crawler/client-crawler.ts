@@ -465,14 +465,48 @@ async function fetchJson<T>(url: URL, signal: AbortSignal): Promise<T> {
   ) as T
 }
 
-async function searchGitHub(query: string, limit: number, signal: AbortSignal) {
+const GITHUB_QUERY_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'about',
+  'find',
+  'for',
+  'github',
+  'how',
+  'in',
+  'official',
+  'on',
+  'project',
+  'projects',
+  'repo',
+  'repos',
+  'repositories',
+  'repository',
+  'search',
+  'the',
+  'to',
+  'use',
+])
+
+function simplifiedGitHubQuery(query: string): string {
+  return (query.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || [])
+    .filter((term) => !GITHUB_QUERY_STOP_WORDS.has(term))
+    .join(' ')
+    .trim()
+}
+
+async function searchGitHub(
+  query: string,
+  limit: number,
+  signal: AbortSignal
+) {
   const url = new URL('https://api.github.com/search/repositories')
   url.searchParams.set('q', query)
   url.searchParams.set('sort', 'stars')
   url.searchParams.set('order', 'desc')
   url.searchParams.set('per_page', String(limit))
-  const response = await fetchJson<{ items?: GitHubRepository[] }>(url, signal)
-  return (response.items || []).map((repo) => ({
+  const mapResults = (items: GitHubRepository[]) => items.map((repo) => ({
     title: repo.full_name || 'GitHub repository',
     url: repo.html_url || '',
     snippet: [
@@ -486,6 +520,22 @@ async function searchGitHub(query: string, limit: number, signal: AbortSignal) {
       .join(' · '),
     source: 'GitHub',
   }))
+  const response = await fetchJson<{ items?: GitHubRepository[] }>(url, signal)
+  const results = mapResults(response.items || [])
+  if (results.length > 0) return results
+
+  const fallbackQuery = simplifiedGitHubQuery(query)
+  if (!fallbackQuery || fallbackQuery === query.toLowerCase()) return results
+  const fallbackURL = new URL('https://api.github.com/search/repositories')
+  fallbackURL.searchParams.set('q', fallbackQuery)
+  fallbackURL.searchParams.set('sort', 'stars')
+  fallbackURL.searchParams.set('order', 'desc')
+  fallbackURL.searchParams.set('per_page', String(limit))
+  const fallbackResponse = await fetchJson<{ items?: GitHubRepository[] }>(
+    fallbackURL,
+    signal
+  )
+  return mapResults(fallbackResponse.items || [])
 }
 
 async function searchHuggingFace(

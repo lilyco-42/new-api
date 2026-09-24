@@ -166,6 +166,49 @@ describe('client-side WASM crawler', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('retries an empty GitHub search after removing generic query words', async () => {
+    fetchMock.mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input))
+        expect(init?.credentials).toBe('omit')
+        expect(url.hostname).toBe('api.github.com')
+        if (url.searchParams.get('q') === 'ast-grep/official repository') {
+          return Response.json({ items: [] })
+        }
+        if (url.searchParams.get('q') === 'ast-grep') {
+          return Response.json({
+            items: [
+              {
+                full_name: 'ast-grep/ast-grep',
+                html_url: 'https://github.com/ast-grep/ast-grep',
+                description: 'AST-based code search and rewriting.',
+                stargazers_count: 5000,
+              },
+            ],
+          })
+        }
+        throw new Error(`Unexpected GitHub query: ${url.searchParams.get('q')}`)
+      }
+    )
+
+    const result = await searchClientSources(
+      'ast-grep/official repository',
+      5,
+      new AbortController().signal,
+      'github'
+    )
+
+    expect(result.execution).toBe('browser-wasm')
+    expect(result.items).toMatchObject([
+      {
+        title: 'ast-grep/ast-grep',
+        url: 'https://github.com/ast-grep/ast-grep',
+        source: 'GitHub',
+      },
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('searches papers only on request and removes off-topic OpenAlex results', async () => {
     fetchMock.mockImplementation(
       async (input: RequestInfo | URL, init?: RequestInit) => {
