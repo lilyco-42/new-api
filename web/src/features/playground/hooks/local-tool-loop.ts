@@ -461,6 +461,16 @@ export async function runLocalToolLoop(
       totalCalls += 1
     }
 
+    if (
+      completedResults.some(
+        ({ name, result }) =>
+          name === 'github.oauth.repositories.list' &&
+          formatGitHubRepositoryList(result) !== null
+      )
+    ) {
+      return fallbackToolResponse(response, completedResults)
+    }
+
     if (mustSynthesize) {
       return synthesizeToolResults(
         initialPayload,

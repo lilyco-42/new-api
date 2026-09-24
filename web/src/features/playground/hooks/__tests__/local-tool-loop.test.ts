@@ -142,7 +142,7 @@ describe('local structured tool loop', () => {
     expect(events).toEqual(['requested', 'running', 'completed'])
   })
 
-  test('shows OAuth repository results when the model cannot write its follow-up', async () => {
+  test('formats OAuth repository results without a model follow-up', async () => {
     const repositoryTool = {
       type: 'function' as const,
       function: {
@@ -169,6 +169,18 @@ describe('local structured tool loop', () => {
       }
       throw new Error('openai_error')
     })
+    const invoke = vi.fn(async () =>
+      JSON.stringify({
+        items: [
+          {
+            full_name: 'lilyco-42/rembg-ui',
+            html_url: 'https://github.com/lilyco-42/rembg-ui',
+            private: false,
+            stargazers_count: 15,
+          },
+        ],
+      })
+    )
     const result = await runLocalToolLoop(
       {
         ...initialPayload,
@@ -177,17 +189,7 @@ describe('local structured tool loop', () => {
       {
         tools: [repositoryTool],
         isAvailable: () => true,
-        invoke: async () =>
-          JSON.stringify({
-            items: [
-              {
-                full_name: 'lilyco-42/rembg-ui',
-                html_url: 'https://github.com/lilyco-42/rembg-ui',
-                private: false,
-                stargazers_count: 15,
-              },
-            ],
-          }),
+        invoke,
       },
       new AbortController().signal,
       undefined,
@@ -201,7 +203,8 @@ describe('local structured tool loop', () => {
       '[lilyco-42/rembg-ui](https://github.com/lilyco-42/rembg-ui)'
     )
     expect(result.choices[0]?.message.content).not.toContain('openai_error')
-    expect(request).toHaveBeenCalledTimes(2)
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(request).toHaveBeenCalledOnce()
   })
 
   test('blocks a tool call that does not match the latest user request', async () => {
