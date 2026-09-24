@@ -2,6 +2,7 @@ import type {
   ChatCompletionMessage,
   ChatCompletionToolCall,
 } from '@/features/playground/types'
+import { containsPublicPageUrlReference } from '@/features/playground/lib/input/search-context'
 
 export type GitHubReadIntent =
   | 'status'
@@ -34,6 +35,12 @@ function isQuestionAboutToolBehavior(text: string): boolean {
 
 function explicitlyDeclinesWebResearch(text: string): boolean {
   return /(?:不需要|无需|不用|不要|别|禁止|不必|不想|无须).{0,4}(?:搜索|上网|联网|网页|网络|查资料|search|browse|web)|\b(?:do not|don't|dont|no need to|without|not necessary to)\s+(?:search|browse|look up|use (?:the )?web)\b/iu.test(
+    text
+  )
+}
+
+function explicitlyDeclinesPageRead(text: string): boolean {
+  return /(?:不需要|无需|不用|不要|别|禁止|不必|不想|无须).{0,6}(?:打开|读取|阅读|访问|抓取|fetch|read|open|visit|crawl)|\b(?:do not|don't|dont|no need to|without|not necessary to)\s+(?:read|open|fetch|visit|crawl)\b/iu.test(
     text
   )
 }
@@ -264,31 +271,36 @@ export function shouldRunWebResearchTool(
   messages: ChatCompletionMessage[]
 ): boolean {
   const text = latestUserText(messages)
-  const githubIntent = getGitHubReadIntent(text)
-  if (isQuestionAboutToolBehavior(text) || explicitlyDeclinesWebResearch(text)) {
-    return false
+  const name = call.function.name
+  if (isQuestionAboutToolBehavior(text)) return false
+
+  if (name === 'web.fetch') {
+    return (
+      containsPublicPageUrlReference(text) &&
+      !explicitlyDeclinesPageRead(text)
+    )
   }
+
+  if (name === 'web.crawl' && explicitlyDeclinesPageRead(text)) return false
+  if (explicitlyDeclinesWebResearch(text)) return false
+
+  const githubIntent = getGitHubReadIntent(text)
   if (
     githubIntent &&
     !(
       githubIntent === 'repository_search' &&
-      call.function.name === 'web.search' &&
+      name === 'web.search' &&
       explicitlyRequestsBrowserWebSearch(text) &&
       !targetsAccountRepositories(text)
     )
   ) {
     return false
   }
-  switch (call.function.name) {
+  switch (name) {
     case 'web.search':
       return /(?:搜索|搜一下|查找资料|网上查|网页搜索|研究一下|调研|找项目|探索项目|发现项目|research|web search|search the web|search online|look up online|find interesting|discover projects|latest|current|recent|today|right now|price|release notes|最新|近期|当前版本|当前价格|今天|今日|实时|现在的价格)/iu.test(
         text
       )
-    case 'web.fetch':
-      return /https:\/\//iu.test(text) &&
-        /(?:阅读|读取|打开看看|总结|概括|分析|提取|read|open|summari[sz]e|analy[sz]e|fetch|inspect)/iu.test(
-          text
-        )
     case 'web.crawl':
       return /https:\/\//iu.test(text) &&
         /(?:爬取|抓取|遍历|crawl|spider|follow links)/iu.test(text)

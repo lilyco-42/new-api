@@ -179,6 +179,30 @@ describe('Agent tool intent routing', () => {
     ).toBe(true)
   })
 
+  it('offers browser page reading when the user sends a public HTTPS URL alone', () => {
+    const messages = userMessage('https://docs.example.com/guide')
+
+    expect(shouldAdvertiseWebAgentTool('web.fetch', messages)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(true)
+    expect(shouldAdvertiseWebAgentTool('web.search', messages)).toBe(false)
+  })
+
+  it('recognizes a bare domain as a page to read instead of a search query', () => {
+    const messages = userMessage('deepseek.com')
+
+    expect(shouldAdvertiseWebAgentTool('web.fetch', messages)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(true)
+  })
+
+  it('does not read a URL when the user explicitly says not to open it', () => {
+    const messages = userMessage(
+      '不要打开这个网页：https://docs.example.com/guide'
+    )
+
+    expect(shouldAdvertiseWebAgentTool('web.fetch', messages)).toBe(false)
+    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(false)
+  })
+
   it('routes an explicit repository search to the search tool instead of the account list', () => {
     const messages = userMessage('搜索一下 Rust 的 GitHub 仓库')
 

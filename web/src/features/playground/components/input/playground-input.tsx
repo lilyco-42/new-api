@@ -114,6 +114,12 @@ export function PlaygroundInput({
     setText('')
   }
 
+  const addSearchContextToDraft = (context: string) => {
+    setText((current) =>
+      [current.trim(), context.trim()].filter(Boolean).join('\n\n')
+    )
+  }
+
   return (
     <div className='grid shrink-0 gap-4 px-3 pb-3 sm:px-4 sm:pb-4'>
       <PromptInput
@@ -161,6 +167,7 @@ export function PlaygroundInput({
                 config={config}
                 disabled={disabled}
                 hasMessages={hasMessages}
+                onUseSearchContext={addSearchContextToDraft}
                 onConfigChange={onConfigChange}
                 onClearMessages={onClearMessages}
                 onParameterEnabledChange={onParameterEnabledChange}

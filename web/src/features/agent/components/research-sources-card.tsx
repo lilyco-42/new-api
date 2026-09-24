@@ -95,6 +95,11 @@ export function ResearchSourcesCard() {
             'Search GitHub/Hugging Face for technical discovery. OpenAlex is searched only for paper queries. RustCC, CodeReset and GHFind are links, not indexed sources. Provide a public HTTPS URL for browser reading when CORS allows. No cookies are sent.'
           )}
         </CardDescription>
+        <CardDescription className='text-xs leading-5'>
+          {t(
+            'Paste a public HTTPS URL into chat to read it. Results in the search popover go to the model only after you add them to the message.'
+          )}
+        </CardDescription>
       </CardHeader>
       <CardContent className='grid gap-1.5'>
         {SOURCES.map((source) => {

@@ -334,6 +334,21 @@ describe('webAgentToolProvider', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
+  it('returns a readable tool result when the browser cannot fetch a page', async () => {
+    vi.mocked(fetchClientPage).mockRejectedValueOnce(
+      new Error('The site blocked cross-origin access (CORS).')
+    )
+
+    const result = await webAgentToolProvider.invoke(
+      toolCall('web.fetch', { url: 'https://docs.example.com/guide' }),
+      new AbortController().signal
+    )
+
+    expect(JSON.parse(result)).toMatchObject({
+      error: 'The site blocked cross-origin access (CORS).',
+    })
+  })
+
   it('bounds client crawl work and permits an omitted query', async () => {
     await webAgentToolProvider.invoke(
       toolCall('web.crawl', {

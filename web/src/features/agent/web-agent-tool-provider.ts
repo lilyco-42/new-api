@@ -65,7 +65,7 @@ const WEB_FETCH_TOOL: ChatCompletionTool = {
   function: {
     name: 'web.fetch',
     description:
-      'Read a public HTTPS page from the user’s browser with the client-side WASM parser. No cookies are sent and no page fetch is proxied by Lain42; the site must allow browser cross-origin access (CORS).',
+      'Read a public HTTPS page from the user’s browser with the client-side WASM parser. Use this when the user pastes a URL alone or asks to inspect a URL; the extracted page text is returned to the selected model. No cookies are sent and no page fetch is proxied by Lain42; the site must allow browser cross-origin access (CORS).',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -649,9 +649,16 @@ export const webAgentToolProvider: LocalToolProvider = {
           )
         )
       case 'web.fetch':
-        return JSON.stringify(
-          await fetchClientPage(params.url as string, signal)
-        )
+        try {
+          return JSON.stringify(
+            await fetchClientPage(params.url as string, signal)
+          )
+        } catch (error) {
+          if (signal.aborted) throw error
+          return JSON.stringify({
+            error: safeErrorMessage(error),
+          })
+        }
       case 'web.crawl':
         return JSON.stringify(
           await crawlClientSite(

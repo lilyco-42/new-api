@@ -48,6 +48,11 @@ import {
 import { api } from '@/lib/api'
 
 import { ATTACHMENT_ACTIONS, PROMPT_INPUT_ATTACH_FILES_EVENT } from '../../lib'
+import {
+  formatSearchResultsForPrompt,
+  normalizePublicPageUrlInput,
+  type BrowserSearchResult,
+} from '../../lib/input/search-context'
 import type { ParameterEnabled, PlaygroundConfig } from '../../types'
 import { PlaygroundParameterPanel } from './playground-parameter-panel'
 
@@ -55,6 +60,7 @@ type PlaygroundInputToolsProps = {
   config: PlaygroundConfig
   disabled?: boolean
   hasMessages?: boolean
+  onUseSearchContext: (context: string) => void
   onClearMessages?: () => void
   onConfigChange: <K extends keyof PlaygroundConfig>(
     key: K,
@@ -71,6 +77,7 @@ export function PlaygroundInputTools({
   config,
   disabled,
   hasMessages = false,
+  onUseSearchContext,
   onClearMessages,
   onConfigChange,
   onParameterEnabledChange,
@@ -83,12 +90,15 @@ export function PlaygroundInputTools({
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchFallbackUrl, setSearchFallbackUrl] = useState('')
-  const [searchResults, setSearchResults] = useState<
-    Array<{ title: string; url: string; snippet?: string }>
-  >([])
+  const [searchResults, setSearchResults] = useState<BrowserSearchResult[]>([])
   const fallbackSearchUrl = searchQuery.trim()
     ? `https://www.bing.com/search?q=${encodeURIComponent(searchQuery.trim())}`
     : ''
+  const searchButtonLabel = () => {
+    if (searching) return t('Searching…')
+    if (normalizePublicPageUrlInput(searchQuery)) return t('Read URL with Agent')
+    return t('Search')
+  }
 
   useEffect(() => {
     const attachFiles = (event: Event) => {
@@ -168,6 +178,19 @@ export function PlaygroundInputTools({
       toast.error(t('Search query is required.'))
       return
     }
+
+    const pageUrl = normalizePublicPageUrlInput(query)
+    if (pageUrl) {
+      setSearchResults([])
+      setSearchFallbackUrl('')
+      onUseSearchContext(
+        `${t('Read this public page and explain its main points:')}\n${pageUrl}`
+      )
+      setSearchOpen(false)
+      toast.success(t('Page URL added to the message.'))
+      return
+    }
+
     setSearching(true)
     // Keep a deterministic escape hatch visible even when the authenticated
     // backend search is unavailable or returns an empty provider response.
@@ -281,9 +304,16 @@ export function PlaygroundInputTools({
               <Input
                 autoFocus
                 aria-label={t('Search')}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value)
+                  setSearchResults([])
+                  setSearchFallbackUrl('')
+                }}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') void runSearch()
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void runSearch()
+                  }
                 }}
                 placeholder={t('Search the web')}
                 value={searchQuery}
@@ -293,7 +323,7 @@ export function PlaygroundInputTools({
                 onClick={() => void runSearch()}
                 size='sm'
               >
-                {searching ? t('Searching…') : t('Search')}
+                {searchButtonLabel()}
               </Button>
             </div>
             <p className='text-muted-foreground mt-2 text-[11px] leading-4'>
@@ -302,24 +332,40 @@ export function PlaygroundInputTools({
               )}
             </p>
             {searchResults.length > 0 && (
-              <div className='mt-2 grid max-h-72 gap-1 overflow-y-auto'>
-                {searchResults.map((result) => (
-                  <a
-                    className='hover:bg-muted/60 rounded-md p-2 text-xs'
-                    href={result.url}
-                    key={result.url}
-                    rel='noreferrer'
-                    target='_blank'
-                  >
-                    <span className='block truncate font-medium'>
-                      {result.title}
-                    </span>
-                    <span className='text-muted-foreground mt-0.5 line-clamp-2 block leading-4'>
-                      {result.snippet || result.url}
-                    </span>
-                  </a>
-                ))}
-              </div>
+              <>
+                <div className='mt-2 grid max-h-72 gap-1 overflow-y-auto'>
+                  {searchResults.map((result) => (
+                    <a
+                      className='hover:bg-muted/60 rounded-md p-2 text-xs'
+                      href={result.url}
+                      key={result.url}
+                      rel='noreferrer'
+                      target='_blank'
+                    >
+                      <span className='block truncate font-medium'>
+                        {result.title}
+                      </span>
+                      <span className='text-muted-foreground mt-0.5 line-clamp-2 block leading-4'>
+                        {result.snippet || result.url}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+                <Button
+                  className='mt-2 w-full'
+                  onClick={() => {
+                    onUseSearchContext(
+                      formatSearchResultsForPrompt(searchQuery, searchResults)
+                    )
+                    setSearchOpen(false)
+                    toast.success(t('Search results added to the message.'))
+                  }}
+                  size='sm'
+                  variant='secondary'
+                >
+                  {t('Add results to message')}
+                </Button>
+              </>
             )}
             {!searching &&
               searchQuery.trim() &&
