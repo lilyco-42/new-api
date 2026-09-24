@@ -102,7 +102,7 @@ describe('webAgentToolProvider', () => {
     expect(searchClientSources).not.toHaveBeenCalled()
   })
 
-  it('corrects a false gh-login requirement when website GitHub OAuth is connected', async () => {
+  it('corrects a false gh login requirement when OAuth is connected', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [
@@ -115,7 +115,9 @@ describe('webAgentToolProvider', () => {
       stream: false,
     }
     const request = vi.fn(async () => {
-      throw new Error('The known OAuth/CLI confusion should be answered locally.')
+      throw new Error(
+        'The known OAuth/CLI confusion should be answered locally.'
+      )
     })
 
     const response = await runLocalToolLoop(
