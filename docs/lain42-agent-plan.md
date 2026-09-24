@@ -2,6 +2,15 @@
 
 日期：2026-09-22。基线：`1dcadfc`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
 
+## 1.2 ZeroStack 轻量本地代码运行时评估（2026-09-24）
+
+- 需求是降低个人设备上的常驻占用，同时保留 Lain42 Web/手机入口、网站模型网关和每用户私有节点。ZeroStack 是本地 Rust coding agent，不是跨平台产品 UI；项目 README 自报 26 MB 二进制、平均约 16 MB / 峰值约 24 MB RAM，这些数据尚未由 Lain42 的 CI 和真实设备复测。来源：[ZeroStack README](https://github.com/gi-dellav/zerostack#performance)。
+- 决策：评估为**按需启动的可选本地代码 Agent**，不直接替换网站聊天/模型网关，也不作为服务器常驻服务。Lain42 的 Web/手机、账号、模型路由和工具审批仍是产品入口；ZeroStack 只在用户自己的桌面/无头 companion 上运行，绝不默认绑定 Haoyu 的私人 Radxa 给其他用户。
+- 不能直接开放 ZeroStack ACP TCP 端口：当前实现直接绑定 TCP 并接受一个客户端，没有该链路的身份认证；ACP 无头权限代码会把 `Ask` 操作自动 `AllowOnce`，与 Lain42 的逐次授权要求冲突。来源：[ACP TCP transport](https://github.com/gi-dellav/zerostack/blob/main/src/extras/acp/mod.rs#L1358-L1412)、[ACP permission handling](https://github.com/gi-dellav/zerostack/blob/main/src/extras/acp/mod.rs#L2112-L2164)。接入前必须改为通过用户私有 companion 的 stdio/出站 WSS，并把写操作批准交回 Lain42；无法转交时必须 fail closed。
+- 现有桥接 v1 只承载一个有界工具请求与结果，不支持 Agent 任务流、增量事件、批准往返和取消。因此 ZeroStack 集成不得伪装成 MCP 工具或直接复用任意命令通道；需要独立、版本化的 `agent.*` 会话能力，绑定网站用户、设备和会话，并有短期凭证、输出/时间上限、取消和审计。
+- 最小验证顺序：先在 GitHub Actions 做可选特性构建与实际二进制/空闲/任务峰值内存测量；再做 ACP approval fail-closed、双用户会话隔离、断线/取消测试；Windows/Linux/macOS 与 ARM64 产物均过 CI 后，才考虑桌面/companion 试用。所有本地构建和测试仍禁止；不操作用户的私人 Radxa，不在这些门槛通过前部署或声称集成完成。
+- 发行门槛：ZeroStack 使用 GPL-3.0-only；若将改动后的二进制随 Lain42 客户端分发，发布前必须确认对应源码、许可证和通知的交付方式。来源：[ZeroStack license](https://github.com/gi-dellav/zerostack/blob/main/LICENSE)。
+
 ## 1.0 桥接重连结果隔离（2026-09-24）
 
 - 待处理工具请求现在绑定到发起它的桌面 WebSocket 连接和账号。设备重连后，旧连接的迟到结果不能消费新连接的请求；旧连接断开只中断自己的请求，不会注销替代连接。
