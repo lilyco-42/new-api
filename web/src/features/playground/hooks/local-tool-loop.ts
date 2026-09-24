@@ -407,9 +407,7 @@ export async function runLocalToolLoop(
     )
     const assistantMessage = assistantMessageFromResponse(response)
     const calls = assistantMessage.tool_calls ?? []
-    if (calls.length === 0) {
-      return includeBrowserSearchSources(response, completedResults)
-    }
+    if (calls.length === 0) return response
 
     const messagesWithoutTools: ChatCompletionMessage[] = [
       ...messages,
@@ -463,7 +461,9 @@ export async function runLocalToolLoop(
     assertSignal(signal)
     const assistantMessage = assistantMessageFromResponse(response)
     const calls = assistantMessage.tool_calls ?? []
-    if (calls.length === 0) return response
+    if (calls.length === 0) {
+      return includeBrowserSearchSources(response, completedResults)
+    }
 
     const currentToolNames = new Set(
       availableTools(provider, messages).map((tool) => tool.function.name)
