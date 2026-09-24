@@ -84,6 +84,32 @@ func TestListAgentDevicesOnlyReturnsTheRequestingUsersDevices(t *testing.T) {
 	require.Equal(t, 8, user8Devices[0].UserId)
 }
 
+func TestRevokeAgentDeviceIsScopedToTheRequestingUser(t *testing.T) {
+	setupAgentDeviceModelTest(t)
+	now := time.Unix(250, 0).UTC()
+	device := AgentDevice{
+		UserId:          7,
+		DeviceName:      "radxa-a7a",
+		DevicePublicKey: "radxa-a7a-key",
+		CredentialHash:  agentSecretHash("credential", "user-7-credential"),
+		CreatedAt:       now,
+	}
+	require.NoError(t, DB.Create(&device).Error)
+
+	err := RevokeAgentDevice(8, device.Id, now.Add(time.Second))
+	require.ErrorIs(t, err, ErrAgentDeviceNotFound)
+	var afterUnauthorizedRevoke AgentDevice
+	require.NoError(t, DB.First(&afterUnauthorizedRevoke, device.Id).Error)
+	require.Nil(t, afterUnauthorizedRevoke.RevokedAt, "another user must not revoke this device")
+
+	revokedAt := now.Add(2 * time.Second)
+	require.NoError(t, RevokeAgentDevice(7, device.Id, revokedAt))
+	var afterOwnerRevoke AgentDevice
+	require.NoError(t, DB.First(&afterOwnerRevoke, device.Id).Error)
+	require.NotNil(t, afterOwnerRevoke.RevokedAt)
+	require.True(t, afterOwnerRevoke.RevokedAt.Equal(revokedAt))
+}
+
 func TestRedeemAgentPairingRotatesCredentialAndPreservesDeviceRecord(t *testing.T) {
 	setupAgentDeviceModelTest(t)
 	createdAt := time.Unix(100, 0).UTC()
