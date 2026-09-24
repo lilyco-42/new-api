@@ -1,6 +1,6 @@
 # Bug: Revoked Agent device kept a live bridge
 
-**Status:** Fixed in source; GitHub Actions verification pending
+**Status:** Fixed and verified by [GitHub Actions run 35979260654](https://github.com/lilyco-42/new-api/actions/runs/35979260654)
 **Severity:** High (revocation / account authorization boundary)
 
 ## Expected and actual behavior
@@ -28,9 +28,10 @@ The relay also re-checks the bridge lifecycle under the hub lock immediately bef
 
 - Successful revocation blocks relay requests during persistence, interrupts pending work, and makes the device unavailable afterward.
 - Failed persistence restores connected status.
-- An owner cannot revoke another user's active device.
+- Service-level coverage proves an owner cannot revoke another user's active device or disconnect its bridge.
+- Model-level coverage proves a cross-user revoke returns `ErrAgentDeviceNotFound` without changing the record, while the owner can still revoke it.
 
-These checks run in GitHub Actions; local compilation and tests are intentionally not used for this project.
+These checks run in GitHub Actions; the model ownership regression, frontend build and tests, Agent API tests, and Linux amd64 build all passed in run 35979260654. Local compilation and tests are intentionally not used for this project.
 
 ## Prevention
 
@@ -41,3 +42,5 @@ Any endpoint that revokes credentials, device access, or account authorization m
 - `service/agent_pairing.go`
 - `service/agent_bridge.go`
 - `service/agent_bridge_test.go`
+- `model/agent_device_test.go`
+- `.github/workflows/lain42-agent-server.yml`
