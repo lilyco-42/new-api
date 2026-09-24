@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-24  
 **Severity**: Medium (confusing authentication guidance)  
-**Status**: Follow-up fix in source; awaiting CI and production deployment
+**Status**: Resolved and verified in production
 
 ## Problem
 
@@ -18,4 +18,4 @@ Tests assert that browser sessions hide local `gh` login controls, that the OAut
 
 ## Verification
 
-GitHub Actions run `35966835540` passed the previous iteration, but an online test with the site's default Llama model showed that `tool_choice: required` can produce invalid tool JSON. That iteration was replaced by a client-side OAuth repository read. Verify it in GitHub Actions and redeploy; do not use a local build for this project.
+GitHub Actions run [`35968759817`](https://github.com/lilyco-42/new-api/actions/runs/35968759817) passed the frontend tests, Go agent API tests, device re-pair tests, and amd64 build. Production now runs `lain42/new-api:agent-c8ab627`; the deployed binary SHA-256 matches the CI artifact (`f7298c1e672a06492bba81de29a9f5906a0ceb0380e01ae9f94d060092e76eb6`). The container is healthy and both `/agent` and `/api/status` return HTTP 200. A live browser test with the connected GitHub OAuth account returned 10 repository entries, with no CLI-login advice or inference error. No Radxa/CLI operation was used.
