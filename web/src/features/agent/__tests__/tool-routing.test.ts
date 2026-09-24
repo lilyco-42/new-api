@@ -93,6 +93,22 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('honors explicit requests not to search, even when the message mentions search', () => {
+    const messages = userMessage(
+      '用一句话解释 Rust 的所有权。普通问题请直接回答，不需要搜索或访问工作区。'
+    )
+    const englishMessages = userMessage(
+      'Explain Rust ownership briefly. Do not search the web.'
+    )
+
+    expect(
+      shouldRunWebAgentTool(toolCall('web.search'), messages)
+    ).toBe(false)
+    expect(
+      shouldRunWebAgentTool(toolCall('web.search'), englishMessages)
+    ).toBe(false)
+  })
+
   it('keeps ordinary knowledge questions away from paired-device tools', () => {
     const messages = userMessage('用一句话解释 Rust 的所有权。')
 

@@ -32,6 +32,12 @@ function isQuestionAboutToolBehavior(text: string): boolean {
   )
 }
 
+function explicitlyDeclinesWebResearch(text: string): boolean {
+  return /(?:不需要|无需|不用|不要|别|禁止|不必|不想|无须).{0,4}(?:搜索|上网|联网|网页|网络|查资料|search|browse|web)|\b(?:do not|don't|dont|no need to|without|not necessary to)\s+(?:search|browse|look up|use (?:the )?web)\b/iu.test(
+    text
+  )
+}
+
 export function getGitHubReadIntent(
   value: string
 ): GitHubReadIntent | null {
@@ -229,7 +235,13 @@ export function shouldRunWebResearchTool(
   messages: ChatCompletionMessage[]
 ): boolean {
   const text = latestUserText(messages)
-  if (isQuestionAboutToolBehavior(text) || getGitHubReadIntent(text)) return false
+  if (
+    isQuestionAboutToolBehavior(text) ||
+    getGitHubReadIntent(text) ||
+    explicitlyDeclinesWebResearch(text)
+  ) {
+    return false
+  }
   switch (call.function.name) {
     case 'web.search':
       return /(?:搜索|搜一下|查找资料|网上查|网页搜索|研究一下|调研|找项目|探索项目|发现项目|research|web search|search the web|search online|look up online|find interesting|discover projects|latest|current|recent|today|right now|price|release notes|最新|近期|当前版本|当前价格|今天|今日|实时|现在的价格)/iu.test(
