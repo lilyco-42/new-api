@@ -20,6 +20,7 @@ import {
   shouldAdvertiseBrowserGitHubTool,
   shouldAdvertiseWebAgentTool,
   shouldRunGitHubTool,
+  shouldRunLocalAgentTool,
   shouldRunWebAgentTool,
 } from './agent-tool-routing'
 import { combineLocalToolProviders } from './mcp-tool-provider'
@@ -894,7 +895,7 @@ export function createBrowserAgentToolProvider(
         if (name.startsWith('web.')) {
           return shouldAdvertiseWebAgentTool(name, messages)
         }
-        return true
+        return shouldRunLocalAgentTool(name, messages)
       })
     },
     shouldRunTool: (call, messages) => {
@@ -902,7 +903,10 @@ export function createBrowserAgentToolProvider(
       const name = call.function.name
       const intent = getGitHubReadIntent(latestUserRequestText(messages))
       if (!name.startsWith('github.')) {
-        return combined.shouldRunTool?.(call, messages) ?? true
+        if (name.startsWith('web.')) {
+          return webAgentToolProvider.shouldRunTool?.(call, messages) ?? false
+        }
+        return shouldRunLocalAgentTool(name, messages)
       }
       if (!intent) return false
       const localRequested = explicitlyTargetsLocalGitHub(

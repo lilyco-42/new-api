@@ -4,6 +4,7 @@ import { runLocalToolLoop } from '@/features/playground/hooks/local-tool-loop'
 import type {
   ChatCompletionMessage,
   ChatCompletionRequest,
+  ChatCompletionResponse,
   ChatCompletionToolCall,
   LocalToolProvider,
 } from '@/features/playground/types'
@@ -632,7 +633,7 @@ describe('webAgentToolProvider', () => {
     expect(result).toContain('browser GitHub OAuth')
   })
 
-  it('does not advertise paired-device tools while that device is offline', () => {
+  it('advertises paired-device tools only for matching intent while connected', () => {
     const bridgeProvider: LocalToolProvider = {
       tools: [
         {
@@ -655,22 +656,113 @@ describe('webAgentToolProvider', () => {
     const issueMessages: ChatCompletionMessage[] = [
       { role: 'user', content: '查看 lilyco-42/new-api 的 issues' },
     ]
+    const workspaceMessages: ChatCompletionMessage[] = [
+      { role: 'user', content: '请列出我的工作区根目录文件' },
+    ]
 
     const connectedNames = connected
       .availableTools?.(webSearchMessages)
       .map((tool) => tool.function.name)
+    const connectedWorkspaceNames = connected
+      .availableTools?.(workspaceMessages)
+      .map((tool) => tool.function.name)
     const offlineSearchNames = offline
       .availableTools?.(webSearchMessages)
+      .map((tool) => tool.function.name)
+    const offlineWorkspaceNames = offline
+      .availableTools?.(workspaceMessages)
       .map((tool) => tool.function.name)
     const offlineIssueNames = offline
       .availableTools?.(issueMessages)
       .map((tool) => tool.function.name)
 
-    expect(connectedNames).toContain('agent.workspace.list')
+    expect(connectedNames).not.toContain('agent.workspace.list')
+    expect(connectedWorkspaceNames).toContain('agent.workspace.list')
     expect(offlineSearchNames).not.toContain('agent.workspace.list')
+    expect(offlineWorkspaceNames).not.toContain('agent.workspace.list')
     expect(offlineSearchNames).toContain('web.search')
     expect(offlineIssueNames).toContain('github.oauth.issues.list')
     expect(offlineIssueNames).not.toContain('github.issues.list')
+  })
+
+  it('blocks a model-proposed workspace read for an unrelated question', async () => {
+    const bridgeTool = {
+      type: 'function' as const,
+      function: {
+        name: 'files.browse',
+        parameters: { type: 'object' },
+      },
+    }
+    const bridgeInvoke = vi.fn(async () => '{"files":[]}')
+    const bridgeProvider: LocalToolProvider = {
+      tools: [bridgeTool],
+      availableTools: () => [bridgeTool],
+      isAvailable: () => true,
+      invoke: bridgeInvoke,
+    }
+    const provider = createBrowserAgentToolProvider(bridgeProvider, true)
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: '用一句话解释 Rust 的所有权。' },
+    ]
+    let requestCount = 0
+    const request = vi.fn(async (): Promise<ChatCompletionResponse> => {
+      requestCount += 1
+      if (requestCount === 1) {
+        return {
+          id: 'test',
+          object: 'chat.completion',
+          created: 1,
+          model: 'test-model',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [toolCall('files.browse', { path: '.' })],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        }
+      }
+      return {
+        id: 'test',
+        object: 'chat.completion',
+        created: 1,
+        model: 'test-model',
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: 'Rust ownership gives each value one clear owner.',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }
+    })
+
+    const availableNames = provider
+      .availableTools?.(messages)
+      .map((tool) => tool.function.name)
+    const result = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages,
+        stream: false,
+      },
+      provider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(availableNames).not.toContain('files.browse')
+    expect(bridgeInvoke).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(result.choices[0]?.message.content).toContain('Rust ownership')
   })
 
   it('removes paired-device tools from an in-flight provider after disconnect', () => {
@@ -690,7 +782,7 @@ describe('webAgentToolProvider', () => {
     }
     const provider = createBrowserAgentToolProvider(bridgeProvider, true)
     const messages: ChatCompletionMessage[] = [
-      { role: 'user', content: '搜索 Rust 最近的 GitHub 项目' },
+      { role: 'user', content: '请列出我的工作区根目录文件' },
     ]
 
     expect(

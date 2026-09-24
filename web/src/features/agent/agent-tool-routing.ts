@@ -124,6 +124,85 @@ export function shouldRunGitHubTool(
   return source === 'local' ? localRequested : !localRequested
 }
 
+/**
+ * Local and paired-device tools must match the user's latest request. A model
+ * proposing a tool is not enough: generic questions must never touch a user's
+ * private desktop or headless node.
+ */
+export function shouldRunLocalAgentTool(
+  name: string,
+  messages: ChatCompletionMessage[]
+): boolean {
+  const text = latestUserText(messages)
+  if (!text || isQuestionAboutToolBehavior(text)) return false
+
+  if (name.startsWith('github.')) {
+    return shouldRunGitHubTool(
+      {
+        id: 'local-intent-check',
+        type: 'function',
+        function: { name, arguments: '{}' },
+      },
+      messages,
+      'local'
+    )
+  }
+
+  const action =
+    /(?:列出|浏览|查看|显示|读取|预览|打开|检查|搜索|查找|找到|定位|追踪|分析|list|browse|show|read|preview|open|inspect|check|search|find|trace|explore|analy[sz]e)/iu.test(
+      text
+    )
+  const workspaceTarget =
+    /(?:工作区|工作目录|当前项目|当前仓库|当前目录|本地项目|本地仓库|本地目录|项目目录|代码库|仓库|workspace|worktree|repository|\brepo\b|project)/iu.test(
+      text
+    )
+  const fileTarget =
+    /(?:文件|目录|文件夹|路径|files?|directory|folder|path|\.[a-z0-9]{1,8}\b|[\\/])/iu.test(
+      text
+    )
+
+  switch (name) {
+    case 'developer.tools.status':
+      return action &&
+        /(?:开发工具|工具|cli|命令行|installed|available|tools?)/iu.test(
+          text
+        )
+    case 'files.browse':
+    case 'agent.workspace.list':
+    case 'agent.workspace.browse':
+      return action && workspaceTarget && fileTarget
+    case 'files.preview':
+    case 'agent.workspace.preview':
+      return fileTarget &&
+        /(?:读取|预览|打开|查看|read|preview|open|inspect)/iu.test(text) &&
+        (workspaceTarget || /\.[a-z0-9]{1,8}\b/iu.test(text))
+    case 'vcs.history':
+      return /(?:提交|commit|变更|更改|历史|history|git\s+log|jj\s+log)/iu.test(
+        text
+      ) &&
+        (workspaceTarget || /(?:git\s+log|jj\s+log)/iu.test(text)) &&
+        (action || /(?:git\s+log|jj\s+log)/iu.test(text))
+    case 'code.search':
+      return action && workspaceTarget &&
+        /(?:代码|源码|函数|符号|实现|code|source|function|symbol|identifier|bug|error|defect|错误|缺陷|报错)/iu.test(
+          text
+        )
+    case 'code.graph':
+      return workspaceTarget &&
+        /(?:调用链|调用关系|依赖关系|符号关系|影响范围|引用关系|codegraph|call\s+graph|dependency\s+graph|symbol\s+graph|callers?)/iu.test(
+        text
+      )
+    default:
+      if (name.startsWith('mcp.')) {
+        return /\bmcp\b/iu.test(text) &&
+          /(?:调用|使用|运行|执行|call|use|invoke|run)/iu.test(text)
+      }
+      // Unknown local tools fail closed until an explicit intent mapping is
+      // added for them.
+      return false
+  }
+}
+
 export function shouldAdvertiseBrowserGitHubTool(
   name: string,
   messages: ChatCompletionMessage[],

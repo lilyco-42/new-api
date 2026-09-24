@@ -23,7 +23,7 @@ import type {
   LocalToolProvider,
 } from '@/features/playground/types'
 
-import { shouldRunGitHubTool } from './agent-tool-routing'
+import { shouldRunLocalAgentTool } from './agent-tool-routing'
 
 type TauriInvoke = (
   command: string,
@@ -508,10 +508,10 @@ function readCliResult(value: unknown): CliExecResult {
 export const localAgentToolProvider: LocalToolProvider = {
   tools: TOOLS,
   isAvailable: () => getInvoke() !== null,
-  shouldRunTool: (call: ChatCompletionToolCall, messages: ChatCompletionMessage[]) =>
-    call.function.name.startsWith('github.')
-      ? shouldRunGitHubTool(call, messages, 'local')
-      : true,
+  shouldRunTool: (
+    call: ChatCompletionToolCall,
+    messages: ChatCompletionMessage[]
+  ) => shouldRunLocalAgentTool(call.function.name, messages),
   invoke: async (call, signal) => {
     if (!TOOLS.some((tool) => tool.function.name === call.function.name)) {
       throw new Error(`Tool is not allowed: ${call.function.name}.`)
