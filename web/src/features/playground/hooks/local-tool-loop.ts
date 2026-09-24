@@ -21,6 +21,7 @@ import type {
   ChatCompletionMessage,
   ChatCompletionRequest,
   ChatCompletionResponse,
+  ChatCompletionTool,
   ChatCompletionToolCall,
   LocalToolProvider,
 } from '../types'
@@ -375,6 +376,110 @@ function assistantMessageFromResponse(
   } as ChatCompletionMessage
 }
 
+/**
+ * Some OpenAI-compatible models ignore the structured tool-call protocol and
+ * print a JSON-shaped request in the assistant content instead. Recover only
+ * the narrowly-scoped public browser search form, and still pass it through
+ * the normal provider allowlist, intent, and approval checks below.
+ */
+function parseTextWebSearchToolCall(
+  content: ChatCompletionMessage['content'],
+  tools: ChatCompletionTool[],
+  step: number
+): ChatCompletionToolCall | null {
+  if (typeof content !== 'string' || byteLength(content) > MAX_ARGUMENT_BYTES) {
+    return null
+  }
+  const trimmed = content.trim()
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/iu)
+  const serialized = (fenced?.[1] ?? trimmed)
+    .replace(/[“”]/gu, '"')
+    .replaceAll('：', ':')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(serialized)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null
+  }
+  const envelope = parsed as Record<string, unknown>
+  if (
+    Object.keys(envelope).some((key) => !['name', 'parameters'].includes(key)) ||
+    envelope.name !== 'web.search' ||
+    !tools.some((tool) => tool.function.name === 'web.search') ||
+    !envelope.parameters ||
+    typeof envelope.parameters !== 'object' ||
+    Array.isArray(envelope.parameters)
+  ) {
+    return null
+  }
+
+  const raw = envelope.parameters as Record<string, unknown>
+  if (
+    Object.keys(raw).some(
+      (key) => !['query', 'q', 'limit', 'scope', 'source'].includes(key)
+    ) ||
+    (raw.query !== undefined && raw.q !== undefined) ||
+    (raw.scope !== undefined && raw.source !== undefined)
+  ) {
+    return null
+  }
+  const query = raw.query ?? raw.q
+  if (typeof query !== 'string' || !query.trim() || query.trim().length > 200) {
+    return null
+  }
+
+  const args: Record<string, unknown> = { query: query.trim() }
+  if (raw.limit !== undefined) {
+    const limit =
+      typeof raw.limit === 'number'
+        ? raw.limit
+        : typeof raw.limit === 'string' && /^\d+$/u.test(raw.limit.trim())
+          ? Number(raw.limit)
+          : Number.NaN
+    if (!Number.isSafeInteger(limit)) return null
+    args.limit = Math.max(1, Math.min(8, limit))
+  }
+
+  const rawScope = raw.scope ?? raw.source
+  if (rawScope !== undefined) {
+    if (typeof rawScope !== 'string') return null
+    const scope = rawScope.trim().toLocaleLowerCase().replace(/[ _-]+/gu, '')
+    const normalizedScope: Record<string, string> = {
+      auto: 'auto',
+      github: 'github',
+      huggingface: 'huggingface',
+      hf: 'huggingface',
+      papers: 'papers',
+      openalex: 'papers',
+      all: 'all',
+    }
+    if (!normalizedScope[scope]) return null
+    args.scope = normalizedScope[scope]
+  }
+
+  return {
+    id: `browser-text-web-search-${step}`,
+    type: 'function',
+    function: { name: 'web.search', arguments: JSON.stringify(args) },
+  }
+}
+
+function assistantMessageForToolLoop(
+  response: ChatCompletionResponse,
+  tools: ChatCompletionTool[],
+  step: number
+): ChatCompletionMessage {
+  const message = assistantMessageFromResponse(response)
+  if (message.tool_calls?.length) return message
+  const textCall = parseTextWebSearchToolCall(message.content, tools, step)
+  return textCall
+    ? { ...message, content: null, tool_calls: [textCall] }
+    : message
+}
+
 export async function runLocalToolLoop(
   initialPayload: ChatCompletionRequest,
   provider: LocalToolProvider,
@@ -459,7 +564,11 @@ export async function runLocalToolLoop(
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
     assertSignal(signal)
-    const assistantMessage = assistantMessageFromResponse(response)
+    const assistantMessage = assistantMessageForToolLoop(
+      response,
+      availableTools(provider, messages),
+      step
+    )
     const calls = assistantMessage.tool_calls ?? []
     if (calls.length === 0) {
       return includeBrowserSearchSources(response, completedResults)

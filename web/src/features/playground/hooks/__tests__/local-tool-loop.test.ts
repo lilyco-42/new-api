@@ -410,6 +410,134 @@ describe('local structured tool loop', () => {
     expect(requests).toHaveLength(2)
   })
 
+  test('executes the supported text-encoded browser search format', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const searchResult = JSON.stringify({
+      execution: 'browser-wasm',
+      query: 'ast-grep',
+      fetched_at: '2026-09-24T10:00:00.000Z',
+      sources: ['GitHub'],
+      warnings: [],
+      items: [
+        {
+          title: 'ast-grep/ast-grep',
+          url: 'https://github.com/ast-grep/ast-grep',
+          snippet: 'AST-based code search and rewriting.',
+          source: 'GitHub',
+        },
+      ],
+    })
+    const invoke = vi.fn(
+      async (call: Parameters<LocalToolProvider['invoke']>[0]) => {
+        expect(call.function.name).toBe('web.search')
+        expect(JSON.parse(call.function.arguments)).toEqual({
+          query: 'ast-grep',
+          scope: 'github',
+        })
+        return searchResult
+      }
+    )
+    const approvals = vi.fn(async () => true)
+    const events: string[] = []
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      return requests.length === 1
+        ? response({
+            role: 'assistant',
+            content:
+              '{“name”: “web.search”, “parameters”: {“q”: “ast-grep”, “source”: “GitHub”}}',
+          })
+        : response({ role: 'assistant', content: '找到了官方仓库。' })
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [
+          {
+            role: 'user',
+            content:
+              '请用浏览器搜索 GitHub 上 ast-grep 的官方仓库，并给出来源链接。',
+          },
+        ],
+      },
+      {
+        tools: [webTool],
+        isAvailable: () => true,
+        shouldRunTool: (call, messages) =>
+          call.function.name === 'web.search' &&
+          messages.some(
+            (message) =>
+              message.role === 'user' &&
+              typeof message.content === 'string' &&
+              message.content.includes('请用浏览器搜索')
+          ),
+        requiresApproval: approvals,
+        invoke,
+      },
+      new AbortController().signal,
+      (event) => events.push(event.type),
+      request
+    )
+
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(approvals).toHaveBeenCalledOnce()
+    expect(events).toEqual(['requested', 'running', 'completed'])
+    expect(requests).toHaveLength(2)
+    expect(requests[0]?.tool_choice).toBe('auto')
+    expect(requests[1]?.messages.at(-2)).toMatchObject({
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          function: {
+            name: 'web.search',
+            arguments: '{"query":"ast-grep","scope":"github"}',
+          },
+        },
+      ],
+    })
+    expect(result.choices[0]?.message.content).toContain(
+      '[ast-grep/ast-grep](https://github.com/ast-grep/ast-grep)'
+    )
+    expect(result.choices[0]?.message.content).toContain('浏览器搜索来源')
+  })
+
+  test('does not run a text-encoded search unless the latest request authorizes it', async () => {
+    const invoke = vi.fn(async () => 'must not run')
+    const requests: ChatCompletionRequest[] = []
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      return requests.length === 1
+        ? response({
+            role: 'assistant',
+            content:
+              '{"name":"web.search","parameters":{"q":"ast-grep","source":"GitHub"}}',
+          })
+        : response({ role: 'assistant', content: '这只是格式说明。' })
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [{ role: 'user', content: '请解释这个 JSON 调用格式。' }],
+      },
+      {
+        tools: [webTool],
+        isAvailable: () => true,
+        shouldRunTool: () => false,
+        invoke,
+      },
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(invoke).not.toHaveBeenCalled()
+    expect(requests).toHaveLength(2)
+    expect(result.choices[0]?.message.content).toBe('这只是格式说明。')
+  })
+
   test('recovers from the step limit with a tool-free final synthesis', async () => {
     const requests: ChatCompletionRequest[] = []
     const invoke = vi.fn(async () => 'issue list')
