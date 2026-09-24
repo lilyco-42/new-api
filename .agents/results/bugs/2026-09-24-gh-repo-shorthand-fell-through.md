@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-24  
 **Severity:** Medium (incorrect authentication guidance)  
-**Status:** Fix prepared; awaiting GitHub Actions and production deployment
+**Status:** Fixed and verified in production
 
 ## Problem
 
@@ -23,4 +23,7 @@ Treat ownership phrases such as “我的”, “我自己的”, and “my own�
 
 ## Verification
 
-Pending GitHub Actions frontend tests/build and server artifact build. The previously saved chat answer remains visible in history; a new message after deploying the updated frontend should use the corrected route.
+- [GitHub Actions run 35982609589](https://github.com/lilyco-42/new-api/actions/runs/35982609589) passed the frontend build and tests, Agent API tests, device ownership tests, and Linux amd64 build.
+- The deployed server binary SHA-256 (`0de83e0e7f2c2cf67d22fa256d9ecf6d2329daf394adc33d066c56284cbb6fc8`) matches the Actions artifact; the production container is healthy.
+- Live browser test with the linked `lilyco-42` OAuth account: `gh repo 我的项目` returned 10 repository entries through browser OAuth in 884 ms. The OAuth/CLI-confusion text received the correct clarification in 24 ms without a model call. No Radxa or local `gh` operation was used.
+- The incorrect response already stored in the older chat remains as history; new requests use the fixed route.
