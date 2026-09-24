@@ -8,6 +8,8 @@ import type {
 import {
   explicitlyTargetsLocalGitHub,
   getGitHubReadIntent,
+  shouldAdvertiseBrowserGitHubTool,
+  shouldAdvertiseWebAgentTool,
   shouldRunLocalAgentTool,
   shouldRunWebAgentTool,
 } from '../agent-tool-routing'
@@ -194,6 +196,49 @@ describe('Agent tool intent routing', () => {
         toolCall('github.oauth.repositories.list'),
         messages
       )
+    ).toBe(false)
+  })
+
+  it('uses browser web search for public GitHub project discovery', () => {
+    const messages = userMessage(
+      '请用网页搜索功能，仅在浏览器端搜索 GitHub 上的 ast-grep 官方仓库，并返回来源链接。不要调用本地 CLI 或 Radxa。'
+    )
+
+    expect(
+      shouldAdvertiseWebAgentTool('web.search', messages)
+    ).toBe(true)
+    expect(
+      shouldAdvertiseBrowserGitHubTool(
+        'github.oauth.repositories.search',
+        messages,
+        false
+      )
+    ).toBe(false)
+    expect(
+      shouldRunWebAgentTool(toolCall('web.search'), messages)
+    ).toBe(true)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.repositories.search'),
+        messages
+      )
+    ).toBe(false)
+  })
+
+  it('keeps account-owned repository discovery on GitHub OAuth', () => {
+    const messages = userMessage(
+      '请用网页搜索功能查找我的 GitHub 仓库。'
+    )
+
+    expect(
+      shouldAdvertiseBrowserGitHubTool(
+        'github.oauth.repositories.search',
+        messages,
+        false
+      )
+    ).toBe(true)
+    expect(
+      shouldAdvertiseWebAgentTool('web.search', messages)
     ).toBe(false)
   })
 })

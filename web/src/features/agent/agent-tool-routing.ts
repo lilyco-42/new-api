@@ -38,6 +38,18 @@ function explicitlyDeclinesWebResearch(text: string): boolean {
   )
 }
 
+function explicitlyRequestsBrowserWebSearch(text: string): boolean {
+  return /(?:浏览器(?:端|中)?(?:的)?(?:网页)?搜索|网页搜索(?:功能)?|用网页搜索|search (?:the )?web|web search)/iu.test(
+    text
+  )
+}
+
+function targetsAccountRepositories(text: string): boolean {
+  return /\bmy(?: own)?\s+(?:github\s+)?repos?(?:itories)?\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repos?)/iu.test(
+    text
+  )
+}
+
 export function getGitHubReadIntent(
   value: string
 ): GitHubReadIntent | null {
@@ -126,6 +138,13 @@ export function shouldRunGitHubTool(
   const request = latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(call.function.name) !== intent) return false
+  if (
+    intent === 'repository_search' &&
+    explicitlyRequestsBrowserWebSearch(request) &&
+    !targetsAccountRepositories(request)
+  ) {
+    return false
+  }
   if (intent === 'repositories' && call.function.name === 'github.oauth.repositories.list') {
     return true
   }
@@ -220,6 +239,13 @@ export function shouldAdvertiseBrowserGitHubTool(
   const request = latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(name) !== intent) return false
+  if (
+    intent === 'repository_search' &&
+    explicitlyRequestsBrowserWebSearch(request) &&
+    !targetsAccountRepositories(request)
+  ) {
+    return false
+  }
   const localRequested = explicitlyTargetsLocalGitHub(request)
   if (name === 'github.oauth.repositories.list') {
     return intent === 'repositories'
@@ -238,10 +264,18 @@ export function shouldRunWebResearchTool(
   messages: ChatCompletionMessage[]
 ): boolean {
   const text = latestUserText(messages)
+  const githubIntent = getGitHubReadIntent(text)
+  if (isQuestionAboutToolBehavior(text) || explicitlyDeclinesWebResearch(text)) {
+    return false
+  }
   if (
-    isQuestionAboutToolBehavior(text) ||
-    getGitHubReadIntent(text) ||
-    explicitlyDeclinesWebResearch(text)
+    githubIntent &&
+    !(
+      githubIntent === 'repository_search' &&
+      call.function.name === 'web.search' &&
+      explicitlyRequestsBrowserWebSearch(text) &&
+      !targetsAccountRepositories(text)
+    )
   ) {
     return false
   }
