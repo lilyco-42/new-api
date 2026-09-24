@@ -3,12 +3,69 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type agentGitHubRoundTripper func(*http.Request) (*http.Response, error)
+
+func (roundTrip agentGitHubRoundTripper) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	return roundTrip(request)
+}
+
+func TestAgentGitHubRepositoriesListUsesTheConnectedUserRepositoryEndpoint(t *testing.T) {
+	previousTransport := http.DefaultTransport
+	var outboundRequest *http.Request
+	http.DefaultTransport = agentGitHubRoundTripper(
+		func(request *http.Request) (*http.Response, error) {
+			outboundRequest = request
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`[{"full_name":"lilyco-42/rembg-ui","html_url":"https://github.com/lilyco-42/rembg-ui","description":"Local image workflow","stargazers_count":15,"default_branch":"main","private":true,"updated_at":"2026-09-24T00:00:00Z"}]`)),
+			}, nil
+		},
+	)
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	previousGinMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(previousGinMode) })
+
+	recorder := httptest.NewRecorder()
+	requestContext, _ := gin.CreateTestContext(recorder)
+	requestContext.Request = httptest.NewRequest(
+		http.MethodGet,
+		"/api/agent/github/repositories?limit=3",
+		nil,
+	)
+	requestContext.Set("id", 0)
+
+	AgentGitHubRepositoriesList(requestContext)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotNil(t, outboundRequest)
+	assert.Equal(t, "/user/repos", outboundRequest.URL.Path)
+	assert.Equal(
+		t,
+		"owner,collaborator,organization_member",
+		outboundRequest.URL.Query().Get("affiliation"),
+	)
+	assert.Equal(t, "updated", outboundRequest.URL.Query().Get("sort"))
+	assert.Equal(t, "3", outboundRequest.URL.Query().Get("per_page"))
+	assert.Contains(t, recorder.Body.String(), "lilyco-42/rembg-ui")
+	assert.Contains(t, recorder.Body.String(), `"private":true`)
+	assert.Contains(t, recorder.Body.String(), "2026-09-24T00:00:00Z")
+}
 
 func TestParseBingSearchRSSBoundsAndSanitizesResults(t *testing.T) {
 	body := `<?xml version="1.0" encoding="UTF-8"?>

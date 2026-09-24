@@ -22,8 +22,8 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
   LocalToolProvider,
-} from '../types'
-import { LocalToolLoopError, runLocalToolLoop } from './local-tool-loop'
+} from '../../types'
+import { LocalToolLoopError, runLocalToolLoop } from '../local-tool-loop'
 
 const tool = {
   type: 'function' as const,
@@ -140,6 +140,56 @@ describe('local structured tool loop', () => {
       tool_call_id: 'call-1',
     })
     expect(events).toEqual(['requested', 'running', 'completed'])
+  })
+
+  test('blocks a tool call that does not match the latest user request', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const invoke = vi.fn(async () => 'this must not be read')
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'stale-call',
+              type: 'function',
+              function: {
+                name: 'github.issues.list',
+                arguments: '{"repo":"lilyco-42/new-api"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({ role: 'assistant', content: 'DeepSeek is an AI model.' })
+    }
+    const guardedProvider: LocalToolProvider = {
+      ...provider(invoke),
+      shouldRunTool: () => false,
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
+      },
+      guardedProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toBe('DeepSeek is an AI model.')
+    expect(invoke).not.toHaveBeenCalled()
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.tools).toEqual([])
+    expect(requests[1]?.tool_choice).toBe('none')
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      content: expect.stringContaining('does not match'),
+    })
   })
 
   test('does not repeat the same web search and asks for a final answer', async () => {

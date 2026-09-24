@@ -36,8 +36,11 @@ export type LocalToolLoopEvent =
   | { type: 'completed'; call: ChatCompletionToolCall; result: string }
   | { type: 'unavailable'; call: ChatCompletionToolCall }
 
-function availableTools(provider: LocalToolProvider) {
-  return provider.availableTools?.() ?? provider.tools
+function availableTools(
+  provider: LocalToolProvider,
+  messages: ChatCompletionMessage[]
+) {
+  return provider.availableTools?.(messages) ?? provider.tools
 }
 
 function unavailableToolResult(): string {
@@ -127,7 +130,7 @@ async function synthesizeToolResults(
   const synthesisInstruction: ChatCompletionMessage = {
     role: 'system',
     content:
-      'Tool execution is complete. Summarize the tool results already present in this conversation in the user’s language. Do not request or call any more tools.',
+      'Answer the latest user request directly in the user’s language. Only describe results from tool calls that actually ran. If a tool result says a call was blocked or not run, do not claim it ran or invent its result. Do not request or call any more tools.',
   }
   const firstUserMessage = messages.findIndex(
     (message) => message.role === 'user'
@@ -230,7 +233,7 @@ export async function runLocalToolLoop(
   if (!provider.isAvailable()) return request(initialPayload, signal)
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
-  if (availableTools(provider).length === 0) {
+  if (availableTools(provider, messages).length === 0) {
     return request(initialPayload, signal)
   }
   let response = await request(
@@ -238,7 +241,7 @@ export async function runLocalToolLoop(
       ...initialPayload,
       messages,
       stream: false,
-      tools: availableTools(provider),
+      tools: availableTools(provider, messages),
       tool_choice: 'auto',
     },
     signal
@@ -255,7 +258,7 @@ export async function runLocalToolLoop(
     if (calls.length === 0) return response
 
     const currentToolNames = new Set(
-      availableTools(provider).map((tool) => tool.function.name)
+      availableTools(provider, messages).map((tool) => tool.function.name)
     )
     const declaredToolNames = new Set(
       provider.tools.map((tool) => tool.function.name)
@@ -302,14 +305,31 @@ export async function runLocalToolLoop(
       assertSignal(signal)
       onEvent?.({ type: 'requested', call })
       if (mustSynthesize) {
+        const result = JSON.stringify({
+          error:
+            'This tool was not run because another proposed tool did not match the latest user request. Answer the latest request without claiming this tool ran.',
+        })
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
-          content: JSON.stringify({
-            error:
-              'No further tools were run because the model repeated a completed request. Summarize the results already returned.',
-          }),
+          content: result,
         })
+        completedResults.push({ name: call.function.name, result })
+        totalCalls += 1
+        continue
+      }
+      if (provider.shouldRunTool && !provider.shouldRunTool(call, messages)) {
+        mustSynthesize = true
+        const result = JSON.stringify({
+          error:
+            'This tool call does not match the latest user request and was not run. Answer the latest request directly; do not claim this tool ran.',
+        })
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: result,
+        })
+        completedResults.push({ name: call.function.name, result })
         totalCalls += 1
         continue
       }
@@ -357,7 +377,7 @@ export async function runLocalToolLoop(
         result = boundedResult(await provider.invoke(call, signal))
       } catch (error) {
         assertSignal(signal)
-        const stillAvailable = availableTools(provider).some(
+        const stillAvailable = availableTools(provider, messages).some(
           (tool) => tool.function.name === call.function.name
         )
         if (stillAvailable) throw error
@@ -387,7 +407,7 @@ export async function runLocalToolLoop(
         ...initialPayload,
         messages,
         stream: false,
-        tools: availableTools(provider),
+        tools: availableTools(provider, messages),
         tool_choice: 'auto',
       },
       signal

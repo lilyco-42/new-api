@@ -37,6 +37,8 @@ export interface PlaygroundProps {
   emptyStateDescription?: string
   /** Optional desktop-only tool bridge. It is unavailable in a normal browser. */
   localToolProvider?: LocalToolProvider
+  /** Keep unrelated Agent prompts from inheriting stale topics or failed turns. */
+  agentMode?: boolean
 }
 
 export function Playground({
@@ -45,6 +47,7 @@ export function Playground({
   emptyStateTitle,
   emptyStateDescription,
   localToolProvider,
+  agentMode = false,
 }: PlaygroundProps = {}) {
   const {
     config,
@@ -66,6 +69,7 @@ export function Playground({
     parameterEnabled,
     onMessageUpdate: updateMessages,
     localToolProvider,
+    isolateAgentTurnContext: agentMode,
   })
 
   const {

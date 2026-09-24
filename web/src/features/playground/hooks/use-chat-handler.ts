@@ -50,6 +50,7 @@ interface UseChatHandlerOptions {
   parameterEnabled: ParameterEnabled
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
   localToolProvider?: LocalToolProvider
+  isolateAgentTurnContext?: boolean
 }
 
 const KNOWN_ERROR_MESSAGES = new Set<string>(Object.values(ERROR_MESSAGES))
@@ -106,6 +107,7 @@ export function useChatHandler({
   parameterEnabled,
   onMessageUpdate,
   localToolProvider,
+  isolateAgentTurnContext = false,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
   const { sendStreamRequest, stopStream, isStreaming } = useStreamRequest()
@@ -293,7 +295,8 @@ export function useChatHandler({
       const payload = buildChatCompletionPayload(
         messages,
         config,
-        parameterEnabled
+        parameterEnabled,
+        isolateAgentTurnContext
       )
       void sendStreamRequest(
         payload,
@@ -305,6 +308,7 @@ export function useChatHandler({
     [
       config,
       parameterEnabled,
+      isolateAgentTurnContext,
       sendStreamRequest,
       discardPendingStreamUpdates,
       handleStreamUpdate,
@@ -319,7 +323,8 @@ export function useChatHandler({
       const payload = buildChatCompletionPayload(
         messages,
         config,
-        parameterEnabled
+        parameterEnabled,
+        isolateAgentTurnContext
       )
       const generation = requestGenerationRef.current + 1
       const abortController = new AbortController()
@@ -421,6 +426,7 @@ export function useChatHandler({
     [
       config,
       parameterEnabled,
+      isolateAgentTurnContext,
       localToolProvider,
       stopStream,
       discardPendingStreamUpdates,

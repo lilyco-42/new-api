@@ -18,9 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '../../constants'
-import type { Message } from '../../types'
-import { buildChatCompletionPayload } from './payload-builder'
+import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '../../../constants'
+import type { Message } from '../../../types'
+import { buildChatCompletionPayload } from '../payload-builder'
 
 function message(
   key: string,
@@ -44,8 +44,53 @@ describe('buildChatCompletionPayload', () => {
       message('prior-assistant', 'assistant', 'earlier answer'),
       message('failed-user', 'user', 'unanswered question'),
       message('failed-assistant', 'assistant', 'service unavailable', 'error'),
-      message('latest-user', 'user', 'new question'),
+      message('latest-user', 'user', 'and a new follow-up'),
       message('latest-assistant', 'assistant', '', 'loading'),
+    ]
+
+    const payload = buildChatCompletionPayload(
+      messages,
+      DEFAULT_CONFIG,
+      DEFAULT_PARAMETER_ENABLED,
+      true
+    )
+
+    expect(payload.messages).toEqual([
+      { role: 'system', content: 'answer the latest request' },
+      { role: 'user', content: 'earlier question' },
+      { role: 'assistant', content: 'earlier answer' },
+      { role: 'user', content: 'and a new follow-up' },
+    ])
+  })
+
+  it('starts a standalone knowledge request without stale GitHub history', () => {
+    const messages = [
+      message('system', 'system', 'answer the latest request'),
+      message('old-user', 'user', '查看我的 GitHub 仓库'),
+      message('old-assistant', 'assistant', '请先登录本机 gh CLI。'),
+      message('current-user', 'user', 'DeepSeek 是什么？'),
+      message('current-assistant', 'assistant', '', 'loading'),
+    ]
+
+    const payload = buildChatCompletionPayload(
+      messages,
+      DEFAULT_CONFIG,
+      DEFAULT_PARAMETER_ENABLED,
+      true
+    )
+
+    expect(payload.messages).toEqual([
+      { role: 'system', content: 'answer the latest request' },
+      { role: 'user', content: 'DeepSeek 是什么？' },
+    ])
+  })
+
+  it('preserves full conversational context outside Agent mode', () => {
+    const messages = [
+      message('system', 'system', 'general assistant'),
+      message('prior-user', 'user', 'My project is called Solstice.'),
+      message('prior-assistant', 'assistant', 'Understood.'),
+      message('latest-user', 'user', 'What should I name the next release?'),
     ]
 
     const payload = buildChatCompletionPayload(
@@ -54,11 +99,9 @@ describe('buildChatCompletionPayload', () => {
       DEFAULT_PARAMETER_ENABLED
     )
 
-    expect(payload.messages).toEqual([
-      { role: 'system', content: 'answer the latest request' },
-      { role: 'user', content: 'earlier question' },
-      { role: 'assistant', content: 'earlier answer' },
-      { role: 'user', content: 'new question' },
-    ])
+    expect(payload.messages).toHaveLength(4)
+    expect(payload.messages[1]?.content).toBe(
+      'My project is called Solstice.'
+    )
   })
 })

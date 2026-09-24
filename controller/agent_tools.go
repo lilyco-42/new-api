@@ -248,6 +248,8 @@ type agentGitHubRepository struct {
 	Description   string `json:"description,omitempty"`
 	Stars         int    `json:"stargazers_count"`
 	DefaultBranch string `json:"default_branch,omitempty"`
+	Private       bool   `json:"private,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
 type agentGitHubSearchResponse struct {
@@ -263,6 +265,21 @@ type agentGitHubActivity struct {
 }
 
 var agentGitHubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+func AgentGitHubRepositoriesList(c *gin.Context) {
+	limit := parseBoundedAgentInt(c.Query("limit"), 10, 1, maxAgentGitHubItems)
+	query := url.Values{}
+	query.Set("affiliation", "owner,collaborator,organization_member")
+	query.Set("sort", "updated")
+	query.Set("per_page", strconv.Itoa(limit))
+	endpoint := "https://api.github.com/user/repos?" + query.Encode()
+	var items []agentGitHubRepository
+	if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &items); err != nil {
+		writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", "GitHub repository list failed")
+		return
+	}
+	common.ApiSuccess(c, gin.H{"items": items})
+}
 
 func AgentGitHubRepositoriesSearch(c *gin.Context) {
 	query := strings.TrimSpace(c.Query("q"))
@@ -340,7 +357,7 @@ func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader,
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("github returned status %d", response.StatusCode)
 	}
-	return json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(output)
+	return common.DecodeJson(io.LimitReader(response.Body, 2<<20), output)
 }
 
 func parseBoundedAgentInt(raw string, fallback, min, max int) int {

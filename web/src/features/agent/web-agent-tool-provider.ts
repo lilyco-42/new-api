@@ -13,6 +13,15 @@ import {
   searchClientSources,
   type ClientSearchScope,
 } from './client-crawler/client-crawler'
+import {
+  explicitlyTargetsLocalGitHub,
+  getGitHubReadIntent,
+  latestUserRequestText,
+  shouldAdvertiseBrowserGitHubTool,
+  shouldAdvertiseWebAgentTool,
+  shouldRunGitHubTool,
+  shouldRunWebAgentTool,
+} from './agent-tool-routing'
 import { combineLocalToolProviders } from './mcp-tool-provider'
 
 const WEB_SEARCH_TOOL: ChatCompletionTool = {
@@ -134,6 +143,22 @@ const GITHUB_REPOSITORY_SEARCH_TOOL: ChatCompletionTool = {
   },
 }
 
+const GITHUB_REPOSITORY_LIST_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'github.oauth.repositories.list',
+    description:
+      'List repositories accessible to the connected GitHub account, including private repositories allowed by its OAuth scope.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 20, default: 10 },
+      },
+    },
+  },
+}
+
 const GITHUB_ACTIVITY_PROPERTIES = {
   repo: {
     type: 'string',
@@ -180,6 +205,7 @@ export const WEB_AGENT_TOOLS: ChatCompletionTool[] = [
   WEB_FETCH_TOOL,
   WEB_CRAWL_TOOL,
   GITHUB_STATUS_TOOL,
+  GITHUB_REPOSITORY_LIST_TOOL,
   GITHUB_REPOSITORY_SEARCH_TOOL,
   GITHUB_ISSUES_TOOL,
   GITHUB_PULL_REQUESTS_TOOL,
@@ -342,6 +368,13 @@ function parseToolArguments(
         throw new Error('GitHub auth status does not accept arguments.')
       }
       return {}
+    case 'github.oauth.repositories.list': {
+      const allowed = new Set(['limit'])
+      if (Object.keys(params).some((key) => !allowed.has(key))) {
+        throw new Error('Unsupported GitHub repository list argument.')
+      }
+      return { limit: boundedLimit(params.limit, 10, 20) }
+    }
     case 'github.oauth.repositories.search': {
       const allowed = new Set(['query', 'limit'])
       if (Object.keys(params).some((key) => !allowed.has(key))) {
@@ -399,6 +432,7 @@ async function invokeApi(
 export const webAgentToolProvider: LocalToolProvider = {
   tools: WEB_AGENT_TOOLS,
   isAvailable: () => true,
+  shouldRunTool: (call, messages) => shouldRunWebAgentTool(call, messages),
   preflight: (messages) => {
     let latestUserMessage: ChatCompletionMessage | undefined
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -515,6 +549,12 @@ export const webAgentToolProvider: LocalToolProvider = {
         )
       case 'github.oauth.auth.status':
         return invokeApi('/api/agent/github/status', {}, signal)
+      case 'github.oauth.repositories.list':
+        return invokeApi(
+          '/api/agent/github/repositories',
+          { limit: params.limit },
+          signal
+        )
       case 'github.oauth.repositories.search':
         return invokeApi(
           '/api/agent/github/repositories/search',
@@ -533,6 +573,81 @@ export const webAgentToolProvider: LocalToolProvider = {
   },
 }
 
+const LOCAL_TO_OAUTH_GITHUB_TOOL: Record<string, string> = {
+  'github.auth.status': 'github.oauth.auth.status',
+  'github.repositories.search': 'github.oauth.repositories.search',
+  'github.issues.list': 'github.oauth.issues.list',
+  'github.pull_requests.list': 'github.oauth.pull_requests.list',
+}
+
+const OAUTH_TO_LOCAL_GITHUB_TOOL = Object.fromEntries(
+  Object.entries(LOCAL_TO_OAUTH_GITHUB_TOOL).map(([local, oauth]) => [
+    oauth,
+    local,
+  ])
+)
+
+function renameToolCall(
+  call: ChatCompletionToolCall,
+  name: string
+): ChatCompletionToolCall {
+  return {
+    ...call,
+    function: { ...call.function, name },
+  }
+}
+
+function parseAuthenticatedCLIStatus(result: string): boolean {
+  let value: unknown = result
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (typeof value === 'string') {
+      try {
+        value = JSON.parse(value)
+        continue
+      } catch {
+        return false
+      }
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false
+    }
+    const record = value as Record<string, unknown>
+    if (typeof record.authenticated === 'boolean') {
+      return record.authenticated
+    }
+    if (record.data !== undefined) {
+      value = record.data
+      continue
+    }
+    if (typeof record.stdout === 'string') {
+      value = record.stdout
+      continue
+    }
+    return false
+  }
+  return false
+}
+
+function safeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'The request failed.'
+}
+
+function toolMatchesIntent(
+  name: string,
+  intent: ReturnType<typeof getGitHubReadIntent>
+): boolean {
+  if (!intent) return false
+  const canonicalName = LOCAL_TO_OAUTH_GITHUB_TOOL[name] ?? name
+  const expectedName = {
+    status: 'github.oauth.auth.status',
+    repositories: 'github.oauth.repositories.list',
+    repository_search: 'github.oauth.repositories.search',
+    issues: 'github.oauth.issues.list',
+    pull_requests: 'github.oauth.pull_requests.list',
+  }[intent]
+  return canonicalName === expectedName
+}
+
 /**
  * In a browser, account-backed web tools must take precedence over same-named
  * device tools. This keeps GitHub OAuth/API reads available when a paired
@@ -542,7 +657,196 @@ export function createBrowserAgentToolProvider(
   bridgeProvider?: LocalToolProvider,
   bridgeConnected = true
 ): LocalToolProvider {
-  return bridgeProvider && bridgeConnected
-    ? combineLocalToolProviders(webAgentToolProvider, bridgeProvider)
-    : webAgentToolProvider
+  let routedMessages: ChatCompletionMessage[] = []
+  const isBridgeConnected = () =>
+    Boolean(bridgeProvider && bridgeConnected && bridgeProvider.isAvailable())
+  const browserWebProvider: LocalToolProvider = {
+    ...webAgentToolProvider,
+    shouldRunTool: (call, messages) => {
+      const request = latestUserRequestText(messages)
+      const intent = getGitHubReadIntent(request)
+      if (
+        call.function.name.startsWith('github.oauth.') &&
+        intent &&
+        explicitlyTargetsLocalGitHub(request) &&
+        !isBridgeConnected()
+      ) {
+        return toolMatchesIntent(call.function.name, intent)
+      }
+      return webAgentToolProvider.shouldRunTool?.(call, messages) ?? true
+    },
+  }
+  const combined = bridgeProvider
+    ? combineLocalToolProviders(browserWebProvider, bridgeProvider)
+    : browserWebProvider
+
+  const invokeOAuthFallback = async (
+    call: ChatCompletionToolCall,
+    signal: AbortSignal,
+    oauthName: string
+  ): Promise<string> => {
+    try {
+      const raw = await webAgentToolProvider.invoke(
+        renameToolCall(call, oauthName),
+        signal
+      )
+      return JSON.stringify({
+        source: 'browser GitHub OAuth',
+        operation: oauthName,
+        data: JSON.parse(raw),
+      })
+    } catch (error) {
+      if (signal.aborted) throw error
+      return JSON.stringify({
+        source: 'browser GitHub OAuth',
+        operation: oauthName,
+        error: safeErrorMessage(error),
+      })
+    }
+  }
+
+  const invokeLocalGitHub = async (
+    call: ChatCompletionToolCall,
+    signal: AbortSignal,
+    localName: string
+  ): Promise<string> => {
+    if (!bridgeProvider || !isBridgeConnected()) {
+      if (localName === 'github.auth.status') {
+        return JSON.stringify({ error: 'The local GitHub CLI is unavailable.' })
+      }
+      const oauthName = LOCAL_TO_OAUTH_GITHUB_TOOL[localName]
+      return oauthName
+        ? invokeOAuthFallback(call, signal, oauthName)
+        : JSON.stringify({ error: 'The local GitHub CLI is unavailable.' })
+    }
+
+    if (localName !== 'github.auth.status') {
+      const statusCall = renameToolCall(call, 'github.auth.status')
+      statusCall.function.arguments = '{}'
+      try {
+        const status = await bridgeProvider.invoke(statusCall, signal)
+        if (!parseAuthenticatedCLIStatus(status)) {
+          const oauthName = LOCAL_TO_OAUTH_GITHUB_TOOL[localName]
+          return oauthName
+            ? invokeOAuthFallback(call, signal, oauthName)
+            : JSON.stringify({ error: 'The local GitHub CLI is not signed in.' })
+        }
+      } catch (error) {
+        if (signal.aborted) throw error
+        const oauthName = LOCAL_TO_OAUTH_GITHUB_TOOL[localName]
+        if (oauthName) return invokeOAuthFallback(call, signal, oauthName)
+        return JSON.stringify({ error: safeErrorMessage(error) })
+      }
+    }
+
+    try {
+      return await bridgeProvider.invoke(renameToolCall(call, localName), signal)
+    } catch (error) {
+      if (signal.aborted) throw error
+      if (localName === 'github.auth.status') {
+        return JSON.stringify({ error: safeErrorMessage(error) })
+      }
+      const oauthName = LOCAL_TO_OAUTH_GITHUB_TOOL[localName]
+      return oauthName
+        ? invokeOAuthFallback(call, signal, oauthName)
+        : JSON.stringify({ error: safeErrorMessage(error) })
+    }
+  }
+
+  return {
+    ...combined,
+    isAvailable: () => true,
+    availableTools: (messages = []) => {
+      routedMessages = messages
+      return (combined.availableTools?.(messages) ?? combined.tools).filter((tool) => {
+        const name = tool.function.name
+        if (name.startsWith('github.oauth.')) {
+          return shouldAdvertiseBrowserGitHubTool(
+            name,
+            messages,
+            isBridgeConnected()
+          )
+        }
+        if (name.startsWith('github.')) {
+          return shouldAdvertiseBrowserGitHubTool(
+            name,
+            messages,
+            isBridgeConnected()
+          )
+        }
+        if (name.startsWith('web.')) {
+          return shouldAdvertiseWebAgentTool(name, messages)
+        }
+        return true
+      })
+    },
+    shouldRunTool: (call, messages) => {
+      routedMessages = messages
+      const name = call.function.name
+      const intent = getGitHubReadIntent(latestUserRequestText(messages))
+      if (!name.startsWith('github.')) {
+        return combined.shouldRunTool?.(call, messages) ?? true
+      }
+      if (!intent) return false
+      const localRequested = explicitlyTargetsLocalGitHub(
+        latestUserRequestText(messages)
+      )
+      if (!localRequested) {
+        if (name in LOCAL_TO_OAUTH_GITHUB_TOOL) {
+          return shouldRunGitHubTool(
+            renameToolCall(
+              call,
+              LOCAL_TO_OAUTH_GITHUB_TOOL[name] ?? name
+            ),
+            messages,
+            'oauth'
+          )
+        }
+        return shouldRunGitHubTool(call, messages, 'oauth')
+      }
+      if (!isBridgeConnected() || !bridgeProvider) {
+        return toolMatchesIntent(name, intent)
+      }
+      if (name === 'github.oauth.repositories.list') {
+        return shouldRunGitHubTool(call, messages, 'oauth')
+      }
+      if (name in OAUTH_TO_LOCAL_GITHUB_TOOL) {
+        return shouldRunGitHubTool(
+          renameToolCall(
+            call,
+            OAUTH_TO_LOCAL_GITHUB_TOOL[name] ?? name
+          ),
+          messages,
+          'local'
+        )
+      }
+      return shouldRunGitHubTool(call, messages, 'local')
+    },
+    invoke: async (call, signal) => {
+      const name = call.function.name
+      if (!name.startsWith('github.')) {
+        return combined.invoke(call, signal)
+      }
+      const requestText = latestUserRequestText(routedMessages)
+      if (!getGitHubReadIntent(requestText)) {
+        return combined.invoke(call, signal)
+      }
+      const localRequested = explicitlyTargetsLocalGitHub(requestText)
+      const oauthName = LOCAL_TO_OAUTH_GITHUB_TOOL[name]
+      const localName = OAUTH_TO_LOCAL_GITHUB_TOOL[name]
+      if (oauthName) {
+        if (!localRequested) {
+          return invokeOAuthFallback(call, signal, oauthName)
+        }
+        return invokeLocalGitHub(call, signal, name)
+      }
+      if (localName) {
+        if (localRequested) {
+          return invokeLocalGitHub(call, signal, localName)
+        }
+        return invokeOAuthFallback(call, signal, name)
+      }
+      return combined.invoke(call, signal)
+    },
+  }
 }

@@ -17,9 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type {
+  ChatCompletionMessage,
   ChatCompletionTool,
+  ChatCompletionToolCall,
   LocalToolProvider,
 } from '@/features/playground/types'
+
+import { shouldRunGitHubTool } from './agent-tool-routing'
 
 type TauriInvoke = (
   command: string,
@@ -504,6 +508,10 @@ function readCliResult(value: unknown): CliExecResult {
 export const localAgentToolProvider: LocalToolProvider = {
   tools: TOOLS,
   isAvailable: () => getInvoke() !== null,
+  shouldRunTool: (call: ChatCompletionToolCall, messages: ChatCompletionMessage[]) =>
+    call.function.name.startsWith('github.')
+      ? shouldRunGitHubTool(call, messages, 'local')
+      : true,
   invoke: async (call, signal) => {
     if (!TOOLS.some((tool) => tool.function.name === call.function.name)) {
       throw new Error(`Tool is not allowed: ${call.function.name}.`)

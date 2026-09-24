@@ -413,10 +413,20 @@ export function combineLocalToolProviders(
     )
   return {
     tools: [...toolsByName.values()],
-    availableTools: () => {
+    availableTools: (messages) => {
       const currentTools = new Map<string, ChatCompletionTool>()
       for (const provider of providers) {
-        for (const tool of provider.availableTools?.() ?? provider.tools) {
+        for (const tool of
+          provider.availableTools?.(messages) ?? provider.tools) {
+          const shouldRun = provider.shouldRunTool?.(
+            {
+              id: 'availability-check',
+              type: 'function',
+              function: { name: tool.function.name, arguments: '{}' },
+            },
+            messages ?? []
+          )
+          if (shouldRun === false) continue
           if (!currentTools.has(tool.function.name)) {
             currentTools.set(tool.function.name, tool)
           }
@@ -431,6 +441,10 @@ export function combineLocalToolProviders(
         if (response) return response
       }
       return null
+    },
+    shouldRunTool: (call, messages) => {
+      const provider = findProvider(call.function.name)
+      return provider?.shouldRunTool?.(call, messages) ?? true
     },
     requiresApproval: async (call, signal) => {
       const provider = findProvider(call.function.name)

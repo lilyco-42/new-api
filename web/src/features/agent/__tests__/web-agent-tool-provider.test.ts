@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { runLocalToolLoop } from '@/features/playground/hooks/local-tool-loop'
 import type {
+  ChatCompletionMessage,
   ChatCompletionRequest,
   ChatCompletionToolCall,
   LocalToolProvider,
@@ -12,14 +13,14 @@ import {
   crawlClientSite,
   fetchClientPage,
   searchClientSources,
-} from './client-crawler/client-crawler'
+} from '../client-crawler/client-crawler'
 import {
   createBrowserAgentToolProvider,
   webAgentToolProvider,
-} from './web-agent-tool-provider'
+} from '../web-agent-tool-provider'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn() } }))
-vi.mock('./client-crawler/client-crawler', () => ({
+vi.mock('../client-crawler/client-crawler', () => ({
   crawlClientSite: vi.fn(),
   fetchClientPage: vi.fn(),
   searchClientSources: vi.fn(),
@@ -351,6 +352,167 @@ describe('webAgentToolProvider', () => {
       new AbortController().signal
     )
     expect(bridgeInvoke).toHaveBeenCalledOnce()
+  })
+
+  it('advertises browser OAuth rather than local gh for a normal repository request', () => {
+    const bridgeProvider: LocalToolProvider = {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'github.repositories.search',
+            parameters: { type: 'object' },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'github.auth.status',
+            parameters: { type: 'object' },
+          },
+        },
+      ],
+      isAvailable: () => true,
+      invoke: vi.fn(),
+    }
+    const provider = createBrowserAgentToolProvider(bridgeProvider, true)
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: '查看我的 GitHub 仓库' },
+    ]
+    const names = provider
+      .availableTools?.(messages)
+      .map((tool) => tool.function.name)
+
+    expect(names).toContain('github.oauth.repositories.list')
+    expect(names).not.toContain('github.repositories.search')
+    expect(names).not.toContain('github.auth.status')
+  })
+
+  it('lists repositories through the connected GitHub OAuth account', async () => {
+    const bridgeProvider: LocalToolProvider = {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'github.repositories.search',
+            parameters: { type: 'object' },
+          },
+        },
+      ],
+      isAvailable: () => true,
+      invoke: vi.fn(),
+    }
+    const provider = createBrowserAgentToolProvider(bridgeProvider, true)
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: '查看我的 GitHub 仓库' },
+    ]
+    const names = provider
+      .availableTools?.(messages)
+      .map((tool) => tool.function.name)
+    expect(names).toContain('github.oauth.repositories.list')
+
+    await provider.invoke(
+      toolCall('github.oauth.repositories.list', { limit: 4 }),
+      new AbortController().signal
+    )
+
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/github/repositories',
+      expect.objectContaining({ params: { limit: 4 } })
+    )
+    expect(bridgeProvider.invoke).not.toHaveBeenCalled()
+  })
+
+  it('routes a stale local gh tool call to browser OAuth for a normal web request', async () => {
+    const bridgeInvoke = vi.fn(async () => 'should not be called')
+    const bridgeProvider: LocalToolProvider = {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'github.repositories.search',
+            parameters: { type: 'object' },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'github.auth.status',
+            parameters: { type: 'object' },
+          },
+        },
+      ],
+      isAvailable: () => true,
+      invoke: bridgeInvoke,
+    }
+    const provider = createBrowserAgentToolProvider(bridgeProvider, true)
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: '搜索 Rust 的 GitHub 仓库' },
+    ]
+    provider.availableTools?.(messages)
+
+    const result = await provider.invoke(
+      toolCall('github.repositories.search', { query: 'owner projects' }),
+      new AbortController().signal
+    )
+
+    expect(bridgeInvoke).not.toHaveBeenCalled()
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/github/repositories/search',
+      expect.objectContaining({ params: { q: 'owner projects', limit: 10 } })
+    )
+    expect(result).toContain('browser GitHub OAuth')
+  })
+
+  it('falls back to OAuth when an explicitly requested local CLI is not authenticated', async () => {
+    const bridgeInvoke = vi.fn(async (call: ChatCompletionToolCall) => {
+      expect(call.function.name).toBe('github.auth.status')
+      return JSON.stringify({
+        source: 'paired desktop gh cli',
+        data: { authenticated: false },
+      })
+    })
+    const bridgeProvider: LocalToolProvider = {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'github.repositories.search',
+            parameters: { type: 'object' },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'github.auth.status',
+            parameters: { type: 'object' },
+          },
+        },
+      ],
+      isAvailable: () => true,
+      invoke: bridgeInvoke,
+    }
+    const provider = createBrowserAgentToolProvider(bridgeProvider, true)
+    const messages: ChatCompletionMessage[] = [
+      {
+        role: 'user',
+        content:
+          '请在我的 Radxa A7A 上用本机 gh CLI 搜索 Rust 的 GitHub 仓库',
+      },
+    ]
+    provider.availableTools?.(messages)
+
+    const result = await provider.invoke(
+      toolCall('github.repositories.search', { query: 'owner projects' }),
+      new AbortController().signal
+    )
+
+    expect(bridgeInvoke).toHaveBeenCalledOnce()
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/github/repositories/search',
+      expect.objectContaining({ params: { q: 'owner projects', limit: 10 } })
+    )
+    expect(result).toContain('browser GitHub OAuth')
   })
 
   it('does not advertise paired-device tools while that device is offline', () => {

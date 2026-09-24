@@ -23,7 +23,40 @@ import type {
   PlaygroundConfig,
   ParameterEnabled,
 } from '../../types'
-import { formatMessageForAPI, isValidMessage } from '../message/message-utils'
+import {
+  formatMessageForAPI,
+  getCurrentVersion,
+  isValidMessage,
+} from '../message/message-utils'
+
+const MAX_FOLLOW_UP_CONTEXT_MESSAGES = 8
+
+function getMessageText(message: Message): string {
+  const version = getCurrentVersion(message)
+  const attachmentText =
+    version.parts
+      ?.filter((part) => part.type === 'text')
+      .map((part) => part.text ?? '')
+      .join('\n') ?? ''
+  return [version.content, attachmentText].filter(Boolean).join('\n').trim()
+}
+
+function isFollowUpRequest(message: Message): boolean {
+  const text = getMessageText(message).toLocaleLowerCase().replace(/\s+/gu, ' ')
+  if (!text) return true
+
+  if (
+    /^(?:what is|who is|define|explain|search|find|look up|tell me about|introduce|what does .+ mean|what are|how to\b|how do i\b|why\b|如何|怎么|为什么|什么是|.+是什么|.+是谁|解释一下|介绍一下|搜索|查找|查看|列出|帮我(?:查|找|搜索|查看)|请(?:查|找|搜索|查看))/iu.test(
+      text
+    )
+  ) {
+    return false
+  }
+
+  return /^(?:and\b|also\b|then\b|it\b|that\b|this\b|those\b|these\b|its\b|they\b|how about\b|what about\b|continue\b|tell me more\b|use (?:chinese|english)|answer in\b|那|这个|它|这些|继续|接着|再说|刚才|上面|之前|还有|然后|详细说|简短点|用(?:中文|英文)|改成|不要|同样)/iu.test(
+    text
+  )
+}
 
 function excludeFailedTurns(messages: Message[]): Message[] {
   const excludedIndices = new Set<number>()
@@ -45,16 +78,50 @@ function excludeFailedTurns(messages: Message[]): Message[] {
   return messages.filter((_, index) => !excludedIndices.has(index))
 }
 
+function selectRelevantConversationContext(messages: Message[]): Message[] {
+  const systemMessages = messages.filter(
+    (message) => message.from === MESSAGE_ROLES.SYSTEM
+  )
+  const conversationMessages = messages.filter(
+    (message) => message.from !== MESSAGE_ROLES.SYSTEM
+  )
+  let latestUserIndex = -1
+  for (let index = conversationMessages.length - 1; index >= 0; index -= 1) {
+    if (conversationMessages[index]?.from === MESSAGE_ROLES.USER) {
+      latestUserIndex = index
+      break
+    }
+  }
+
+  if (latestUserIndex < 0) return [...systemMessages, ...conversationMessages]
+
+  const latestUserMessage = conversationMessages[latestUserIndex]
+  if (!isFollowUpRequest(latestUserMessage)) {
+    return [...systemMessages, latestUserMessage]
+  }
+
+  return [
+    ...systemMessages,
+    ...conversationMessages.slice(
+      Math.max(0, latestUserIndex - MAX_FOLLOW_UP_CONTEXT_MESSAGES + 1)
+    ),
+  ]
+}
+
 /**
  * Build API request payload from messages and config
  */
 export function buildChatCompletionPayload(
   messages: Message[],
   config: PlaygroundConfig,
-  parameterEnabled: ParameterEnabled
+  parameterEnabled: ParameterEnabled,
+  isolateAgentTurnContext = false
 ): ChatCompletionRequest {
   // Filter and format valid messages
-  const processedMessages = excludeFailedTurns(messages)
+  const contextMessages = excludeFailedTurns(messages)
+  const processedMessages = (isolateAgentTurnContext
+    ? selectRelevantConversationContext(contextMessages)
+    : contextMessages)
     .filter(isValidMessage)
     .map(formatMessageForAPI)
 

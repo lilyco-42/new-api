@@ -86,6 +86,7 @@ func SetApiRouter(router *gin.Engine) {
 			browserAgentRoute.Use(middleware.UserAuth(), middleware.SearchRateLimit(), middleware.DisableCache())
 			browserAgentRoute.GET("/search", controller.AgentWebSearch)
 			browserAgentRoute.GET("/fetch", controller.AgentWebFetch)
+			browserAgentRoute.GET("/github/repositories", controller.AgentGitHubRepositoriesList)
 			browserAgentRoute.GET("/github/repositories/search", controller.AgentGitHubRepositoriesSearch)
 			browserAgentRoute.GET("/github/issues", controller.AgentGitHubIssues)
 			browserAgentRoute.GET("/github/pull-requests", controller.AgentGitHubPullRequests)
