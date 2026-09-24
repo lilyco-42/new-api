@@ -185,6 +185,25 @@ export const WEB_AGENT_TOOLS: ChatCompletionTool[] = [
   GITHUB_PULL_REQUESTS_TOOL,
 ]
 
+function localPreflightResponse(
+  id: string,
+  content: string
+): ChatCompletionResponse {
+  return {
+    id,
+    object: 'chat.completion',
+    created: Date.now(),
+    model: 'local-preflight',
+    choices: [
+      {
+        index: 0,
+        message: { role: 'assistant', content },
+        finish_reason: 'stop',
+      },
+    ],
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Tool arguments must be a JSON object.')
@@ -391,34 +410,65 @@ export const webAgentToolProvider: LocalToolProvider = {
     const content = latestUserMessage?.content
     let text = ''
     if (typeof content === 'string') {
-      text = content
+      text = content.trim()
     } else if (
       Array.isArray(content) &&
       content.every((part) => part.type === 'text')
     ) {
-      text = content.map((part) => part.text ?? '').join('\n')
+      text = content
+        .map((part) => part.text ?? '')
+        .join('\n')
+        .trim()
     }
-    if (!/^\p{N}+$/u.test(text.trim())) {
-      return null
+    if (/^\p{N}+$/u.test(text)) {
+      return localPreflightResponse(
+        'local-ambiguous-number',
+        `你发来的是一个数字（${text}）。你希望我帮你做什么？可以补充计算、编号查询或相关背景。`
+      )
     }
 
-    const response: ChatCompletionResponse = {
-      id: 'local-ambiguous-number',
-      object: 'chat.completion',
-      created: Date.now(),
-      model: 'local-preflight',
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: `你发来的是一个数字（${text.trim()}）。你希望我帮你做什么？可以补充计算、编号查询或相关背景。`,
-          },
-          finish_reason: 'stop',
-        },
-      ],
+    const normalized = text.toLocaleLowerCase().replace(/\s+/gu, ' ')
+    if (
+      normalized.length <= 48 &&
+      /(?:刚才|刚刚|之前).{0,18}(?:问候|问好|打招呼)|(?:我只是|我就只是|我刚才只是).{0,18}(?:问候|问好|打招呼)/u.test(
+        normalized
+      )
+    ) {
+      return localPreflightResponse(
+        'local-greeting-correction',
+        '抱歉，刚才答偏了。你好！我在这里，会先回应你当前这条消息。'
+      )
     }
-    return response
+
+    if (
+      /^(?:hi|hello|hey|hiya|你好|您好|嗨|哈喽|早安|早上好|晚上好|晚安|在吗)[!！,.，。?？~～]*$/iu.test(
+        normalized
+      )
+    ) {
+      const greeting = /^(?:hi|hello|hey|hiya)\b/iu.test(normalized)
+        ? "Hi! I'm here. What would you like help with?"
+        : '你好！我在这里，可以帮你查资料、看代码或处理其他问题。你想先做什么？'
+      return localPreflightResponse('local-greeting', greeting)
+    }
+
+    if (/^[?？!！.,，。…~～\s]+$/u.test(text)) {
+      return localPreflightResponse(
+        'local-ambiguous-message',
+        '我看到你发的是一个标点。你想继续刚才的话题，还是有新的问题？'
+      )
+    }
+
+    if (
+      normalized.length <= 64 &&
+      /(?:你在干嘛|你在干什么|我问你话|答非所问|回答跑题)/u.test(normalized)
+    ) {
+      return localPreflightResponse(
+        'local-conversation-repair',
+        '抱歉，刚才没有接住你当前的问题。我会以你最新发来的内容为准；你可以直接告诉我想继续哪件事。'
+      )
+    }
+
+    return null
   },
   requiresApproval: async (call, signal) => {
     if (signal.aborted) return false

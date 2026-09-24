@@ -122,6 +122,58 @@ describe('webAgentToolProvider', () => {
     expect(imageQuestion).toBeNull()
   })
 
+  it('answers a greeting from the latest turn without carrying over an old topic', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [
+        { role: 'user', content: 'DeepSeek 是什么？' },
+        {
+          role: 'assistant',
+          content: 'DeepSeek 是一个编程代理。',
+        },
+        { role: 'user', content: '你好' },
+      ],
+      stream: false,
+    }
+    const request = vi.fn(async () => {
+      throw new Error('A standalone greeting should not reach the model.')
+    })
+
+    const response = await runLocalToolLoop(
+      payload,
+      webAgentToolProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain('你好')
+    expect(response.choices[0]?.message.content).not.toContain('DeepSeek')
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('asks for clarification on punctuation instead of repeating the previous answer', () => {
+    const response = webAgentToolProvider.preflight?.([
+      { role: 'user', content: 'DeepSeek 是什么？' },
+      { role: 'assistant', content: '旧话题回复' },
+      { role: 'user', content: '?' },
+    ])
+
+    expect(response?.choices[0]?.message.content).toContain('标点')
+    expect(response?.choices[0]?.message.content).not.toContain('旧话题')
+  })
+
+  it('acknowledges a correction about a greeting without reusing prior context', () => {
+    const response = webAgentToolProvider.preflight?.([
+      { role: 'user', content: 'DeepSeek 是什么？' },
+      { role: 'assistant', content: '旧话题回复' },
+      { role: 'user', content: '刚才不是只问了个问好' },
+    ])
+
+    expect(response?.choices[0]?.message.content).toContain('刚才答偏了')
+    expect(response?.choices[0]?.message.content).not.toContain('旧话题')
+  })
+
   it('runs local preflight before falling back from an unavailable provider', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
