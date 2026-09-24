@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-24  
 **Severity**: Medium (confusing authentication guidance)  
-**Status**: Fixed and deployed to production as `agent-08d2a63`
+**Status**: Follow-up fix in source; awaiting CI and production deployment
 
 ## Problem
 
@@ -10,12 +10,12 @@ The Agent could show `OAuth connected · lilyco-42` and still tell the user to r
 
 ## Fix
 
-Render local `gh` status, login details, and CLI setup instructions only when the Tauri runtime is present. In browser sessions, correct pasted OAuth/CLI confusion locally and require a structured GitHub read call for repository, issue, and pull-request requests. Normal browser reads use the site's GitHub OAuth API; they do not depend on device `gh` authentication.
+Render local `gh` status, login details, and CLI setup instructions only when the Tauri runtime is present. In browser sessions, correct pasted OAuth/CLI confusion locally and read the user's repository list directly through the OAuth API before asking the model to answer. This avoids depending on models that ignore tool requests or emit invalid forced-tool JSON. Repository reads do not depend on device `gh` authentication.
 
 ## Regression coverage
 
-Tests assert that browser sessions hide local `gh` login controls, that the OAuth repository endpoint is called for "view my repositories", and that tool-required requests use the structured tool loop.
+Tests assert that browser sessions hide local `gh` login controls, that the OAuth repository endpoint is called for "view my repositories" without a model request, and that asynchronous pre-model handling works when tool providers are combined.
 
 ## Verification
 
-GitHub Actions run `35966835540` passed frontend build/tests, agent API tests, device re-pair lifecycle tests, and the Linux amd64 server build. Its binary SHA-256 (`4dbb45e316b13e7ec6a1221a251f73de4a6dad6cb4c11ab06ef831a5f5a0382a`) matches the deployed container. Production reports the new image healthy and serves both `/agent` and `/api/status` with HTTP 200. The prior image remains available for rollback. Do not use a local build for this project.
+GitHub Actions run `35966835540` passed the previous iteration, but an online test with the site's default Llama model showed that `tool_choice: required` can produce invalid tool JSON. That iteration was replaced by a client-side OAuth repository read. Verify it in GitHub Actions and redeploy; do not use a local build for this project.

@@ -95,41 +95,29 @@ describe('local structured tool loop', () => {
     expect(result).toBe(localAnswer)
   })
 
-  test('requires a structured tool call when the provider marks it necessary', async () => {
-    const requests: ChatCompletionRequest[] = []
-    const request = vi.fn(async (payload: ChatCompletionRequest) => {
-      requests.push(payload)
-      return requests.length === 1
-        ? response({
-            role: 'assistant',
-            content: null,
-            tool_calls: [
-              {
-                id: 'required-tool-call',
-                type: 'function',
-                function: { name: 'github.issues.list', arguments: '{}' },
-              },
-            ],
-          })
-        : response({ role: 'assistant', content: 'tool result complete' })
+  test('resolves async provider work before making a model request', async () => {
+    const localAnswer = response({
+      role: 'assistant',
+      content: 'OAuth repository result.',
     })
-    const requiredProvider: LocalToolProvider = {
+    const request = vi.fn(async () => {
+      throw new Error('The model must not be called after a handled request.')
+    })
+    const providerWithBeforeModel: LocalToolProvider = {
       ...provider(async () => 'tool result'),
-      shouldRequireToolCall: () => true,
+      beforeModel: async () => localAnswer,
     }
 
     const result = await runLocalToolLoop(
       initialPayload,
-      requiredProvider,
+      providerWithBeforeModel,
       new AbortController().signal,
       undefined,
       request
     )
 
-    expect(request).toHaveBeenCalledTimes(2)
-    expect(requests[0]?.tool_choice).toBe('required')
-    expect(requests[1]?.tool_choice).toBe('auto')
-    expect(result.choices[0]?.message.content).toBe('tool result complete')
+    expect(request).not.toHaveBeenCalled()
+    expect(result).toBe(localAnswer)
   })
 
   test('executes a structured call and gives the result back to the model', async () => {

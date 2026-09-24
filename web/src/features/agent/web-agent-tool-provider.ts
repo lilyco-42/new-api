@@ -230,6 +230,58 @@ function localPreflightResponse(
   }
 }
 
+function formatGitHubRepositories(raw: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return 'GitHub OAuth 返回了无法识别的仓库列表，请稍后重试。'
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return 'GitHub OAuth 返回了无法识别的仓库列表，请稍后重试。'
+  }
+  const outer = parsed as Record<string, unknown>
+  const data =
+    outer.data && typeof outer.data === 'object' && !Array.isArray(outer.data)
+      ? (outer.data as Record<string, unknown>)
+      : outer
+  const values = Array.isArray(data.items)
+    ? data.items
+    : Array.isArray(data.repositories)
+      ? data.repositories
+      : null
+  if (!values) {
+    return 'GitHub OAuth 没有返回仓库列表，请稍后重试。'
+  }
+  const repositories = values.flatMap((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+    const repository = value as Record<string, unknown>
+    const fullName = repository.full_name
+    if (
+      typeof fullName !== 'string' ||
+      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName) ||
+      fullName.split('/').some((part) => part === '.' || part === '..')
+    ) {
+      return []
+    }
+    const visibility = repository.private === true ? '私有' : '公开'
+    const stars =
+      typeof repository.stargazers_count === 'number' &&
+      Number.isFinite(repository.stargazers_count)
+        ? ` · ★ ${Math.max(0, Math.trunc(repository.stargazers_count))}`
+        : ''
+    return [`- [${fullName}](https://github.com/${fullName})（${visibility}${stars}）`]
+  })
+  if (repositories.length === 0) {
+    return 'GitHub OAuth 读取成功，但当前账号没有可访问的仓库。'
+  }
+  return [
+    `已通过连接的 GitHub OAuth 获取到 ${repositories.length} 个仓库：`,
+    '',
+    ...repositories,
+  ].join('\n')
+}
+
 function hasConnectedOAuthCliLoginConfusion(text: string): boolean {
   const normalized = text.replace(/\s+/gu, ' ')
   const oauthConnected =
@@ -448,8 +500,6 @@ export const webAgentToolProvider: LocalToolProvider = {
   tools: WEB_AGENT_TOOLS,
   isAvailable: () => true,
   shouldRunTool: (call, messages) => shouldRunWebAgentTool(call, messages),
-  shouldRequireToolCall: (messages) =>
-    getGitHubReadIntent(latestUserRequestText(messages)) !== null,
   preflight: (messages) => {
     let latestUserMessage: ChatCompletionMessage | undefined
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -530,6 +580,42 @@ export const webAgentToolProvider: LocalToolProvider = {
     }
 
     return null
+  },
+  beforeModel: async (messages, signal) => {
+    const request = latestUserRequestText(messages)
+    if (
+      getGitHubReadIntent(request) !== 'repositories' ||
+      explicitlyTargetsLocalGitHub(request)
+    ) {
+      return null
+    }
+    try {
+      const result = await webAgentToolProvider.invoke(
+        {
+          id: 'github-repository-preflight',
+          type: 'function',
+          function: {
+            name: 'github.oauth.repositories.list',
+            arguments: '{"limit":10}',
+          },
+        },
+        signal
+      )
+      return localPreflightResponse(
+        'browser-github-oauth-repositories',
+        formatGitHubRepositories(result)
+      )
+    } catch (error) {
+      if (signal.aborted) throw error
+      const detail = safeErrorMessage(error)
+      const response = /[\u3400-\u9fff]/u.test(request)
+        ? `GitHub OAuth 仓库读取失败：${detail}。这与本机 GitHub CLI 是否登录无关。`
+        : `GitHub OAuth repository lookup failed: ${detail}. This is unrelated to whether the local GitHub CLI is signed in.`
+      return localPreflightResponse(
+        'browser-github-oauth-repositories-error',
+        response
+      )
+    }
   },
   requiresApproval: async (call, signal) => {
     if (signal.aborted) return false

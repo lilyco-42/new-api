@@ -442,12 +442,17 @@ export function combineLocalToolProviders(
       }
       return null
     },
+    beforeModel: async (messages, signal) => {
+      for (const provider of providers) {
+        const response = await provider.beforeModel?.(messages, signal)
+        if (response) return response
+      }
+      return null
+    },
     shouldRunTool: (call, messages) => {
       const provider = findProvider(call.function.name)
       return provider?.shouldRunTool?.(call, messages) ?? true
     },
-    shouldRequireToolCall: (messages) =>
-      providers.some((provider) => provider.shouldRequireToolCall?.(messages)),
     requiresApproval: async (call, signal) => {
       const provider = findProvider(call.function.name)
       if (!provider) {

@@ -96,12 +96,15 @@ export interface LocalToolProvider {
     call: ChatCompletionToolCall,
     messages: ChatCompletionMessage[]
   ) => boolean
-  /** Require an actual structured tool call for requests that must use a tool. */
-  shouldRequireToolCall?: (messages: ChatCompletionMessage[]) => boolean
   /** Return a local answer before making a model or tool request, when needed. */
   preflight?: (
     messages: ChatCompletionMessage[]
   ) => ChatCompletionResponse | null
+  /** Resolve deterministic read requests before asking the model to respond. */
+  beforeModel?: (
+    messages: ChatCompletionMessage[],
+    signal: AbortSignal
+  ) => ChatCompletionResponse | null | Promise<ChatCompletionResponse | null>
   /**
    * Optional approval gate for tools that can affect external systems. The
    * loop must wait for a user decision before invoking the tool.

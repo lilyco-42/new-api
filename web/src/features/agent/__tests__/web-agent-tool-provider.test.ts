@@ -424,36 +424,15 @@ describe('webAgentToolProvider', () => {
     expect(names).not.toContain('github.auth.status')
   })
 
-  it('requires a GitHub OAuth tool call instead of letting the model guess repository access', async () => {
-    const provider = createBrowserAgentToolProvider(undefined, false)
-    const request = vi.fn(async (payload: ChatCompletionRequest) => {
-      expect(payload.tool_choice).toBe('required')
-      return {
-        id: 'repo-list',
-        object: 'chat.completion',
-        created: 1,
-        model: 'test-model',
-        choices: [
-          {
-            index: 0,
-            finish_reason: 'tool_calls',
-            message: {
-              role: 'assistant' as const,
-              content: null,
-              tool_calls: [
-                {
-                  id: 'repo-list-call',
-                  type: 'function' as const,
-                  function: {
-                    name: 'github.oauth.repositories.list',
-                    arguments: '{}',
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      }
+  it('lists the connected account repositories before asking the model', async () => {
+    const bridgeProvider: LocalToolProvider = {
+      tools: [],
+      isAvailable: () => true,
+      invoke: vi.fn(),
+    }
+    const provider = createBrowserAgentToolProvider(bridgeProvider, true)
+    const request = vi.fn(async () => {
+      throw new Error('The model must not be called for repository listing.')
     })
     vi.mocked(api.get).mockResolvedValueOnce({
       data: {
@@ -493,7 +472,37 @@ describe('webAgentToolProvider', () => {
     expect(result.choices[0]?.message.content).toContain(
       'lilyco-42/new-api'
     )
-    expect(request).toHaveBeenCalledOnce()
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('reports OAuth repository failures without blaming local gh login', async () => {
+    const provider = createBrowserAgentToolProvider(undefined, false)
+    const request = vi.fn(async () => {
+      throw new Error('The model must not be called for repository listing.')
+    })
+    vi.mocked(api.get).mockRejectedValueOnce(
+      new Error('Request failed with status code 401')
+    )
+
+    const result = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [{ role: 'user', content: '查看我的 GitHub 仓库' }],
+        stream: false,
+      },
+      provider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toContain(
+      'GitHub OAuth 仓库读取失败'
+    )
+    expect(result.choices[0]?.message.content).toContain(
+      '这与本机 GitHub CLI 是否登录无关'
+    )
+    expect(request).not.toHaveBeenCalled()
   })
 
   it('lists repositories through the connected GitHub OAuth account', async () => {

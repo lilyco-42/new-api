@@ -300,11 +300,17 @@ export async function runLocalToolLoop(
   assertSignal(signal)
   const preflightResponse = provider.preflight?.(initialPayload.messages)
   if (preflightResponse) return preflightResponse
+  const beforeModelResponse = await provider.beforeModel?.(
+    initialPayload.messages,
+    signal
+  )
+  assertSignal(signal)
+  if (beforeModelResponse) return beforeModelResponse
   if (!provider.isAvailable()) return request(initialPayload, signal)
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
-  const initialTools = availableTools(provider, messages)
-  if (initialTools.length === 0) {
+  const tools = availableTools(provider, messages)
+  if (tools.length === 0) {
     return request(initialPayload, signal)
   }
   let response = await request(
@@ -312,10 +318,8 @@ export async function runLocalToolLoop(
       ...initialPayload,
       messages,
       stream: false,
-      tools: initialTools,
-      tool_choice: provider.shouldRequireToolCall?.(messages)
-        ? 'required'
-        : 'auto',
+      tools,
+      tool_choice: 'auto',
     },
     signal
   )
