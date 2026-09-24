@@ -680,7 +680,7 @@ mod tests {
             .expect("Actions must install the pinned official MCP Everything server fixture")
     }
 
-    async fn exercise_official_echo(client: McpClient) -> Result<(), String> {
+    async fn exercise_official_echo(mut client: McpClient) -> Result<(), String> {
         let tools =
             list_bounded_tools(&client, "official-everything", "Official Everything").await?;
         if !tools.iter().any(|tool| tool.name == "echo") {
