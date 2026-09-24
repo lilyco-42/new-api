@@ -532,22 +532,28 @@ describe('webAgentToolProvider', () => {
 
     const connected = createBrowserAgentToolProvider(bridgeProvider, true)
     const offline = createBrowserAgentToolProvider(bridgeProvider, false)
+    const webSearchMessages: ChatCompletionMessage[] = [
+      { role: 'user', content: '搜索 Rust 最近的 GitHub 项目' },
+    ]
+    const issueMessages: ChatCompletionMessage[] = [
+      { role: 'user', content: '查看 lilyco-42/new-api 的 issues' },
+    ]
 
-    expect(connected.tools.map((tool) => tool.function.name)).toContain(
-      'agent.workspace.list'
-    )
-    expect(offline.tools.map((tool) => tool.function.name)).not.toContain(
-      'agent.workspace.list'
-    )
-    expect(offline.tools.map((tool) => tool.function.name)).toContain(
-      'web.search'
-    )
-    expect(offline.tools.map((tool) => tool.function.name)).toContain(
-      'github.oauth.issues.list'
-    )
-    expect(offline.tools.map((tool) => tool.function.name)).not.toContain(
-      'github.issues.list'
-    )
+    const connectedNames = connected
+      .availableTools?.(webSearchMessages)
+      .map((tool) => tool.function.name)
+    const offlineSearchNames = offline
+      .availableTools?.(webSearchMessages)
+      .map((tool) => tool.function.name)
+    const offlineIssueNames = offline
+      .availableTools?.(issueMessages)
+      .map((tool) => tool.function.name)
+
+    expect(connectedNames).toContain('agent.workspace.list')
+    expect(offlineSearchNames).not.toContain('agent.workspace.list')
+    expect(offlineSearchNames).toContain('web.search')
+    expect(offlineIssueNames).toContain('github.oauth.issues.list')
+    expect(offlineIssueNames).not.toContain('github.issues.list')
   })
 
   it('removes paired-device tools from an in-flight provider after disconnect', () => {
@@ -566,13 +572,16 @@ describe('webAgentToolProvider', () => {
       invoke: vi.fn(),
     }
     const provider = createBrowserAgentToolProvider(bridgeProvider, true)
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: '搜索 Rust 最近的 GitHub 项目' },
+    ]
 
     expect(
-      provider.availableTools?.().map((tool) => tool.function.name)
+      provider.availableTools?.(messages).map((tool) => tool.function.name)
     ).toContain('agent.workspace.list')
     connected = false
     const availableToolNames = provider
-      .availableTools?.()
+      .availableTools?.(messages)
       .map((tool) => tool.function.name)
     expect(availableToolNames).not.toContain('agent.workspace.list')
     expect(availableToolNames).toContain('web.search')
