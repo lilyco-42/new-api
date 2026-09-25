@@ -104,6 +104,18 @@ export function getGitHubReadIntent(
     return null
   }
 
+  const mentionsRepositories =
+    /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text)
+  const explicitlyReadsRepositories =
+    mentionsRepositories &&
+    /(?:查看|看|列出|浏览|获取|读取|show|list|view|browse|get|read|fetch|inspect)/iu.test(
+      text
+    ) &&
+    !/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)
+  if (explicitlyReadsRepositories) {
+    return 'repositories'
+  }
+
   if (
     /(?:检查|查看|查询|确认|显示|check|show|tell me).{0,30}(?:github|gh|oauth).{0,24}(?:登录|连接|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in)|(?:github|gh|oauth).{0,24}(?:登录状态|连接状态|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in).{0,24}(?:吗|么|没|是否|check|show|status)?/iu.test(
       text
@@ -127,8 +139,6 @@ export function getGitHubReadIntent(
   ) {
     return 'pull_requests'
   }
-  const mentionsRepositories =
-    /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text)
   if (mentionsRepositories) {
     if (/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)) {
       return 'repository_search'
