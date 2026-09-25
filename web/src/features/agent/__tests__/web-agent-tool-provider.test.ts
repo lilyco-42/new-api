@@ -103,7 +103,30 @@ describe('webAgentToolProvider', () => {
     expect(searchClientSources).not.toHaveBeenCalled()
   })
 
-  it('requires browser grounding for a bare known AI provider name', () => {
+  it('answers a short say-hi prompt locally without relying on the model gateway', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'say hi' }],
+      stream: false,
+    }
+    const request = vi.fn(async () => {
+      throw new Error('A greeting should not need an inference request.')
+    })
+
+    const response = await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain('Hi!')
+    expect(request).not.toHaveBeenCalled()
+    expect(searchClientSources).not.toHaveBeenCalled()
+  })
+
+  it('does not force provider-native tool calling for a known AI entity', () => {
     const messages: ChatCompletionMessage[] = [
       { role: 'user', content: 'deepseek' },
     ]
@@ -111,7 +134,7 @@ describe('webAgentToolProvider', () => {
     const tools = provider.availableTools?.(messages) ?? []
 
     expect(tools.map((tool) => tool.function.name)).toContain('web.search')
-    expect(provider.getToolChoice?.(messages, tools)).toBe('required')
+    expect(provider.getToolChoice?.(messages, tools)).toBe('auto')
     expect(
       provider.getToolChoice?.(
         [
@@ -125,6 +148,171 @@ describe('webAgentToolProvider', () => {
         tools
       )
     ).toBe('auto')
+  })
+
+  it('passes browser search excerpts to the model without advertising tools', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
+      stream: false,
+    }
+    vi.mocked(searchClientSources).mockResolvedValue({
+      execution: 'browser-wasm',
+      query: 'DeepSeek 是什么？',
+      fetched_at: '2026-09-26T00:00:00.000Z',
+      sources: ['Hugging Face'],
+      warnings: [],
+      items: [
+        {
+          title: 'DeepSeek model collection',
+          url: 'https://huggingface.co/deepseek-ai',
+          snippet: 'Official DeepSeek model releases.',
+          source: 'Hugging Face',
+        },
+      ],
+    })
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'grounded-answer',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant' as const, content: 'DeepSeek 是模型系列。' },
+          finish_reason: 'stop',
+        },
+      ],
+    }))
+
+    const response = await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    const sent = request.mock.calls[0]?.[0]
+    const searchContext = sent?.messages.find(
+      (message) => message.name === 'lain42_browser_search_context'
+    )
+    expect(searchClientSources).toHaveBeenCalledWith(
+      'DeepSeek 是什么？',
+      5,
+      expect.any(AbortSignal),
+      'auto'
+    )
+    expect(searchContext?.content).toContain('Official DeepSeek model releases.')
+    expect(searchContext?.content).toContain('https://huggingface.co/deepseek-ai')
+    expect(sent?.messages.at(-1)).toEqual(payload.messages[0])
+    expect(sent?.tools).toEqual([])
+    expect(sent?.tool_choice).toBe('none')
+    expect(response.choices[0]?.message.content).toBe('DeepSeek 是模型系列。')
+  })
+
+  it('prepares explicit browser web-search results before model inference', async () => {
+    const query = '请用网页搜索 GitHub 上 ast-grep 的官方仓库'
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [{ role: 'user', content: query }],
+      stream: false,
+    }
+    vi.mocked(searchClientSources).mockResolvedValue({
+      execution: 'browser-wasm',
+      query,
+      fetched_at: '2026-09-26T00:00:00.000Z',
+      sources: ['GitHub'],
+      warnings: [],
+      items: [
+        {
+          title: 'ast-grep/ast-grep',
+          url: 'https://github.com/ast-grep/ast-grep',
+          snippet: 'AST-based code search, lint, and rewriting.',
+          source: 'GitHub',
+        },
+      ],
+    })
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'browser-search-answer',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant' as const,
+            content: '[ast-grep/ast-grep](https://github.com/ast-grep/ast-grep)',
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }))
+
+    await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    const sent = request.mock.calls[0]?.[0]
+    const searchContext = sent?.messages.find(
+      (message) => message.name === 'lain42_browser_search_context'
+    )
+    expect(searchClientSources).toHaveBeenCalledWith(
+      query,
+      5,
+      expect.any(AbortSignal),
+      'auto'
+    )
+    expect(searchContext?.content).toContain('AST-based code search')
+    expect(searchContext?.content).toContain('https://github.com/ast-grep/ast-grep')
+    expect(sent?.tools).toEqual([])
+    expect(sent?.tool_choice).toBe('none')
+  })
+
+  it('tells the model browser search was unavailable without leaking its error', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
+      stream: false,
+    }
+    vi.mocked(searchClientSources).mockRejectedValueOnce(
+      new Error('private upstream detail')
+    )
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'search-unavailable',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant' as const, content: '无法核实。' },
+          finish_reason: 'stop',
+        },
+      ],
+    }))
+
+    await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    const sent = request.mock.calls[0]?.[0]
+    const searchContext = sent?.messages.find(
+      (message) => message.name === 'lain42_browser_search_context'
+    )
+    expect(searchContext?.content).toContain('search failed')
+    expect(searchContext?.content).not.toContain('private upstream detail')
+    expect(sent?.tools).toEqual([])
+    expect(sent?.tool_choice).toBe('none')
   })
 
   it('corrects a false gh login requirement when OAuth is connected', async () => {

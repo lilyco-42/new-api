@@ -110,6 +110,11 @@ export interface LocalToolProvider {
     messages: ChatCompletionMessage[],
     signal: AbortSignal
   ) => ChatCompletionResponse | null | Promise<ChatCompletionResponse | null>
+  /** Add supplemental messages before the latest user turn reaches the model. */
+  prepareContext?: (
+    messages: ChatCompletionMessage[],
+    signal: AbortSignal
+  ) => ChatCompletionMessage[] | Promise<ChatCompletionMessage[]>
   /**
    * Optional approval gate for tools that can affect external systems. The
    * loop must wait for a user decision before invoking the tool.

@@ -15,6 +15,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import type {
+  ChatCompletionMessage,
   ChatCompletionTool,
   ChatCompletionToolCall,
   LocalToolProvider,
@@ -454,6 +455,14 @@ export function combineLocalToolProviders(
         if (response) return response
       }
       return null
+    },
+    prepareContext: async (messages, signal) => {
+      const context: ChatCompletionMessage[] = []
+      for (const provider of providers) {
+        const prepared = await provider.prepareContext?.(messages, signal)
+        if (prepared?.length) context.push(...prepared)
+      }
+      return context
     },
     shouldRunTool: (call, messages) => {
       const provider = findProvider(call.function.name)
