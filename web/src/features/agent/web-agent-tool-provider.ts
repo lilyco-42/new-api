@@ -854,13 +854,17 @@ export const webAgentToolProvider: LocalToolProvider = {
       return null
     }
     try {
+      const requestedLimitMatch = request.match(/(?:前|top|first)\s*(\d{1,2})/iu)
+      const limit = requestedLimitMatch
+        ? boundedLimit(Number(requestedLimitMatch[1]), 10, 20)
+        : 10
       const result = await webAgentToolProvider.invoke(
         {
           id: 'github-repository-preflight',
           type: 'function',
           function: {
             name: 'github.oauth.repositories.list',
-            arguments: '{"limit":10}',
+            arguments: JSON.stringify({ limit }),
           },
         },
         signal

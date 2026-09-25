@@ -750,7 +750,7 @@ describe('webAgentToolProvider', () => {
     expect(names).not.toContain('github.auth.status')
   })
 
-  it('lists the connected account repositories before asking the model', async () => {
+  it('lists the requested OAuth repositories before asking the model', async () => {
     const bridgeProvider: LocalToolProvider = {
       tools: [],
       isAvailable: () => true,
@@ -766,10 +766,22 @@ describe('webAgentToolProvider', () => {
         data: {
           items: [
             {
-              full_name: 'lilyco-42/new-api',
-              html_url: 'https://github.com/lilyco-42/new-api',
+              full_name: 'lilyco-42/repo-one',
+              html_url: 'https://github.com/lilyco-42/repo-one',
               private: false,
               stargazers_count: 1,
+            },
+            {
+              full_name: 'lilyco-42/repo-two',
+              html_url: 'https://github.com/lilyco-42/repo-two',
+              private: false,
+              stargazers_count: 2,
+            },
+            {
+              full_name: 'lilyco-42/repo-three',
+              html_url: 'https://github.com/lilyco-42/repo-three',
+              private: false,
+              stargazers_count: 3,
             },
           ],
         },
@@ -779,7 +791,13 @@ describe('webAgentToolProvider', () => {
     const result = await runLocalToolLoop(
       {
         model: 'test-model',
-        messages: [{ role: 'user', content: '查看我的 GitHub 仓库' }],
+        messages: [
+          {
+            role: 'user',
+            content:
+              '请读取我通过网站 GitHub OAuth 授权的仓库，只列前 3 个仓库名称和链接。',
+          },
+        ],
         stream: false,
       },
       provider,
@@ -790,13 +808,13 @@ describe('webAgentToolProvider', () => {
 
     expect(api.get).toHaveBeenCalledWith(
       '/api/agent/github/repositories',
-      expect.objectContaining({ params: { limit: 10 } })
+      expect.objectContaining({ params: { limit: 3 } })
     )
     expect(result.choices[0]?.message.content).toContain(
-      '已通过连接的 GitHub OAuth 获取到 1 个仓库'
+      '已通过连接的 GitHub OAuth 获取到 3 个仓库'
     )
     expect(result.choices[0]?.message.content).toContain(
-      'lilyco-42/new-api'
+      'lilyco-42/repo-three'
     )
     expect(request).not.toHaveBeenCalled()
   })
