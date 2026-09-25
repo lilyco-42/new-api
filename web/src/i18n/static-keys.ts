@@ -521,6 +521,14 @@ export const STATIC_I18N_KEYS = [
   'No enabled tokens available',
   'Redirecting to chat page...',
 
+  // Agent developer toolkit descriptions (passed to t at runtime)
+  '交互式 Rust 终端文件管理器；Agent 不会代为操作它，工作区读取使用独立的只读接口。',
+  'Agent 目前只用 jj 查看工作区提交历史；变更操作尚未开放。',
+  'Agent 目前只在工作区执行受限代码搜索；文件重写尚未开放。',
+  '只读探索工作区的符号与调用关系；独立影响分析操作尚未开放。',
+  'MCP 服务示例；需在桌面版配置并连接后才能调用，每次调用都要确认。',
+  'CLI、TUI、Web 与 MCP 共用 schema 的框架参考；目前不是可直接调用的 Agent 工具。',
+
   // Channel upstream updates
   'No processable upstream model updates for this channel',
   'Upstream model updates applied: {{added}} added, {{removed}} removed, {{ignored}} ignored this time, {{totalIgnored}} total ignored models',
