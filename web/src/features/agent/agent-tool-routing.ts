@@ -105,7 +105,7 @@ export function getGitHubReadIntent(
   }
 
   if (
-    /(?:检查|查看|查询|确认|显示|check|show|tell me).{0,30}(?:github|gh|oauth).{0,24}(?:登录|连接|授权状态|授权是否成功|授权成功|状态|status|auth|connected|logged in|signed in)|(?:github|gh|oauth).{0,24}(?:登录状态|连接状态|授权状态|授权是否成功|授权成功|状态|status|auth|connected|logged in|signed in).{0,24}(?:吗|么|没|是否|check|show|status)?/iu.test(
+    /(?:检查|查看|查询|确认|显示|check|show|tell me).{0,30}(?:github|gh|oauth).{0,24}(?:登录|连接|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in)|(?:github|gh|oauth).{0,24}(?:登录状态|连接状态|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in).{0,24}(?:吗|么|没|是否|check|show|status)?/iu.test(
       text
     )
   ) {
