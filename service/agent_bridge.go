@@ -16,18 +16,20 @@ const (
 	// AgentBridgeProtocolVersion is the wire-contract version. New fields are
 	// additive; a peer that omits the field is treated as version 1 for
 	// backwards compatibility with the first released bridge.
-	AgentBridgeProtocolVersion    = 1
-	AgentBridgeMessageHello       = "hello"
-	AgentBridgeMessageHelloAck    = "hello_ack"
-	AgentBridgeMessageToolRequest = "tool_request"
-	AgentBridgeMessageToolResult  = "tool_result"
-	AgentBridgeMessageToolError   = "tool_error"
-	AgentBridgeMessagePing        = "ping"
-	AgentBridgeMessagePong        = "pong"
-	AgentBridgeMaxMessageBytes    = 128 * 1024
-	AgentBridgeRequestTTL         = 45 * time.Second
-	AgentBridgeMaxCapabilities    = 32
-	AgentBridgeMaxCapabilityBytes = 64
+	AgentBridgeProtocolVersion     = 1
+	AgentBridgeMessageHello        = "hello"
+	AgentBridgeMessageHelloAck     = "hello_ack"
+	AgentBridgeMessageToolRequest  = "tool_request"
+	AgentBridgeMessageToolResult   = "tool_result"
+	AgentBridgeMessageToolError    = "tool_error"
+	AgentBridgeMessagePing         = "ping"
+	AgentBridgeMessagePong         = "pong"
+	AgentBridgeMaxMessageBytes     = 128 * 1024
+	AgentBridgeRequestTTL          = 45 * time.Second
+	AgentBridgeMaxPendingPerDevice = 16
+	AgentBridgeMaxPendingGlobal    = 256
+	AgentBridgeMaxCapabilities     = 32
+	AgentBridgeMaxCapabilityBytes  = 64
 )
 
 var agentBridgeCapabilities = []string{
@@ -51,6 +53,7 @@ var (
 	ErrAgentBridgeInvalid       = errors.New("invalid agent bridge message")
 	ErrAgentBridgeUnauthorized  = errors.New("agent bridge device is not authorized")
 	ErrAgentBridgeRequestExists = errors.New("agent bridge request id is already in use")
+	ErrAgentBridgeBusy          = errors.New("agent bridge capacity is temporarily full")
 )
 
 // AgentBridgeEnvelope is the transport envelope between a browser and a
@@ -410,6 +413,20 @@ func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope
 	if _, exists := hub.pending[key]; exists {
 		hub.mu.Unlock()
 		return ErrAgentBridgeRequestExists
+	}
+	if len(hub.pending) >= AgentBridgeMaxPendingGlobal {
+		hub.mu.Unlock()
+		return ErrAgentBridgeBusy
+	}
+	devicePending := 0
+	for _, pending := range hub.pending {
+		if pending.deviceID == browser.deviceID {
+			devicePending++
+		}
+	}
+	if devicePending >= AgentBridgeMaxPendingPerDevice {
+		hub.mu.Unlock()
+		return ErrAgentBridgeBusy
 	}
 	hub.pending[key] = pendingAgentBridgeRequest{
 		browser:   browser,

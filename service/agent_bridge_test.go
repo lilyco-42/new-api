@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -75,6 +76,62 @@ func TestValidateAgentBridgeEnvelopeAcceptsBoundedMcpOperations(t *testing.T) {
 
 func TestAgentBridgeRequestKeyScopesDevice(t *testing.T) {
 	require.NotEqual(t, bridgeRequestKey(1, "same"), bridgeRequestKey(2, "same"))
+}
+
+func TestForwardToolRequestBoundsSharedPendingQueue(t *testing.T) {
+	tests := []struct {
+		name       string
+		deviceID   int64
+		pending    int
+		deviceOnly bool
+	}{
+		{
+			name:       "per-device limit",
+			deviceID:   7,
+			pending:    AgentBridgeMaxPendingPerDevice,
+			deviceOnly: true,
+		},
+		{
+			name:     "global limit",
+			deviceID: 8,
+			pending:  AgentBridgeMaxPendingGlobal,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			hub := NewAgentBridgeHub()
+			browser := &AgentBridgePeer{deviceID: test.deviceID, userID: 12, role: "browser"}
+			hub.desktops[test.deviceID] = &AgentBridgePeer{deviceID: test.deviceID, userID: 12, role: "desktop"}
+			expires := time.Now().Add(time.Minute)
+			for i := 0; i < test.pending; i++ {
+				deviceID := int64(100 + i)
+				if test.deviceOnly {
+					deviceID = test.deviceID
+				}
+				requestID := fmt.Sprintf("queued-%d", i)
+				hub.pending[bridgeRequestKey(deviceID, requestID)] = pendingAgentBridgeRequest{
+					deviceID:  deviceID,
+					userID:    12,
+					requestID: requestID,
+					expires:   expires,
+				}
+			}
+
+			request := AgentBridgeEnvelope{
+				Type:      AgentBridgeMessageToolRequest,
+				RequestID: "new-request",
+				Operation: "github.issues.list",
+				Params:    json.RawMessage(`{"repo":"owner/name"}`),
+			}
+			err := hub.ForwardToolRequest(browser, request)
+
+			require.ErrorIs(t, err, ErrAgentBridgeBusy)
+			require.Len(t, hub.pending, test.pending, "rejected requests must not grow the shared queue")
+			_, inserted := hub.pending[bridgeRequestKey(test.deviceID, request.RequestID)]
+			require.False(t, inserted)
+		})
+	}
 }
 
 func TestAgentBridgeHubReportsDesktopPresenceOnlyForItsOwner(t *testing.T) {
