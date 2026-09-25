@@ -291,6 +291,14 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('honors a separate request to disable web search when excluding personal repositories', () => {
+    const messages = userMessage(
+      '请用网页搜索查 GitHub 上 ast-grep 的官方仓库；不要搜索我的个人仓库，也不要进行网页搜索。'
+    )
+
+    expect(shouldRunWebAgentTool(toolCall('web.search'), messages)).toBe(false)
+  })
+
   it('keeps account-owned repository discovery on GitHub OAuth', () => {
     const messages = userMessage(
       '请用网页搜索功能查找我的 GitHub 仓库。'
