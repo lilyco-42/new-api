@@ -12,16 +12,16 @@ The middleware's 95% disk threshold turns that capacity issue into a hard reject
 
 Other large directories include `/opt/rembg-ui` (5.5 GB) and `/var/www/html/models` (3.8 GB). They contain active application/model assets and must be preserved.
 
-## Fix in progress
+## Resolution
 
 - Build a clean runtime image from a pinned Debian base in GitHub Actions, packaging the already-tested Linux binary rather than using the previous production image as a base.
 - CI rejects images over 1 GB or with more than 8 layers and uploads a compressed image artifact.
-- Deploy and health-check the clean image before removing any obsolete chained images. Keep the existing data and logs mounts; do not rebuild or touch the database/model data on the server.
-- Preserve an old-version rollback image built from the current deployed source before pruning the 79-layer chain.
+- Deployed `lain42/new-api:agent-flat-d8ed1b5`, a 225 MB, 5-layer image built from the tested GitHub Actions artifact. The old deployment chain was removed only after the new container was healthy and a clean rollback image for the previous production binary had been loaded.
+- Kept the existing data, logs, database, model assets, and application mounts intact.
 
-## Verification still required
+## Verification
 
-- GitHub Actions frontend/backend tests and clean-image packaging pass.
-- Production container reports healthy and `/api/status` succeeds after switching.
-- Authenticated plain-text chat succeeds through the website.
-- After old image references are pruned, verify the root filesystem has at least 2 GB free and the runtime image has at most 8 layers.
+- GitHub Actions run [36136594475](https://github.com/lilyco-42/new-api/actions/runs/36136594475) passed the frontend/backend tests and clean-image packaging; the image-size/layer guard passed (224,682,586 bytes, 5 layers).
+- The production container is `running healthy`; `/api/status` returns HTTP 200.
+- Authenticated website chat completed `say hi` with `你好！` in 1.12 seconds.
+- After removing the obsolete image chain, `/dev/vda3` reports 29 GB used, 10 GB available (75%); Docker reports 1.057 GB across all images.
