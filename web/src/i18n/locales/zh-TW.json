@@ -4223,6 +4223,7 @@
     "Search failed.": "Search failed.",
     "Open web search results": "Open full web search results",
     "The selected model is temporarily rate limited. Retry shortly or choose another model.": "The selected model is temporarily rate limited. Retry shortly or choose another model.",
+    "The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.": "模型服務回傳了原因不明的錯誤。請重試或切換模型；若持續發生，請聯絡網站管理員。",
     "GitHub OAuth is not configured. Set a Client ID and Secret in System settings → Authentication → OAuth, enable it, and register the callback URL shown there.": "GitHub OAuth 尚未設定。請在「系統設定 → 驗證 → OAuth」填寫 Client ID 和 Client Secret、啟用 GitHub OAuth，並將該頁顯示的回呼 URL 登錄到 GitHub 應用程式。",
     "Could not check GitHub OAuth status. Please retry.": "無法檢查 GitHub OAuth 狀態，請重試。",
     "Could not check GitHub OAuth status (HTTP {{status}}).": "無法檢查 GitHub OAuth 狀態（HTTP {{status}}），請重試。",

@@ -39,6 +39,15 @@ describe('parseRequestErrorDetails', () => {
 })
 
 describe('getActionableRequestErrorKey', () => {
+  it('turns a bare upstream error type into useful recovery guidance', () => {
+    expect(getActionableRequestErrorKey('openai_error')).toBe(
+      'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.'
+    )
+    expect(getActionableRequestErrorKey('  OPENAI_ERROR  ')).toBe(
+      'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.'
+    )
+  })
+
   it('maps rate limits and transient gateway failures to recovery guidance', () => {
     expect(
       getActionableRequestErrorKey('Request failed with status code 429')

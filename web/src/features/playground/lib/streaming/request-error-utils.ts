@@ -51,6 +51,10 @@ export function parseRequestErrorDetails(error: unknown): RequestErrorDetails {
 }
 
 export function getActionableRequestErrorKey(message: string): string | null {
+  if (/^openai_error$/i.test(message.trim())) {
+    return 'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.'
+  }
+
   if (
     /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
       message

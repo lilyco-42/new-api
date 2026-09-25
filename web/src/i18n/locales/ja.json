@@ -4223,6 +4223,7 @@
     "Search failed.": "Search failed.",
     "Open web search results": "Open full web search results",
     "The selected model is temporarily rate limited. Retry shortly or choose another model.": "The selected model is temporarily rate limited. Retry shortly or choose another model.",
+    "The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.": "モデルサービスから原因不明のエラーが返されました。再試行するか、別のモデルに切り替えてください。繰り返し発生する場合は、サイト管理者にお問い合わせください。",
     "GitHub OAuth is not configured. Set a Client ID and Secret in System settings → Authentication → OAuth, enable it, and register the callback URL shown there.": "GitHub OAuth が設定されていません。システム設定 → 認証 → OAuth で Client ID と Client Secret を入力し、GitHub OAuth を有効にして、表示されたコールバック URL を GitHub アプリに登録してください。",
     "Could not check GitHub OAuth status. Please retry.": "GitHub OAuth の状態を確認できませんでした。もう一度お試しください。",
     "Could not check GitHub OAuth status (HTTP {{status}}).": "GitHub OAuth の状態を確認できませんでした（HTTP {{status}}）。もう一度お試しください。",

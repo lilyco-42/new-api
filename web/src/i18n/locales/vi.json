@@ -4223,6 +4223,7 @@
     "Search failed.": "Search failed.",
     "Open web search results": "Open full web search results",
     "The selected model is temporarily rate limited. Retry shortly or choose another model.": "The selected model is temporarily rate limited. Retry shortly or choose another model.",
+    "The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.": "Dịch vụ mô hình trả về lỗi không rõ nguyên nhân. Hãy thử lại hoặc chuyển sang mô hình khác; nếu lỗi vẫn tiếp diễn, hãy liên hệ quản trị viên trang web.",
     "GitHub OAuth is not configured. Set a Client ID and Secret in System settings → Authentication → OAuth, enable it, and register the callback URL shown there.": "GitHub OAuth chưa được cấu hình. Hãy nhập Client ID và Client Secret trong Cài đặt hệ thống → Xác thực → OAuth, bật GitHub OAuth và đăng ký URL callback hiển thị tại đó trong ứng dụng GitHub.",
     "Could not check GitHub OAuth status. Please retry.": "Không thể kiểm tra trạng thái GitHub OAuth. Vui lòng thử lại.",
     "Could not check GitHub OAuth status (HTTP {{status}}).": "Không thể kiểm tra trạng thái GitHub OAuth (HTTP {{status}}). Vui lòng thử lại.",

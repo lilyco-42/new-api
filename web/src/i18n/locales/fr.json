@@ -4223,6 +4223,7 @@
     "Search failed.": "Search failed.",
     "Open web search results": "Open full web search results",
     "The selected model is temporarily rate limited. Retry shortly or choose another model.": "The selected model is temporarily rate limited. Retry shortly or choose another model.",
+    "The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.": "Le service du modèle a renvoyé une erreur sans précision. Réessayez ou choisissez un autre modèle ; si le problème persiste, contactez l’administrateur du site.",
     "GitHub OAuth is not configured. Set a Client ID and Secret in System settings → Authentication → OAuth, enable it, and register the callback URL shown there.": "GitHub OAuth n’est pas configuré. Renseignez le Client ID et le Client Secret dans Paramètres système → Authentification → OAuth, activez-le et enregistrez l’URL de rappel affichée dans votre application GitHub.",
     "Could not check GitHub OAuth status. Please retry.": "Impossible de vérifier l’état de GitHub OAuth. Veuillez réessayer.",
     "Could not check GitHub OAuth status (HTTP {{status}}).": "Impossible de vérifier l’état de GitHub OAuth (HTTP {{status}}). Veuillez réessayer.",

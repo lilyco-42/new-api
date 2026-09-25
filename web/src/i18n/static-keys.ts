@@ -529,6 +529,11 @@ export const STATIC_I18N_KEYS = [
   'MCP 服务示例；需在桌面版配置并连接后才能调用，每次调用都要确认。',
   'CLI、TUI、Web 与 MCP 共用 schema 的框架参考；目前不是可直接调用的 Agent 工具。',
 
+  // Actionable model request errors returned by the streaming client
+  'The selected model is temporarily rate limited. Retry shortly or choose another model.',
+  'The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.',
+  'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.',
+
   // Channel upstream updates
   'No processable upstream model updates for this channel',
   'Upstream model updates applied: {{added}} added, {{removed}} removed, {{ignored}} ignored this time, {{totalIgnored}} total ignored models',
