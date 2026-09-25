@@ -27,6 +27,7 @@ const (
 	AgentBridgeMaxMessageBytes     = 128 * 1024
 	AgentBridgeRequestTTL          = 45 * time.Second
 	AgentBridgeMaxPendingPerDevice = 16
+	AgentBridgeMaxPendingPerUser   = 64
 	AgentBridgeMaxPendingGlobal    = 256
 	AgentBridgeMaxCapabilities     = 32
 	AgentBridgeMaxCapabilityBytes  = 64
@@ -419,10 +420,18 @@ func (hub *AgentBridgeHub) ForwardToolRequest(browser *AgentBridgePeer, envelope
 		return ErrAgentBridgeBusy
 	}
 	devicePending := 0
+	userPending := 0
 	for _, pending := range hub.pending {
+		if pending.userID == browser.userID {
+			userPending++
+		}
 		if pending.deviceID == browser.deviceID {
 			devicePending++
 		}
+	}
+	if userPending >= AgentBridgeMaxPendingPerUser {
+		hub.mu.Unlock()
+		return ErrAgentBridgeBusy
 	}
 	if devicePending >= AgentBridgeMaxPendingPerDevice {
 		hub.mu.Unlock()

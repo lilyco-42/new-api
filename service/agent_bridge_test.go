@@ -80,21 +80,32 @@ func TestAgentBridgeRequestKeyScopesDevice(t *testing.T) {
 
 func TestForwardToolRequestBoundsSharedPendingQueue(t *testing.T) {
 	tests := []struct {
-		name       string
-		deviceID   int64
-		pending    int
-		deviceOnly bool
+		name          string
+		deviceID      int64
+		pending       int
+		pendingUserID int
+		deviceOnly    bool
+		userWide      bool
 	}{
 		{
-			name:       "per-device limit",
-			deviceID:   7,
-			pending:    AgentBridgeMaxPendingPerDevice,
-			deviceOnly: true,
+			name:          "per-device limit",
+			deviceID:      7,
+			pending:       AgentBridgeMaxPendingPerDevice,
+			pendingUserID: 12,
+			deviceOnly:    true,
 		},
 		{
-			name:     "global limit",
-			deviceID: 8,
-			pending:  AgentBridgeMaxPendingGlobal,
+			name:          "per-user limit",
+			deviceID:      8,
+			pending:       AgentBridgeMaxPendingPerUser,
+			pendingUserID: 12,
+			userWide:      true,
+		},
+		{
+			name:          "global limit",
+			deviceID:      8,
+			pending:       AgentBridgeMaxPendingGlobal,
+			pendingUserID: 99,
 		},
 	}
 
@@ -108,11 +119,13 @@ func TestForwardToolRequestBoundsSharedPendingQueue(t *testing.T) {
 				deviceID := int64(100 + i)
 				if test.deviceOnly {
 					deviceID = test.deviceID
+				} else if test.userWide {
+					deviceID = int64(100 + i%4)
 				}
 				requestID := fmt.Sprintf("queued-%d", i)
 				hub.pending[bridgeRequestKey(deviceID, requestID)] = pendingAgentBridgeRequest{
 					deviceID:  deviceID,
-					userID:    12,
+					userID:    test.pendingUserID,
 					requestID: requestID,
 					expires:   expires,
 				}
