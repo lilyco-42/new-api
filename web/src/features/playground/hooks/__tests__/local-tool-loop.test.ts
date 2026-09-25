@@ -41,6 +41,14 @@ const webTool = {
   },
 }
 
+const webFetchTool = {
+  type: 'function' as const,
+  function: {
+    name: 'web.fetch',
+    parameters: { type: 'object' },
+  },
+}
+
 const initialPayload: ChatCompletionRequest = {
   model: 'test-model',
   messages: [{ role: 'user', content: 'show the latest issues' }],
@@ -415,6 +423,86 @@ describe('local structured tool loop', () => {
     expect(requests[2]?.tool_choice).toBe('none')
     expect(requests[2]?.messages[0]).toMatchObject({ role: 'system' })
     expect(requests[2]?.messages[1]).toMatchObject({ role: 'user' })
+  })
+
+  test('does not ask approval or fetch again for the same public URL', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const approvals = vi.fn(async () => true)
+    const invoke = vi.fn(async () =>
+      JSON.stringify({ title: 'ast-grep', text: 'An AST-based code tool.' })
+    )
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'fetch-1',
+              type: 'function',
+              function: {
+                name: 'web.fetch',
+                arguments: '{"url":"https://docs.example.com/guide#intro"}',
+              },
+            },
+          ],
+        })
+      }
+      if (requests.length === 2) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'fetch-2',
+              type: 'function',
+              function: {
+                name: 'web.fetch',
+                arguments: '{"url":"https://docs.example.com/guide"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({
+        role: 'assistant',
+        content: 'The page describes ast-grep as an AST-based code tool.',
+      })
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [
+          {
+            role: 'user',
+            content: 'Read https://docs.example.com/guide#intro and summarize it.',
+          },
+        ],
+      },
+      {
+        tools: [webFetchTool],
+        isAvailable: () => true,
+        requiresApproval: approvals,
+        invoke,
+      },
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toContain('ast-grep')
+    expect(approvals).toHaveBeenCalledOnce()
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(requests).toHaveLength(3)
+    expect(requests[2]?.tools).toEqual([])
+    expect(requests[2]?.tool_choice).toBe('none')
+    expect(requests[2]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'fetch-2',
+      content: expect.stringContaining('already completed'),
+    })
   })
 
   test('shows browser search source links even when the model omits citations', async () => {
