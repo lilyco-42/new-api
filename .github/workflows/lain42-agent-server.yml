@@ -77,10 +77,14 @@ jobs:
         run: go test ./model -run 'Test(CreateAgentPairingScopesReplacementToTheCurrentUser|ListAgentDevicesOnlyReturnsTheRequestingUsersDevices|RevokeAgentDeviceIsScopedToTheRequestingUser|RedeemAgentPairingRotatesCredentialAndPreservesDeviceRecord|RedeemAgentPairingFailsIfReplacementWasRevoked|AgentRunEventsAreScopedToBothUserAndDevice)'
 
       - name: Build Linux amd64 server
+        id: build-server
         shell: bash
         run: |
           mkdir -p dist
-          version="agent-$(git rev-parse --short=7 HEAD)"
+          source_sha="$(git rev-parse HEAD)"
+          source_short="$(git rev-parse --short=7 HEAD)"
+          version="agent-${source_short}"
+          echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
           go build -trimpath \
             -ldflags "-s -w -X github.com/QuantumNous/new-api/common.Version=${version}" \
             -o dist/new-api-linux-amd64 .
@@ -98,7 +102,9 @@ jobs:
           git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git show "$GITHUB_SHA:.deploy/Dockerfile.agent-flat" > "$stage/Dockerfile"
 
-          image_tag="lain42/new-api:agent-flat-${GITHUB_SHA:0:7}"
+          source_sha="$(git rev-parse HEAD)"
+          source_short="$(git rev-parse --short=7 HEAD)"
+          image_tag="lain42/new-api:agent-flat-${source_short}"
           docker build --pull --tag "$image_tag" "$stage"
 
           image_size=$(docker image inspect --format='{{.Size}}' "$image_tag")
@@ -112,7 +118,7 @@ jobs:
             exit 1
           fi
 
-          image_archive="dist/lain42-new-api-agent-flat-${GITHUB_SHA}-linux-amd64.tar.gz"
+          image_archive="dist/lain42-new-api-agent-flat-${source_sha}-linux-amd64.tar.gz"
           docker save "$image_tag" | gzip -1 > "$image_archive"
           sha256sum "$image_archive"
           echo "Clean runtime image: $image_tag; size=${image_size}; layers=${layer_count}"
@@ -120,7 +126,7 @@ jobs:
       - name: Upload server artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: lain42-agent-server-linux-amd64-${{ github.sha }}
+          name: lain42-agent-server-linux-amd64-${{ steps.build-server.outputs.source_sha }}
           path: dist/new-api-linux-amd64
           if-no-files-found: error
           retention-days: 14
@@ -128,8 +134,8 @@ jobs:
       - name: Upload clean runtime image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: lain42-new-api-clean-image-${{ github.sha }}
-          path: dist/lain42-new-api-agent-flat-${{ github.sha }}-linux-amd64.tar.gz
+          name: lain42-new-api-clean-image-${{ steps.build-server.outputs.source_sha }}
+          path: dist/lain42-new-api-agent-flat-${{ steps.build-server.outputs.source_sha }}-linux-amd64.tar.gz
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
