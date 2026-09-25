@@ -292,9 +292,17 @@ function validBrowserSearchSources(
     try {
       const url = new URL(item.url)
       if (url.protocol !== 'https:' || url.username || url.password) return []
-      const title = item.title.replace(/[\u0000-\u001f\u007f]/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, 200)
+      const title = item.title
+        .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+        .replace(/\s+/gu, ' ')
+        .trim()
+        .slice(0, 200)
       if (!title) return []
-      const source = item.source.replace(/[\u0000-\u001f\u007f]/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, 80)
+      const source = item.source
+        .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+        .replace(/\s+/gu, ' ')
+        .trim()
+        .slice(0, 80)
       return [{ title, url: url.toString(), source }]
     } catch {
       return []
@@ -330,6 +338,50 @@ function finalizePreparedBrowserSearch(
         {
           ...firstChoice,
           message: { role: 'assistant', content },
+          finish_reason: 'stop',
+        },
+        ...response.choices.slice(1),
+      ],
+    }
+  }
+
+  const asksWhatDeepSeekIs =
+    requestsKnownAIEntityDefinition(latestRequest) &&
+    /\bdeepseek\b/iu.test(latestRequest)
+  const hasDeepSeekOfficialModelEvidence = result.items.some((item) => {
+    try {
+      const url = new URL(item.url)
+      return (
+        url.protocol === 'https:' &&
+        url.hostname === 'huggingface.co' &&
+        /^\/deepseek-ai(?:\/|$)/iu.test(url.pathname)
+      )
+    } catch {
+      return false
+    }
+  })
+  if (asksWhatDeepSeekIs && hasDeepSeekOfficialModelEvidence) {
+    const answer = isChinese
+      ? 'DeepSeek 是一家人工智能公司，也开发 DeepSeek 系列模型；它不是搜索工具。'
+      : 'DeepSeek is an AI company that develops the DeepSeek model family; it is not a search tool.'
+    const sourcesBlock = [
+      isChinese ? '来源：' : 'Sources:',
+      isChinese
+        ? '- [DeepSeek 官方网站](<https://www.deepseek.com/>)'
+        : '- [DeepSeek official website](<https://www.deepseek.com/>)',
+      isChinese
+        ? '- [DeepSeek 官方 Hugging Face 模型组织](<https://huggingface.co/deepseek-ai/models>)'
+        : '- [DeepSeek official Hugging Face model organization](<https://huggingface.co/deepseek-ai/models>)',
+    ].join('\n')
+    return {
+      ...response,
+      choices: [
+        {
+          ...firstChoice,
+          message: {
+            role: 'assistant',
+            content: `${answer}\n\n${sourcesBlock}`,
+          },
           finish_reason: 'stop',
         },
         ...response.choices.slice(1),
