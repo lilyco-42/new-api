@@ -135,6 +135,7 @@ export function getGitHubReadIntent(
     }
     if (
       /(?:查看|看|列出|浏览|获取|show|list|view|browse|get)/iu.test(text) ||
+      /(?:读取|read|fetch|inspect)/iu.test(text) ||
       /(?:我的|我自己的|我账号的|my(?: own)?)/iu.test(text)
     ) {
       return 'repositories'

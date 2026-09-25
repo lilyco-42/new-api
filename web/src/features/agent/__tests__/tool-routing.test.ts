@@ -53,6 +53,21 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('routes an OAuth-authorized repository read to browser OAuth', () => {
+    const request =
+      '请读取我通过网站 GitHub OAuth 授权的仓库，只列前 3 个仓库名称和链接。'
+    const messages = userMessage(request)
+
+    expect(getGitHubReadIntent(request)).toBe('repositories')
+    expect(explicitlyTargetsLocalGitHub(request)).toBe(false)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.repositories.list'),
+        messages
+      )
+    ).toBe(true)
+  })
+
   it('routes the shorthand "gh repo 我的项目" to the connected browser OAuth', () => {
     const messages = userMessage('gh repo 我的项目')
 
