@@ -11,8 +11,14 @@ on:
       - 'relaykit/**'
       - 'web/**'
       - 'VERSION'
+      - '.deploy/Dockerfile.agent-flat'
       - '.github/workflows/lain42-agent-server.yml'
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Branch, tag, or commit to package (defaults to the triggering revision)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -36,6 +42,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -79,6 +87,36 @@ jobs:
           file dist/new-api-linux-amd64
           sha256sum dist/new-api-linux-amd64
 
+      - name: Package clean runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/lain42-agent-image"
+          mkdir -p "$stage" dist
+          cp dist/new-api-linux-amd64 "$stage/new-api"
+          cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$stage/"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git show "$GITHUB_SHA:.deploy/Dockerfile.agent-flat" > "$stage/Dockerfile"
+
+          image_tag="lain42/new-api:agent-flat-${GITHUB_SHA:0:7}"
+          docker build --pull --tag "$image_tag" "$stage"
+
+          image_size=$(docker image inspect --format='{{.Size}}' "$image_tag")
+          layer_count=$(docker image inspect --format='{{len .RootFS.Layers}}' "$image_tag")
+          if (( image_size > 1073741824 )); then
+            echo "::error::Clean runtime image is unexpectedly large: ${image_size} bytes"
+            exit 1
+          fi
+          if (( layer_count > 8 )); then
+            echo "::error::Clean runtime image has unexpected layer history: ${layer_count} layers"
+            exit 1
+          fi
+
+          image_archive="dist/lain42-new-api-agent-flat-${GITHUB_SHA}-linux-amd64.tar.gz"
+          docker save "$image_tag" | gzip -1 > "$image_archive"
+          sha256sum "$image_archive"
+          echo "Clean runtime image: $image_tag; size=${image_size}; layers=${layer_count}"
+
       - name: Upload server artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -86,3 +124,12 @@ jobs:
           path: dist/new-api-linux-amd64
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload clean runtime image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lain42-new-api-clean-image-${{ github.sha }}
+          path: dist/lain42-new-api-agent-flat-${{ github.sha }}-linux-amd64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
