@@ -210,7 +210,7 @@ describe('webAgentToolProvider', () => {
     expect(sent?.tool_choice).toBe('none')
     expect(response.choices[0]?.message.content).toContain('DeepSeek 是模型系列。')
     expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek model collection](https://huggingface.co/deepseek-ai)'
+      '[DeepSeek model collection](<https://huggingface.co/deepseek-ai>)'
     )
   })
 
@@ -292,7 +292,7 @@ describe('webAgentToolProvider', () => {
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
     expect(response.choices[0]?.message.content).toContain(
-      '[ast-grep/ast-grep](https://github.com/ast-grep/ast-grep)'
+      '[ast-grep/ast-grep](<https://github.com/ast-grep/ast-grep>)'
     )
   })
 
