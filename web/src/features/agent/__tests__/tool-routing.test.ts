@@ -265,6 +265,32 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('does not treat a negated mention of personal repositories as an account search', () => {
+    const messages = userMessage(
+      '请用网页搜索查 GitHub 上 ast-grep 的官方仓库，给出仓库名和链接；不要搜索我的个人仓库。'
+    )
+
+    expect(getGitHubReadIntent(messages[0]?.content as string)).toBe(
+      'repository_search'
+    )
+    expect(
+      shouldRunWebAgentTool(toolCall('web.search'), messages)
+    ).toBe(true)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.repositories.search'),
+        messages
+      )
+    ).toBe(false)
+    expect(
+      shouldAdvertiseBrowserGitHubTool(
+        'github.oauth.repositories.search',
+        messages,
+        false
+      )
+    ).toBe(false)
+  })
+
   it('keeps account-owned repository discovery on GitHub OAuth', () => {
     const messages = userMessage(
       '请用网页搜索功能查找我的 GitHub 仓库。'
