@@ -464,6 +464,18 @@ export function combineLocalToolProviders(
       }
       return context
     },
+    finalizeResponse: (response, messages, preparedContext) => {
+      let finalized = response
+      for (const provider of providers) {
+        finalized =
+          provider.finalizeResponse?.(
+            finalized,
+            messages,
+            preparedContext
+          ) ?? finalized
+      }
+      return finalized
+    },
     shouldRunTool: (call, messages) => {
       const provider = findProvider(call.function.name)
       return provider?.shouldRunTool?.(call, messages) ?? true

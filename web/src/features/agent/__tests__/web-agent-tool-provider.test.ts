@@ -208,7 +208,10 @@ describe('webAgentToolProvider', () => {
     expect(sent?.messages.at(-1)).toEqual(payload.messages[0])
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
-    expect(response.choices[0]?.message.content).toBe('DeepSeek 是模型系列。')
+    expect(response.choices[0]?.message.content).toContain('DeepSeek 是模型系列。')
+    expect(response.choices[0]?.message.content).toContain(
+      '[DeepSeek model collection](https://huggingface.co/deepseek-ai)'
+    )
   })
 
   it('advertises only browser search for public repository queries that exclude personal repositories', () => {
@@ -227,7 +230,8 @@ describe('webAgentToolProvider', () => {
   })
 
   it('prepares explicit browser web-search results before model inference', async () => {
-    const query = '请用网页搜索 GitHub 上 ast-grep 的官方仓库'
+    const query = '请用网页搜索查 GitHub 上 ast-grep 的官方仓库，只搜索公开索引，不要搜索我的个人仓库，不要用 gh CLI，回复仓库名和官方链接。'
+    const searchQuery = 'ast-grep'
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: query }],
@@ -235,7 +239,7 @@ describe('webAgentToolProvider', () => {
     }
     vi.mocked(searchClientSources).mockResolvedValue({
       execution: 'browser-wasm',
-      query,
+      query: searchQuery,
       fetched_at: '2026-09-26T00:00:00.000Z',
       sources: ['GitHub'],
       warnings: [],
@@ -265,7 +269,7 @@ describe('webAgentToolProvider', () => {
       ],
     }))
 
-    await runLocalToolLoop(
+    const response = await runLocalToolLoop(
       payload,
       createBrowserAgentToolProvider(),
       new AbortController().signal,
@@ -278,7 +282,7 @@ describe('webAgentToolProvider', () => {
       (message) => message.name === 'lain42_browser_search_context'
     )
     expect(searchClientSources).toHaveBeenCalledWith(
-      query,
+      searchQuery,
       5,
       expect.any(AbortSignal),
       'auto'
@@ -287,6 +291,9 @@ describe('webAgentToolProvider', () => {
     expect(searchContext?.content).toContain('https://github.com/ast-grep/ast-grep')
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
+    expect(response.choices[0]?.message.content).toContain(
+      '[ast-grep/ast-grep](https://github.com/ast-grep/ast-grep)'
+    )
   })
 
   it('tells the model browser search was unavailable without leaking its error', async () => {
@@ -306,13 +313,16 @@ describe('webAgentToolProvider', () => {
       choices: [
         {
           index: 0,
-          message: { role: 'assistant' as const, content: '无法核实。' },
+          message: {
+            role: 'assistant' as const,
+            content: 'DeepSeek 是一个搜索工具。',
+          },
           finish_reason: 'stop',
         },
       ],
     }))
 
-    await runLocalToolLoop(
+    const response = await runLocalToolLoop(
       payload,
       createBrowserAgentToolProvider(),
       new AbortController().signal,
@@ -328,6 +338,11 @@ describe('webAgentToolProvider', () => {
     expect(searchContext?.content).not.toContain('private upstream detail')
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
+    expect(response.choices[0]?.message.content).toContain('没有可核验的来源')
+    expect(response.choices[0]?.message.content).not.toContain('搜索工具')
+    expect(response.choices[0]?.message.content).not.toContain(
+      'private upstream detail'
+    )
   })
 
   it('corrects a false gh login requirement when OAuth is connected', async () => {
@@ -456,6 +471,32 @@ describe('webAgentToolProvider', () => {
       expect(response?.choices[0]?.message.content).not.toContain('旧话题')
     }
   )
+
+  it('keeps punctuation-only turns out of model inference', async () => {
+    const request = vi.fn(async () => {
+      throw new Error('Punctuation-only input must not reach model inference.')
+    })
+
+    const response = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [
+          { role: 'user', content: 'DeepSeek 是什么？' },
+          { role: 'assistant', content: '旧话题回复' },
+          { role: 'user', content: '??' },
+        ],
+        stream: false,
+      },
+      webAgentToolProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain('标点')
+    expect(response.choices[0]?.message.content).not.toContain('旧话题')
+    expect(request).not.toHaveBeenCalled()
+  })
 
   it('acknowledges a correction about a greeting without reusing prior context', () => {
     const response = webAgentToolProvider.preflight?.([
