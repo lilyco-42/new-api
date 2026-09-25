@@ -82,6 +82,17 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 
+function webFetchSignature(args: Record<string, unknown>): string {
+  if (typeof args.url !== 'string') return stableJson(args)
+  try {
+    const url = new URL(args.url)
+    url.hash = ''
+    return stableJson({ url: url.toString() })
+  } catch {
+    return stableJson(args)
+  }
+}
+
 function formatGitHubRepositoryList(result: string): string | null {
   try {
     const parsed: unknown = JSON.parse(result)
@@ -589,6 +600,7 @@ export async function runLocalToolLoop(
   let totalCalls = 0
   const seenCallIds = new Set<string>()
   const seenSearchCalls = new Set<string>()
+  const seenFetchCalls = new Set<string>()
   const completedResults: Array<{ name: string; result: string }> = []
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
@@ -683,7 +695,24 @@ export async function runLocalToolLoop(
         totalCalls += 1
         continue
       }
-      const signature = stableJson(args)
+      const signature =
+        call.function.name === 'web.fetch'
+          ? webFetchSignature(args)
+          : stableJson(args)
+      if (call.function.name === 'web.fetch' && seenFetchCalls.has(signature)) {
+        mustSynthesize = true
+        const result = JSON.stringify({
+          error:
+            'This exact web.fetch request already completed. Use the page content already returned and answer without fetching again.',
+        })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+        completedResults.push({ name: call.function.name, result })
+        totalCalls += 1
+        continue
+      }
+      if (call.function.name === 'web.fetch') {
+        seenFetchCalls.add(signature)
+      }
       if (
         call.function.name === 'web.search' &&
         seenSearchCalls.has(signature)
