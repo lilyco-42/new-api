@@ -520,6 +520,7 @@ export async function runLocalToolLoop(
     const response = await request(
       {
         ...initialPayload,
+        messages,
         stream: false,
         tools: [],
         tool_choice: 'none',
