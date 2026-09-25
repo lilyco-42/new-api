@@ -499,6 +499,22 @@ export async function runLocalToolLoop(
   if (!provider.isAvailable()) return request(initialPayload, signal)
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
+  const preparedContext = await provider.prepareContext?.(
+    initialPayload.messages,
+    signal
+  )
+  assertSignal(signal)
+  if (preparedContext?.length) {
+    let latestUserIndex = -1
+    messages.forEach((message, index) => {
+      if (message.role === 'user') latestUserIndex = index
+    })
+    messages.splice(
+      latestUserIndex < 0 ? messages.length : latestUserIndex,
+      0,
+      ...preparedContext
+    )
+  }
   const tools = availableTools(provider, messages)
   if (tools.length === 0) {
     const response = await request(

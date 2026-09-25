@@ -455,6 +455,14 @@ export function combineLocalToolProviders(
       }
       return null
     },
+    prepareContext: async (messages, signal) => {
+      const context: ChatCompletionMessage[] = []
+      for (const provider of providers) {
+        const prepared = await provider.prepareContext?.(messages, signal)
+        if (prepared?.length) context.push(...prepared)
+      }
+      return context
+    },
     shouldRunTool: (call, messages) => {
       const provider = findProvider(call.function.name)
       return provider?.shouldRunTool?.(call, messages) ?? true
