@@ -68,6 +68,24 @@ describe('Agent tool intent routing', () => {
     ).toBe(true)
   })
 
+  it('keeps an explicit OAuth authorization status request on the status tool', () => {
+    const messages = userMessage('查看 GitHub OAuth 授权状态')
+
+    expect(getGitHubReadIntent(messages[0]?.content as string)).toBe('status')
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.auth.status'),
+        messages
+      )
+    ).toBe(true)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.repositories.list'),
+        messages
+      )
+    ).toBe(false)
+  })
+
   it('routes the shorthand "gh repo 我的项目" to the connected browser OAuth', () => {
     const messages = userMessage('gh repo 我的项目')
 
