@@ -795,7 +795,7 @@ describe('webAgentToolProvider', () => {
           {
             role: 'user',
             content:
-              '请读取我通过网站 GitHub OAuth 授权的仓库，只列前 3 个仓库名称和链接。',
+              '请读取我通过网站 GitHub OAuth 授权的仓库，只列前 3 个仓库名称和 GitHub 链接；如果 OAuth 仓库查询失败，请说明具体错误。不要要求我登录本机 gh CLI，也不要调用 Radxa。',
           },
         ],
         stream: false,
