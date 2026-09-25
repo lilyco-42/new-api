@@ -72,7 +72,10 @@ function targetsAccountRepositories(text: string): boolean {
       text
     )
   const explicitlyDeclinesAccountSearch =
-    /(?:不要|别|不许|禁止|避免|排除|do not|don't|dont|without|avoid|exclude).{0,24}(?:搜索|查找|搜|查看|访问|读取|search|find|look up|browse|read|access)?.{0,16}(?:我的|我自己的|我账号的|我账户的|my(?: own)?).{0,12}(?:github\s*)?(?:仓库|repositories|repos?)/iu.test(
+    /(?:不要|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,8}(?:github\s*)?(?:仓库|repositories|repos?)/iu.test(
+      text
+    ) ||
+    /\b(?:do not|don't|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access)\s+)?my(?: own)?\s+(?:personal\s+)?(?:github\s+)?repos?(?:itories)?\b/iu.test(
       text
     )
 

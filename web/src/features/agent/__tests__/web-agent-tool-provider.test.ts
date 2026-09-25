@@ -443,16 +443,19 @@ describe('webAgentToolProvider', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
-  it('asks for clarification on punctuation instead of repeating the previous answer', () => {
-    const response = webAgentToolProvider.preflight?.([
-      { role: 'user', content: 'DeepSeek 是什么？' },
-      { role: 'assistant', content: '旧话题回复' },
-      { role: 'user', content: '?' },
-    ])
+  it.each(['?', '??', '>??', '> ??'])(
+    'asks for clarification on punctuation-only input %s instead of repeating the previous answer',
+    (input) => {
+      const response = webAgentToolProvider.preflight?.([
+        { role: 'user', content: 'DeepSeek 是什么？' },
+        { role: 'assistant', content: '旧话题回复' },
+        { role: 'user', content: input },
+      ])
 
-    expect(response?.choices[0]?.message.content).toContain('标点')
-    expect(response?.choices[0]?.message.content).not.toContain('旧话题')
-  })
+      expect(response?.choices[0]?.message.content).toContain('标点')
+      expect(response?.choices[0]?.message.content).not.toContain('旧话题')
+    }
+  )
 
   it('acknowledges a correction about a greeting without reusing prior context', () => {
     const response = webAgentToolProvider.preflight?.([

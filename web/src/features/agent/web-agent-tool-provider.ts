@@ -626,7 +626,11 @@ export const webAgentToolProvider: LocalToolProvider = {
       return localPreflightResponse('local-greeting', greeting)
     }
 
-    if (/^[?？!！.,，。…~～\s]+$/u.test(text)) {
+    const punctuationOnlyText = text.replace(/^(?:>\s*)+/u, '').trim()
+    if (
+      punctuationOnlyText.length > 0 &&
+      /^[?？!！.,，。…~～\s]+$/u.test(punctuationOnlyText)
+    ) {
       return localPreflightResponse(
         'local-ambiguous-message',
         '我看到你发的是一个标点。你想继续刚才的话题，还是有新的问题？'
