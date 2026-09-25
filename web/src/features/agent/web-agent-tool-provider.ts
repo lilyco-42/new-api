@@ -18,6 +18,7 @@ import {
   explicitlyTargetsLocalGitHub,
   getGitHubReadIntent,
   latestUserRequestText,
+  requestsKnownAIEntityDefinition,
   shouldAdvertiseBrowserGitHubTool,
   shouldAdvertiseWebAgentTool,
   shouldRunGitHubTool,
@@ -244,6 +245,14 @@ function browserSearchContextMessage(content: string): ChatCompletionMessage {
       content,
     ].join('\n'),
   }
+}
+
+function browserSearchQuery(request: string): string {
+  if (!requestsKnownAIEntityDefinition(request)) return request
+  const entity = request.match(
+    /\b(?:deepseek|qwen|llama|claude|chatgpt|gemini|openai|anthropic|hugging[ -]?face)\b/iu
+  )
+  return entity?.[0] ?? request
 }
 
 function localPreflightResponse(
@@ -540,7 +549,18 @@ export const webAgentToolProvider: LocalToolProvider = {
         message.role === 'system' &&
         message.name === BROWSER_SEARCH_CONTEXT_NAME
     )
-    return searchWasPrepared ? [] : WEB_AGENT_TOOLS
+    return searchWasPrepared
+      ? []
+      : WEB_AGENT_TOOLS.filter((tool) =>
+          shouldRunWebAgentTool(
+            {
+              id: 'agent-tool-availability',
+              type: 'function',
+              function: { name: tool.function.name, arguments: '{}' },
+            },
+            messages
+          )
+        )
   },
   shouldRunTool: (call, messages) => shouldRunWebAgentTool(call, messages),
   getToolChoice: () => 'auto',
@@ -606,7 +626,11 @@ export const webAgentToolProvider: LocalToolProvider = {
       return localPreflightResponse('local-greeting', greeting)
     }
 
-    if (/^[?？!！.,，。…~～\s]+$/u.test(text)) {
+    const punctuationOnlyText = text.replace(/^(?:>\s*)+/u, '').trim()
+    if (
+      punctuationOnlyText.length > 0 &&
+      /^[?？!！.,，。…~～\s]+$/u.test(punctuationOnlyText)
+    ) {
       return localPreflightResponse(
         'local-ambiguous-message',
         '我看到你发的是一个标点。你想继续刚才的话题，还是有新的问题？'
@@ -627,18 +651,19 @@ export const webAgentToolProvider: LocalToolProvider = {
   },
   prepareContext: async (messages, signal) => {
     const request = latestUserRequestText(messages)
+    const query = browserSearchQuery(request)
     const searchCall: ChatCompletionToolCall = {
       id: 'browser-search-preflight',
       type: 'function',
       function: {
         name: 'web.search',
-        arguments: JSON.stringify({ query: request, limit: 5, scope: 'auto' }),
+        arguments: JSON.stringify({ query, limit: 5, scope: 'auto' }),
       },
     }
     if (!shouldRunWebAgentTool(searchCall, messages)) return []
 
     try {
-      const result = await searchClientSources(request, 5, signal, 'auto')
+      const result = await searchClientSources(query, 5, signal, 'auto')
       return [browserSearchContextMessage(
         formatBrowserSearchResults(result)
       )]

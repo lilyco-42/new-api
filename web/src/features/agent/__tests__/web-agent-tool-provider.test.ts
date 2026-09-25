@@ -198,7 +198,7 @@ describe('webAgentToolProvider', () => {
       (message) => message.name === 'lain42_browser_search_context'
     )
     expect(searchClientSources).toHaveBeenCalledWith(
-      'DeepSeek 是什么？',
+      'DeepSeek',
       5,
       expect.any(AbortSignal),
       'auto'
@@ -209,6 +209,21 @@ describe('webAgentToolProvider', () => {
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
     expect(response.choices[0]?.message.content).toBe('DeepSeek 是模型系列。')
+  })
+
+  it('advertises only browser search for public repository queries that exclude personal repositories', () => {
+    const messages: ChatCompletionMessage[] = [
+      {
+        role: 'user',
+        content:
+          '请用网页搜索查 GitHub 上 ast-grep 的官方仓库，给出仓库名和链接；不要搜索我的个人仓库。',
+      },
+    ]
+    const tools = webAgentToolProvider.availableTools?.(messages) ?? []
+    const names = tools.map((tool) => tool.function.name)
+
+    expect(names).toContain('web.search')
+    expect(names).not.toContain('github.oauth.repositories.search')
   })
 
   it('prepares explicit browser web-search results before model inference', async () => {
@@ -428,16 +443,19 @@ describe('webAgentToolProvider', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
-  it('asks for clarification on punctuation instead of repeating the previous answer', () => {
-    const response = webAgentToolProvider.preflight?.([
-      { role: 'user', content: 'DeepSeek 是什么？' },
-      { role: 'assistant', content: '旧话题回复' },
-      { role: 'user', content: '?' },
-    ])
+  it.each(['?', '??', '>??', '> ??'])(
+    'asks for clarification on punctuation-only input %s instead of repeating the previous answer',
+    (input) => {
+      const response = webAgentToolProvider.preflight?.([
+        { role: 'user', content: 'DeepSeek 是什么？' },
+        { role: 'assistant', content: '旧话题回复' },
+        { role: 'user', content: input },
+      ])
 
-    expect(response?.choices[0]?.message.content).toContain('标点')
-    expect(response?.choices[0]?.message.content).not.toContain('旧话题')
-  })
+      expect(response?.choices[0]?.message.content).toContain('标点')
+      expect(response?.choices[0]?.message.content).not.toContain('旧话题')
+    }
+  )
 
   it('acknowledges a correction about a greeting without reusing prior context', () => {
     const response = webAgentToolProvider.preflight?.([

@@ -34,9 +34,17 @@ function isQuestionAboutToolBehavior(text: string): boolean {
 }
 
 function explicitlyDeclinesWebResearch(text: string): boolean {
-  return /(?:不需要|无需|不用|不要|别|禁止|不必|不想|无须).{0,4}(?:搜索|上网|联网|网页|网络|查资料|search|browse|web)|\b(?:do not|don't|dont|no need to|without|not necessary to)\s+(?:search|browse|look up|use (?:the )?web)\b/iu.test(
-    text
-  )
+  const explicitlyDeclinesWeb =
+    /(?:不需要|无需|不用|不要|别|禁止|不必|不想|无须).{0,8}(?:上网|联网|网页|网络|查资料|web\s+search|search (?:the )?web|browse (?:the )?web)|\b(?:do not|don't|dont|no need to|without|not necessary to)\s+(?:search (?:the )?web|browse (?:the )?web|use (?:the )?web)\b/iu.test(
+      text
+    )
+  if (explicitlyDeclinesWeb) return true
+
+  const declinesGenericSearch =
+    /(?:不需要|无需|不用|不要|别|禁止|不必|不想|无须).{0,4}(?:搜索|search|browse|look up)|\b(?:do not|don't|dont|no need to|without|not necessary to)\s+(?:search|browse|look up)\b/iu.test(
+      text
+    )
+  return declinesGenericSearch && !explicitlyDeclinesAccountRepositories(text)
 }
 
 function explicitlyDeclinesPageRead(text: string): boolean {
@@ -66,9 +74,25 @@ export function requestsKnownAIEntityDefinition(text: string): boolean {
   return isBareEntity || (asksForDefinition && knownAIEntity.test(text))
 }
 
+function explicitlyDeclinesAccountRepositories(text: string): boolean {
+  return (
+    /(?:不要|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,8}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+      text
+    ) ||
+    /\b(?:do not|don't|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access)\s+)?my(?: own)?\s+(?:personal\s+)?(?:github\s+)?(?:repositories|repository|repos?)\b/iu.test(
+      text
+    )
+  )
+}
+
 function targetsAccountRepositories(text: string): boolean {
-  return /\bmy(?: own)?\s+(?:github\s+)?repos?(?:itories)?\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repos?)/iu.test(
-    text
+  const explicitlyTargetsAccount =
+    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+      text
+    )
+
+  return (
+    explicitlyTargetsAccount && !explicitlyDeclinesAccountRepositories(text)
   )
 }
 
