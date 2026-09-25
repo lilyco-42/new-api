@@ -468,7 +468,7 @@ describe('webAgentToolProvider', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
-  it.each(['?', '??', '>??', '> ??'])(
+  it.each(['?', '??', '>??', '> ??', '\\>??', '\\> ??'])(
     'asks for clarification on punctuation-only input %s instead of repeating the previous answer',
     (input) => {
       const response = webAgentToolProvider.preflight?.([
@@ -482,31 +482,34 @@ describe('webAgentToolProvider', () => {
     }
   )
 
-  it('keeps punctuation-only turns out of model inference', async () => {
-    const request = vi.fn(async () => {
-      throw new Error('Punctuation-only input must not reach model inference.')
-    })
+  it.each(['??', '\\>??'])(
+    'keeps punctuation-only turn %s out of model inference',
+    async (input) => {
+      const request = vi.fn(async () => {
+        throw new Error('Punctuation-only input must not reach model inference.')
+      })
 
-    const response = await runLocalToolLoop(
-      {
-        model: 'test-model',
-        messages: [
-          { role: 'user', content: 'DeepSeek 是什么？' },
-          { role: 'assistant', content: '旧话题回复' },
-          { role: 'user', content: '??' },
-        ],
-        stream: false,
-      },
-      webAgentToolProvider,
-      new AbortController().signal,
-      undefined,
-      request
-    )
+      const response = await runLocalToolLoop(
+        {
+          model: 'test-model',
+          messages: [
+            { role: 'user', content: 'DeepSeek 是什么？' },
+            { role: 'assistant', content: '旧话题回复' },
+            { role: 'user', content: input },
+          ],
+          stream: false,
+        },
+        webAgentToolProvider,
+        new AbortController().signal,
+        undefined,
+        request
+      )
 
-    expect(response.choices[0]?.message.content).toContain('标点')
-    expect(response.choices[0]?.message.content).not.toContain('旧话题')
-    expect(request).not.toHaveBeenCalled()
-  })
+      expect(response.choices[0]?.message.content).toContain('标点')
+      expect(response.choices[0]?.message.content).not.toContain('旧话题')
+      expect(request).not.toHaveBeenCalled()
+    }
+  )
 
   it('acknowledges a correction about a greeting without reusing prior context', () => {
     const response = webAgentToolProvider.preflight?.([

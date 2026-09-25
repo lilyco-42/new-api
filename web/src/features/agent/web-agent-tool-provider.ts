@@ -787,7 +787,11 @@ export const webAgentToolProvider: LocalToolProvider = {
       return localPreflightResponse('local-greeting', greeting)
     }
 
-    const punctuationOnlyText = text.replace(/^(?:>\s*)+/u, '').trim()
+    // Treat escaped Markdown quote markers like normal blockquote prefixes.
+    // Pasted chat transcripts often turn `>??` into the literal `\\>??`; if
+    // the backslash survives this normalization, punctuation-only input falls
+    // through to model inference instead of receiving a local clarification.
+    const punctuationOnlyText = text.replace(/^(?:\\?>\s*)+/u, '').trim()
     if (
       punctuationOnlyText.length > 0 &&
       /^[?？!！.,，。…~～\s]+$/u.test(punctuationOnlyText)
