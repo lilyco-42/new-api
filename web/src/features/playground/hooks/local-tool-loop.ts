@@ -515,6 +515,15 @@ export async function runLocalToolLoop(
       ...preparedContext
     )
   }
+  const finalizePreparedResponse = (
+    response: ChatCompletionResponse,
+    responseMessages: ChatCompletionMessage[] = messages
+  ) =>
+    provider.finalizeResponse?.(
+      response,
+      responseMessages,
+      preparedContext ?? []
+    ) ?? response
   const tools = availableTools(provider, messages)
   if (tools.length === 0) {
     const response = await request(
@@ -529,7 +538,7 @@ export async function runLocalToolLoop(
     )
     const assistantMessage = assistantMessageFromResponse(response)
     const calls = assistantMessage.tool_calls ?? []
-    if (calls.length === 0) return response
+    if (calls.length === 0) return finalizePreparedResponse(response)
 
     const messagesWithoutTools: ChatCompletionMessage[] = [
       ...messages,
@@ -555,13 +564,16 @@ export async function runLocalToolLoop(
       })
       rejectedResults.push({ name, result })
     }
-    return synthesizeToolResults(
-      initialPayload,
-      messagesWithoutTools,
-      signal,
-      request,
-      response,
-      rejectedResults
+    return finalizePreparedResponse(
+      await synthesizeToolResults(
+        initialPayload,
+        messagesWithoutTools,
+        signal,
+        request,
+        response,
+        rejectedResults
+      ),
+      messagesWithoutTools
     )
   }
   let response = await request(
@@ -588,7 +600,9 @@ export async function runLocalToolLoop(
     )
     const calls = assistantMessage.tool_calls ?? []
     if (calls.length === 0) {
-      return includeBrowserSearchSources(response, completedResults)
+      return finalizePreparedResponse(
+        includeBrowserSearchSources(response, completedResults)
+      )
     }
 
     const currentToolNames = new Set(
@@ -624,13 +638,15 @@ export async function runLocalToolLoop(
         messages.push({ role: 'tool', tool_call_id: call.id, content: result })
         completedResults.push({ name: call.function.name, result })
       }
-      return synthesizeToolResults(
-        initialPayload,
-        messages,
-        signal,
-        request,
-        response,
-        completedResults
+      return finalizePreparedResponse(
+        await synthesizeToolResults(
+          initialPayload,
+          messages,
+          signal,
+          request,
+          response,
+          completedResults
+        )
       )
     }
 
@@ -732,17 +748,21 @@ export async function runLocalToolLoop(
           formatGitHubRepositoryList(result) !== null
       )
     ) {
-      return fallbackToolResponse(response, completedResults)
+      return finalizePreparedResponse(
+        fallbackToolResponse(response, completedResults)
+      )
     }
 
     if (mustSynthesize) {
-      return synthesizeToolResults(
-        initialPayload,
-        messages,
-        signal,
-        request,
-        response,
-        completedResults
+      return finalizePreparedResponse(
+        await synthesizeToolResults(
+          initialPayload,
+          messages,
+          signal,
+          request,
+          response,
+          completedResults
+        )
       )
     }
 
@@ -761,16 +781,20 @@ export async function runLocalToolLoop(
       )
     } catch {
       assertSignal(signal)
-      return fallbackToolResponse(response, completedResults)
+      return finalizePreparedResponse(
+        fallbackToolResponse(response, completedResults)
+      )
     }
   }
 
-  return synthesizeToolResults(
-    initialPayload,
-    messages,
-    signal,
-    request,
-    response,
-    completedResults
+  return finalizePreparedResponse(
+    await synthesizeToolResults(
+      initialPayload,
+      messages,
+      signal,
+      request,
+      response,
+      completedResults
+    )
   )
 }

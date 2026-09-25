@@ -115,6 +115,12 @@ export interface LocalToolProvider {
     messages: ChatCompletionMessage[],
     signal: AbortSignal
   ) => ChatCompletionMessage[] | Promise<ChatCompletionMessage[]>
+  /** Finalize a model response with deterministic data from prepared local context. */
+  finalizeResponse?: (
+    response: ChatCompletionResponse,
+    messages: ChatCompletionMessage[],
+    preparedContext: ChatCompletionMessage[]
+  ) => ChatCompletionResponse
   /**
    * Optional approval gate for tools that can affect external systems. The
    * loop must wait for a user decision before invoking the tool.
