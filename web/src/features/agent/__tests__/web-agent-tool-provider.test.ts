@@ -150,7 +150,7 @@ describe('webAgentToolProvider', () => {
     ).toBe('auto')
   })
 
-  it('passes browser search excerpts to the model without advertising tools', async () => {
+  it('grounds DeepSeek definition in its verified official model search source', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
@@ -179,7 +179,10 @@ describe('webAgentToolProvider', () => {
       choices: [
         {
           index: 0,
-          message: { role: 'assistant' as const, content: 'DeepSeek 是模型系列。' },
+          message: {
+            role: 'assistant' as const,
+            content: 'DeepSeek 是一个知识图谱检索工具。',
+          },
           finish_reason: 'stop',
         },
       ],
@@ -208,9 +211,16 @@ describe('webAgentToolProvider', () => {
     expect(sent?.messages.at(-1)).toEqual(payload.messages[0])
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
-    expect(response.choices[0]?.message.content).toContain('DeepSeek 是模型系列。')
     expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek model collection](<https://huggingface.co/deepseek-ai>)'
+      'DeepSeek 是一家人工智能公司，也开发 DeepSeek 系列模型'
+    )
+    expect(response.choices[0]?.message.content).toContain('它不是搜索工具。')
+    expect(response.choices[0]?.message.content).not.toContain('知识图谱检索工具')
+    expect(response.choices[0]?.message.content).toContain(
+      '[DeepSeek 官方网站](<https://www.deepseek.com/>)'
+    )
+    expect(response.choices[0]?.message.content).toContain(
+      '[DeepSeek 官方 Hugging Face 模型组织](<https://huggingface.co/deepseek-ai/models>)'
     )
   })
 
