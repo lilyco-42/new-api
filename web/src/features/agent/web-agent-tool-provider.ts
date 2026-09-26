@@ -270,13 +270,7 @@ function browserSearchQuery(request: string): string {
     )
     if (repositoryPath?.[1]) return repositoryPath[1]
 
-    const githubMatch = textWithoutUrls.match(/\b(?:github|gh)\b/iu)
-    const searchSubject = githubMatch
-      ? textWithoutUrls.slice(
-          (githubMatch.index ?? 0) + githubMatch[0].length
-        )
-      : ''
-    const projectSlug = searchSubject.match(
+    const projectSlug = textWithoutUrls.match(
       /\b(?=[a-z0-9-]*[a-z])[a-z0-9]+(?:-[a-z0-9]+)+\b/iu
     )
     if (projectSlug?.[0]) return projectSlug[0]

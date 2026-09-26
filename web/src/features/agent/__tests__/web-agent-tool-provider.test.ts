@@ -306,6 +306,52 @@ describe('webAgentToolProvider', () => {
     )
   })
 
+  it('searches a project slug even when the user names it before GitHub', async () => {
+    const query = '用网页搜索查找 ast-grep 的 GitHub 官方仓库。请给出仓库名、链接和一句说明；不要搜索我的个人仓库或调用 Radxa。'
+    vi.mocked(searchClientSources).mockResolvedValue({
+      execution: 'browser-wasm',
+      query: 'ast-grep',
+      fetched_at: '2026-09-26T00:00:00.000Z',
+      sources: ['GitHub'],
+      warnings: [],
+      items: [{
+        title: 'ast-grep/ast-grep',
+        url: 'https://github.com/ast-grep/ast-grep',
+        snippet: 'AST-based code search.',
+        source: 'GitHub',
+      }],
+    })
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'repository-result',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [{
+        index: 0,
+        message: { role: 'assistant' as const, content: 'ast-grep/ast-grep' },
+        finish_reason: 'stop',
+      }],
+    }))
+
+    const response = await runLocalToolLoop(
+      { model: 'test-model', messages: [{ role: 'user', content: query }], stream: false },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(searchClientSources).toHaveBeenCalledWith(
+      'ast-grep', 5, expect.any(AbortSignal), 'auto'
+    )
+    expect(request.mock.calls[0]?.[0].messages.some((message) =>
+      message.name === 'lain42_browser_search_context' &&
+      typeof message.content === 'string' &&
+      message.content.includes('https://github.com/ast-grep/ast-grep')
+    )).toBe(true)
+    expect(response.choices[0]?.message.content).toContain('ast-grep/ast-grep')
+  })
+
   it('tells the model browser search was unavailable without leaking its error', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
