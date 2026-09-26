@@ -403,11 +403,21 @@ export function shouldAdvertiseWebAgentTool(
   name: string,
   messages: ChatCompletionMessage[]
 ): boolean {
+  // Advertisement has no model-supplied arguments yet. Use one of the
+  // user's own URLs as a probe so the strict execution-time URL match does
+  // not hide the fetch tool before the model can call it. Execution still
+  // validates the actual requested URL against every URL in the user turn.
+  const args: Record<string, string> = {}
+  if (name === 'web.fetch' || name === 'web.crawl') {
+    const [userUrl] = extractPublicPageUrlReferences(latestUserText(messages))
+    if (userUrl) args.url = userUrl
+  }
+
   return shouldRunWebAgentTool(
     {
       id: 'routing-check',
       type: 'function',
-      function: { name, arguments: '{}' },
+      function: { name, arguments: JSON.stringify(args) },
     },
     messages
   )
