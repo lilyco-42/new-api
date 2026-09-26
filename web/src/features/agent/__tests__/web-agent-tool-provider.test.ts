@@ -781,7 +781,7 @@ describe('webAgentToolProvider', () => {
       (message) => message.name === 'lain42_correction_recovery_context'
     )
     expect(correctionContext?.content).toContain(
-      'their previous message was only a greeting'
+      'corrects your response to a greeting'
     )
     expect(correctionContext?.content).toContain('你好！有什么我能帮你？')
     expect(requestMessages.at(-1)).toEqual(payload.messages.at(-1))
