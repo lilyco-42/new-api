@@ -38,6 +38,22 @@ function toolCall(
   }
 }
 
+function modelResponse(content: string): ChatCompletionResponse {
+  return {
+    id: 'test-response',
+    object: 'chat.completion',
+    created: 1,
+    model: 'test-model',
+    choices: [
+      {
+        index: 0,
+        message: { role: 'assistant', content },
+        finish_reason: 'stop',
+      },
+    ],
+  }
+}
+
 describe('webAgentToolProvider', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -480,15 +496,32 @@ describe('webAgentToolProvider', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
-  it('uses browser OAuth for the shorthand request "gh repo 我的项目"', async () => {
+  it('passes OAuth results to the model for the shorthand request "gh repo 我的项目"', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: 'gh repo 我的项目' }],
       stream: false,
     }
-    const request = vi.fn(async () => {
-      throw new Error('Repository requests must not ask the model to guess.')
+    const requests: ChatCompletionRequest[] = []
+    const request = vi.fn(async (requestPayload: ChatCompletionRequest) => {
+      requests.push(requestPayload)
+      return modelResponse('你的 GitHub 仓库包括 lilyco-42/lyco。')
     })
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          items: [
+            {
+              full_name: 'lilyco-42/lyco',
+              html_url: 'https://github.com/lilyco-42/lyco',
+              private: false,
+              stargazers_count: 1,
+            },
+          ],
+        },
+      },
+    } as never)
 
     const response = await runLocalToolLoop(
       payload,
@@ -498,12 +531,18 @@ describe('webAgentToolProvider', () => {
       request
     )
 
-    expect(response.choices[0]?.message.content).toContain('GitHub OAuth 读取成功')
+    expect(response.choices[0]?.message.content).toContain('lilyco-42/lyco')
     expect(api.get).toHaveBeenCalledWith(
       '/api/agent/github/repositories',
       expect.objectContaining({ params: { limit: 10 } })
     )
-    expect(request).not.toHaveBeenCalled()
+    expect(requests).toHaveLength(1)
+    expect(
+      requests[0]?.messages.find(
+        (message) =>
+          message.name === 'lain42_browser_github_repositories_context'
+      )?.content
+    ).toContain('lilyco-42/lyco')
   })
 
   it('recognizes a numeric text part but preserves image questions for the model', () => {
@@ -838,15 +877,19 @@ describe('webAgentToolProvider', () => {
     expect(names).not.toContain('github.auth.status')
   })
 
-  it('lists the requested OAuth repositories before asking the model', async () => {
+  it('passes OAuth repository data to the model before answering', async () => {
     const bridgeProvider: LocalToolProvider = {
       tools: [],
       isAvailable: () => true,
       invoke: vi.fn(),
     }
     const provider = createBrowserAgentToolProvider(bridgeProvider, true)
-    const request = vi.fn(async () => {
-      throw new Error('The model must not be called for repository listing.')
+    const requests: ChatCompletionRequest[] = []
+    const request = vi.fn(async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      return modelResponse(
+        '我从你的 GitHub OAuth 读取到 repo-one、repo-two 和 repo-three。'
+      )
     })
     vi.mocked(api.get).mockResolvedValueOnce({
       data: {
@@ -898,19 +941,24 @@ describe('webAgentToolProvider', () => {
       '/api/agent/github/repositories',
       expect.objectContaining({ params: { limit: 3 } })
     )
-    expect(result.choices[0]?.message.content).toContain(
-      '已通过连接的 GitHub OAuth 获取到 3 个仓库'
+    expect(result.choices[0]?.message.content).toContain('repo-one')
+    expect(requests).toHaveLength(1)
+    const repositoryContext = requests[0]?.messages.find(
+      (message) =>
+        message.name === 'lain42_browser_github_repositories_context'
     )
-    expect(result.choices[0]?.message.content).toContain(
-      'lilyco-42/repo-three'
-    )
-    expect(request).not.toHaveBeenCalled()
+    expect(repositoryContext?.content).toContain('lilyco-42/repo-one')
+    expect(repositoryContext?.content).toContain('lilyco-42/repo-three')
   })
 
-  it('reports OAuth repository failures without blaming local gh login', async () => {
+  it('passes OAuth repository failures to the model without blaming local gh', async () => {
     const provider = createBrowserAgentToolProvider(undefined, false)
-    const request = vi.fn(async () => {
-      throw new Error('The model must not be called for repository listing.')
+    const requests: ChatCompletionRequest[] = []
+    const request = vi.fn(async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      return modelResponse(
+        'GitHub OAuth 仓库读取失败，HTTP 401；请重新连接 GitHub。'
+      )
     })
     vi.mocked(api.get).mockRejectedValueOnce(
       new Error('Request failed with status code 401')
@@ -928,13 +976,16 @@ describe('webAgentToolProvider', () => {
       request
     )
 
-    expect(result.choices[0]?.message.content).toContain(
-      'GitHub OAuth 仓库读取失败'
+    expect(result.choices[0]?.message.content).toContain('HTTP 401')
+    expect(requests).toHaveLength(1)
+    const repositoryContext = requests[0]?.messages.find(
+      (message) =>
+        message.name === 'lain42_browser_github_repositories_context'
     )
-    expect(result.choices[0]?.message.content).toContain(
+    expect(repositoryContext?.content).toContain('status code 401')
+    expect(repositoryContext?.content).toContain(
       '这与本机 GitHub CLI 是否登录无关'
     )
-    expect(request).not.toHaveBeenCalled()
   })
 
   it('lists repositories through the connected GitHub OAuth account', async () => {

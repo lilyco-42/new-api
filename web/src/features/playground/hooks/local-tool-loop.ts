@@ -298,7 +298,7 @@ async function synthesizeToolResults(
   const synthesisInstruction: ChatCompletionMessage = {
     role: 'system',
     content:
-      'Answer the latest user request directly in the user’s language. Only describe results from tool calls that actually ran. If a tool result says a call was blocked or not run, do not claim it ran or invent its result. Do not request or call any more tools.',
+      'Answer the latest user request directly in the user’s language. Only describe results from tool calls that actually ran. If a tool result says a call failed, was blocked, or was not run, explain that accurately; do not claim it succeeded or invent its result. Do not request or call any more tools.',
   }
   const firstUserMessage = messages.findIndex(
     (message) => message.role === 'user'
@@ -759,7 +759,7 @@ export async function runLocalToolLoop(
       }
       onEvent?.({ type: 'running', call })
       let result: string
-      let wasUnavailable = false
+      let invocationFailed = false
       try {
         result = boundedResult(await provider.invoke(call, signal))
       } catch (error) {
@@ -767,27 +767,25 @@ export async function runLocalToolLoop(
         const stillAvailable = availableTools(provider, messages).some(
           (tool) => tool.function.name === call.function.name
         )
-        if (stillAvailable) throw error
-        onEvent?.({ type: 'unavailable', call })
-        wasUnavailable = true
-        result = unavailableToolResult()
+        if (stillAvailable) {
+          invocationFailed = true
+          const detail =
+            error instanceof Error ? error.message : 'The tool request failed.'
+          result = JSON.stringify({
+            success: false,
+            error: detail.slice(0, 2000),
+          })
+          mustSynthesize = true
+        } else {
+          onEvent?.({ type: 'unavailable', call })
+          invocationFailed = true
+          result = unavailableToolResult()
+        }
       }
-      if (!wasUnavailable) onEvent?.({ type: 'completed', call, result })
+      if (!invocationFailed) onEvent?.({ type: 'completed', call, result })
       messages.push({ role: 'tool', tool_call_id: call.id, content: result })
       completedResults.push({ name: call.function.name, result })
       totalCalls += 1
-    }
-
-    if (
-      completedResults.some(
-        ({ name, result }) =>
-          name === 'github.oauth.repositories.list' &&
-          formatGitHubRepositoryList(result) !== null
-      )
-    ) {
-      return finalizePreparedResponse(
-        fallbackToolResponse(response, completedResults)
-      )
     }
 
     if (mustSynthesize) {

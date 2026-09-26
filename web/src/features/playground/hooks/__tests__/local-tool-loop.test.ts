@@ -249,7 +249,7 @@ describe('local structured tool loop', () => {
     )
   })
 
-  test('formats OAuth repository results without a model follow-up', async () => {
+  test('sends OAuth repository results to the model before answering', async () => {
     const repositoryTool = {
       type: 'function' as const,
       function: {
@@ -257,7 +257,9 @@ describe('local structured tool loop', () => {
         parameters: { type: 'object' },
       },
     }
-    const request = vi.fn(async (_payload: ChatCompletionRequest) => {
+    const requests: ChatCompletionRequest[] = []
+    const request = vi.fn(async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
       if (request.mock.calls.length === 1) {
         return response({
           role: 'assistant',
@@ -274,7 +276,10 @@ describe('local structured tool loop', () => {
           ],
         })
       }
-      throw new Error('openai_error')
+      return response({
+        role: 'assistant',
+        content: '你的仓库包括 lilyco-42/rembg-ui。',
+      })
     })
     const invoke = vi.fn(async () =>
       JSON.stringify({
@@ -304,14 +309,70 @@ describe('local structured tool loop', () => {
     )
 
     expect(result.choices[0]?.message.content).toContain(
-      '已通过连接的 GitHub OAuth 获取到 1 个仓库'
+      '你的仓库包括 lilyco-42/rembg-ui。'
     )
-    expect(result.choices[0]?.message.content).toContain(
-      '[lilyco-42/rembg-ui](https://github.com/lilyco-42/rembg-ui)'
-    )
-    expect(result.choices[0]?.message.content).not.toContain('openai_error')
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'repo-list',
+      content: expect.stringContaining('lilyco-42/rembg-ui'),
+    })
     expect(invoke).toHaveBeenCalledOnce()
-    expect(request).toHaveBeenCalledOnce()
+    expect(request).toHaveBeenCalledTimes(2)
+  })
+
+  test('turns provider failures into model-visible tool results', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'failed-search',
+              type: 'function',
+              function: {
+                name: 'web.search',
+                arguments: '{"query":"deepseek"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({
+        role: 'assistant',
+        content: '搜索服务暂时不可用：HTTP 503。',
+      })
+    }
+    const failingProvider: LocalToolProvider = {
+      tools: [webTool],
+      isAvailable: () => true,
+      invoke: async () => {
+        throw new Error('Search service returned HTTP 503.')
+      },
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [{ role: 'user', content: '搜索 deepseek' }],
+      },
+      failingProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.tool_choice).toBe('none')
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'failed-search',
+      content: expect.stringContaining('HTTP 503'),
+    })
+    expect(result.choices[0]?.message.content).toContain('HTTP 503')
   })
 
   test('blocks a tool call that does not match the latest user request', async () => {
