@@ -5,6 +5,7 @@ import type {
   ChatCompletionToolCall,
   LocalToolProvider,
 } from '@/features/playground/types'
+import { extractPublicPageUrlReferences } from '@/features/playground/lib/input/search-context'
 import { api } from '@/lib/api'
 
 import {
