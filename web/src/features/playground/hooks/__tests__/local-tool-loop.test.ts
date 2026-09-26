@@ -493,7 +493,12 @@ describe('local structured tool loop', () => {
     expect(result.choices[0]?.message.content).toContain('ast-grep')
     expect(invoke).toHaveBeenCalledOnce()
     expect(requests).toHaveLength(3)
-    expect(requests[1]?.messages.at(-1)).toMatchObject({
+    expect(
+      requests[1]?.messages.find(
+        (message) =>
+          message.role === 'tool' && message.tool_call_id === 'fetch-1'
+      )
+    ).toMatchObject({
       role: 'tool',
       tool_call_id: 'fetch-1',
       content: expect.stringContaining('An AST-based code tool.'),

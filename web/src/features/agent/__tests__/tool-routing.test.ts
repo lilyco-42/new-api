@@ -18,11 +18,14 @@ function userMessage(content: string): ChatCompletionMessage[] {
   return [{ role: 'user', content }]
 }
 
-function toolCall(name: string): ChatCompletionToolCall {
+function toolCall(
+  name: string,
+  args: Record<string, unknown> = {}
+): ChatCompletionToolCall {
   return {
     id: 'routing-test',
     type: 'function',
-    function: { name, arguments: '{}' },
+    function: { name, arguments: JSON.stringify(args) },
   }
 }
 
@@ -62,7 +65,14 @@ describe('Agent tool intent routing', () => {
     expect(
       shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)
     ).toBe(false)
-    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(true)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('web.fetch', {
+          url: 'https://github.com/ast-grep/ast-grep',
+        }),
+        messages
+      )
+    ).toBe(true)
   })
 
   it('does not treat a generic public repository mention as my account listing', () => {
@@ -249,7 +259,12 @@ describe('Agent tool intent routing', () => {
     const messages = userMessage('https://docs.example.com/guide')
 
     expect(shouldAdvertiseWebAgentTool('web.fetch', messages)).toBe(true)
-    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(true)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('web.fetch', { url: 'https://docs.example.com/guide' }),
+        messages
+      )
+    ).toBe(true)
     expect(shouldAdvertiseWebAgentTool('web.search', messages)).toBe(false)
   })
 
@@ -257,7 +272,12 @@ describe('Agent tool intent routing', () => {
     const messages = userMessage('deepseek.com')
 
     expect(shouldAdvertiseWebAgentTool('web.fetch', messages)).toBe(true)
-    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(true)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('web.fetch', { url: 'https://deepseek.com/' }),
+        messages
+      )
+    ).toBe(true)
   })
 
   it('does not read a URL when the user explicitly says not to open it', () => {
