@@ -21,7 +21,13 @@ The approval decision is handled as an exception before the loop records a tool 
 
 - A guarded tool refusal results in a tool event plus a no-tools synthesis request; the tool's invoke callback is never called and the chat response succeeds.
 - An explicitly requested URL sends the fetched page text in the tool message back to the model without a native confirmation prompt.
+- A page fetch is advertised for a user-supplied URL, while execution rejects a different URL proposed by the model.
 
 ## Verification
 
-The frontend regression tests and CI build have not yet run. Per project constraints, verification is delegated to GitHub Actions; no local build or test was run.
+GitHub Actions passed for commit `47e4c5a`:
+
+- [CI run 36245219703](https://github.com/lilyco-42/new-api/actions/runs/36245219703): frontend typecheck and tests; backend vet, build, and tests.
+- [Linux server build 36245219702](https://github.com/lilyco-42/new-api/actions/runs/36245219702): frontend tests, Agent API tests, device re-pair lifecycle tests, Linux amd64 server build, and runtime artifact packaging.
+
+No local build or test was run; verification used GitHub Actions as required.
