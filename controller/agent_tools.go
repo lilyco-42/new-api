@@ -256,6 +256,14 @@ type agentGitHubSearchResponse struct {
 	Items []agentGitHubRepository `json:"items"`
 }
 
+type agentGitHubUpstreamStatusError struct {
+	statusCode int
+}
+
+func (err *agentGitHubUpstreamStatusError) Error() string {
+	return fmt.Sprintf("GitHub returned status %d", err.statusCode)
+}
+
 type agentGitHubActivity struct {
 	Number    int    `json:"number"`
 	Title     string `json:"title"`
@@ -275,7 +283,7 @@ func AgentGitHubRepositoriesList(c *gin.Context) {
 	endpoint := "https://api.github.com/user/repos?" + query.Encode()
 	var items []agentGitHubRepository
 	if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &items); err != nil {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", "GitHub repository list failed")
+		writeAgentGitHubRequestError(c, "repository list", err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{"items": items})
@@ -294,7 +302,7 @@ func AgentGitHubRepositoriesSearch(c *gin.Context) {
 	var queryURL = "https://api.github.com/search/repositories?q=" + url.QueryEscape(query) + "&per_page=" + strconv.Itoa(limit)
 	var result agentGitHubSearchResponse
 	if err := agentGitHubRequest(c, http.MethodGet, queryURL, nil, &result); err != nil {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", "GitHub repository search failed")
+		writeAgentGitHubRequestError(c, "repository search", err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{"items": result.Items, "query": query})
@@ -321,7 +329,11 @@ func agentGitHubActivityList(c *gin.Context, pulls bool) {
 	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s?state=%s&per_page=%d&sort=updated&direction=desc", repo, resource, url.QueryEscape(state), limit)
 	var raw []map[string]any
 	if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &raw); err != nil {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", "GitHub activity request failed")
+		action := "issue list"
+		if pulls {
+			action = "pull request list"
+		}
+		writeAgentGitHubRequestError(c, action, err)
 		return
 	}
 	items := make([]agentGitHubActivity, 0, len(raw))
@@ -355,9 +367,29 @@ func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader,
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("github returned status %d", response.StatusCode)
+		return &agentGitHubUpstreamStatusError{statusCode: response.StatusCode}
 	}
 	return common.DecodeJson(io.LimitReader(response.Body, 2<<20), output)
+}
+
+func writeAgentGitHubRequestError(c *gin.Context, action string, err error) {
+	message := fmt.Sprintf("GitHub %s failed before the service could read a usable response. Retry later.", action)
+	var upstreamError *agentGitHubUpstreamStatusError
+	if errors.As(err, &upstreamError) {
+		switch upstreamError.statusCode {
+		case http.StatusUnauthorized:
+			message = fmt.Sprintf("GitHub %s failed: GitHub rejected this site's OAuth authorization (HTTP 401). Reconnect GitHub on this site and retry; local gh CLI sign-in is unrelated.", action)
+		case http.StatusForbidden:
+			message = fmt.Sprintf("GitHub %s failed: GitHub denied access (HTTP 403). Check this site's repository authorization or retry after the upstream rate limit clears.", action)
+		case http.StatusNotFound:
+			message = fmt.Sprintf("GitHub %s failed: the resource was not found or is not visible to this account (HTTP 404).", action)
+		case http.StatusTooManyRequests:
+			message = fmt.Sprintf("GitHub %s failed: GitHub rate-limited the request (HTTP 429). Retry later.", action)
+		default:
+			message = fmt.Sprintf("GitHub %s failed with upstream HTTP %d. Retry later.", action, upstreamError.statusCode)
+		}
+	}
+	writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", message)
 }
 
 func parseBoundedAgentInt(raw string, fallback, min, max int) int {

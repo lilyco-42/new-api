@@ -156,6 +156,60 @@ func TestAgentGitHubRepositoriesListUsesOnlyTheAuthenticatedUsersCredential(t *t
 	}
 }
 
+func TestAgentGitHubRepositoriesListExplainsUpstreamOAuthFailures(t *testing.T) {
+	previousGinMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(previousGinMode) })
+
+	for _, testCase := range []struct {
+		statusCode int
+		message    string
+	}{
+		{
+			statusCode: http.StatusUnauthorized,
+			message:    "GitHub rejected this site's OAuth authorization (HTTP 401)",
+		},
+		{
+			statusCode: http.StatusForbidden,
+			message:    "GitHub denied access (HTTP 403)",
+		},
+		{
+			statusCode: http.StatusTooManyRequests,
+			message:    "GitHub rate-limited the request (HTTP 429)",
+		},
+	} {
+		t.Run(testCase.message, func(t *testing.T) {
+			previousTransport := http.DefaultTransport
+			http.DefaultTransport = agentGitHubRoundTripper(
+				func(*http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: testCase.statusCode,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader(`{"message":"private provider diagnostic"}`)),
+					}, nil
+				},
+			)
+			t.Cleanup(func() { http.DefaultTransport = previousTransport })
+
+			recorder := httptest.NewRecorder()
+			requestContext, _ := gin.CreateTestContext(recorder)
+			requestContext.Request = httptest.NewRequest(
+				http.MethodGet,
+				"/api/agent/github/repositories",
+				nil,
+			)
+			requestContext.Set("id", 0)
+
+			AgentGitHubRepositoriesList(requestContext)
+
+			require.Equal(t, http.StatusBadGateway, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "AGENT_GITHUB_REQUEST_FAILED")
+			assert.Contains(t, recorder.Body.String(), testCase.message)
+			assert.NotContains(t, recorder.Body.String(), "private provider diagnostic")
+		})
+	}
+}
+
 func TestParseBingSearchRSSBoundsAndSanitizesResults(t *testing.T) {
 	body := `<?xml version="1.0" encoding="UTF-8"?>
 <rss><channel>

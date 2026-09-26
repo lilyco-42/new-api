@@ -1099,9 +1099,17 @@ describe('webAgentToolProvider', () => {
         'GitHub OAuth 仓库读取失败，HTTP 401；请重新连接 GitHub。'
       )
     })
-    vi.mocked(api.get).mockRejectedValueOnce(
-      new Error('Request failed with status code 401')
-    )
+    vi.mocked(api.get).mockRejectedValueOnce({
+      message: 'Request failed with status code 502',
+      response: {
+        data: {
+          success: false,
+          code: 'AGENT_GITHUB_REQUEST_FAILED',
+          message:
+            "GitHub repository list failed: GitHub rejected this site's OAuth authorization (HTTP 401). Reconnect GitHub on this site and retry; local gh CLI sign-in is unrelated.",
+        },
+      },
+    })
 
     const result = await runLocalToolLoop(
       {
@@ -1121,7 +1129,12 @@ describe('webAgentToolProvider', () => {
       (message) =>
         message.name === 'lain42_browser_github_repositories_context'
     )
-    expect(repositoryContext?.content).toContain('status code 401')
+    expect(repositoryContext?.content).toContain(
+      "GitHub rejected this site's OAuth authorization (HTTP 401)"
+    )
+    expect(repositoryContext?.content).toContain(
+      'local gh CLI sign-in is unrelated'
+    )
     expect(repositoryContext?.content).toContain(
       '这与本机 GitHub CLI 是否登录无关'
     )

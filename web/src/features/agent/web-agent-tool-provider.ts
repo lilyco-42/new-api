@@ -1049,6 +1049,27 @@ function parseAuthenticatedCLIStatus(result: string): boolean {
 }
 
 function safeErrorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = error.response
+    if (
+      typeof response === 'object' &&
+      response !== null &&
+      'data' in response
+    ) {
+      const data = response.data
+      if (
+        typeof data === 'object' &&
+        data !== null &&
+        'code' in data &&
+        typeof data.code === 'string' &&
+        data.code.startsWith('AGENT_') &&
+        'message' in data &&
+        typeof data.message === 'string'
+      ) {
+        return (data.code + ': ' + data.message).slice(0, 1000)
+      }
+    }
+  }
   return error instanceof Error ? error.message : 'The request failed.'
 }
 
