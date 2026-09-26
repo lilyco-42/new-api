@@ -740,28 +740,27 @@ describe('webAgentToolProvider', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
-  it('asks before reading page text that will be sent to the selected model', async () => {
-    const confirm = vi.fn().mockReturnValue(false)
-    vi.stubGlobal('window', { confirm })
+  it('reads only the public URL explicitly supplied in the user request', () => {
+    const messages: ChatCompletionMessage[] = [
+      {
+        role: 'user',
+        content: 'Read https://docs.example.com/guide and summarize it.',
+      },
+    ]
 
-    const approved = await webAgentToolProvider.requiresApproval?.(
-      toolCall('web.crawl', {
-        url: 'https://docs.example.com/private-docs',
-        max_pages: 4,
-      }),
-      new AbortController().signal
-    )
-
-    expect(approved).toBe(false)
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining('docs.example.com')
-    )
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining('No cookies are sent')
-    )
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining('selected AI model')
-    )
+    expect(webAgentToolProvider.requiresApproval).toBeUndefined()
+    expect(
+      webAgentToolProvider.shouldRunTool?.(
+        toolCall('web.fetch', { url: 'https://docs.example.com/guide' }),
+        messages
+      )
+    ).toBe(true)
+    expect(
+      webAgentToolProvider.shouldRunTool?.(
+        toolCall('web.fetch', { url: 'https://other.example.com/page' }),
+        messages
+      )
+    ).toBe(false)
   })
 
   it('keeps browser OAuth and paired gh CLI tools separately routable', async () => {

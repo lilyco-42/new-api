@@ -909,24 +909,6 @@ export const webAgentToolProvider: LocalToolProvider = {
       )
     }
   },
-  requiresApproval: async (call, signal) => {
-    if (signal.aborted) return false
-    if (
-      call.function.name !== 'web.fetch' &&
-      call.function.name !== 'web.crawl'
-    ) {
-      return true
-    }
-    if (typeof window === 'undefined' || typeof window.confirm !== 'function') {
-      return false
-    }
-    const params = parseToolArguments(call)
-    const url = new URL(params.url as string)
-    const pageCount = call.function.name === 'web.crawl' ? params.max_pages : 1
-    return window.confirm(
-      `Read ${pageCount} public page(s) from ${url.hostname} using this device's network? No cookies are sent. The extracted text will be included in this conversation and sent to the selected AI model.`
-    )
-  },
   invoke: async (call, signal) => {
     const params = parseToolArguments(call)
     switch (call.function.name) {

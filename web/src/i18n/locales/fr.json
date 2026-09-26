@@ -5626,6 +5626,7 @@
     "GitHub CLI actions are available in the Tauri desktop app.": "GitHub CLI actions are available in the Tauri desktop app.",
     "Running local tool: {{tool}}": "Running local tool: {{tool}}",
     "Tool completed: {{tool}}": "Tool completed: {{tool}}",
+    "The tool was not run because you declined permission.": "L’outil n’a pas été exécuté, car vous avez refusé l’autorisation.",
     "GitHub CLI check failed.": "GitHub CLI check failed.",
     "Generate a new ticket": "Generate a new ticket",
     "Keep this terminal open until you confirm in the browser. The ticket is hidden while typing, and the device credential is never printed.": "Gardez ce terminal ouvert jusqu’à la confirmation dans le navigateur. La saisie du ticket est masquée et l’identifiant de l’appareil n’est jamais affiché.",

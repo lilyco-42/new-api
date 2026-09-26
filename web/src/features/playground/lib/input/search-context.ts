@@ -23,17 +23,25 @@ export type BrowserSearchResult = {
 }
 
 /** Find explicit public-page URLs in chat text, including a bare domain. */
-export function containsPublicPageUrlReference(value: string): boolean {
+export function extractPublicPageUrlReferences(value: string): string[] {
   const candidates = value.match(
     /https:\/\/[^\s<>"'`]+|(?:^|\s)(?:www\.)?(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z]{2,}(?::\d{1,5})?(?:\/[^\s<>"'`]*)?/giu
   )
-  return (
-    candidates?.some((candidate) =>
-      normalizePublicPageUrlInput(
-        candidate.trim().replace(/^[^a-z\d]+|[.,;!?)}\]]+$/giu, '')
-      )
-    ) ?? false
-  )
+  const references = candidates?.flatMap((candidate) => {
+    const normalized = normalizePublicPageUrlInput(
+      candidate.trim().replace(/^[^a-z\d]+|[.,;!?)}\]]+$/giu, '')
+    )
+    if (!normalized) return []
+    const url = new URL(normalized)
+    url.hash = ''
+    return [url.toString()]
+  })
+  return [...new Set(references ?? [])]
+}
+
+/** Find whether chat text contains at least one public-page URL. */
+export function containsPublicPageUrlReference(value: string): boolean {
+  return extractPublicPageUrlReferences(value).length > 0
 }
 
 /**

@@ -347,6 +347,15 @@ export function useChatHandler({
                 )
               )
             )
+          } else if (event.type === 'approval-denied') {
+            onMessageUpdate((prev) =>
+              updateLastAssistantMessage(prev, (message) =>
+                updateCurrentVersionContent(
+                  message,
+                  t('The tool was not run because you declined permission.')
+                )
+              )
+            )
           } else if (event.type === 'running') {
             onMessageUpdate((prev) =>
               updateLastAssistantMessage(prev, (message) =>

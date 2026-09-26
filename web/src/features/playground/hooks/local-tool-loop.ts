@@ -35,6 +35,7 @@ export type LocalToolLoopEvent =
   | { type: 'requested'; call: ChatCompletionToolCall }
   | { type: 'running'; call: ChatCompletionToolCall }
   | { type: 'completed'; call: ChatCompletionToolCall; result: string }
+  | { type: 'approval-denied'; call: ChatCompletionToolCall }
   | { type: 'unavailable'; call: ChatCompletionToolCall }
 
 function availableTools(
@@ -744,9 +745,16 @@ export async function runLocalToolLoop(
         const approved = await provider.requiresApproval(call, signal)
         assertSignal(signal)
         if (!approved) {
-          throw new LocalToolLoopError(
-            `Tool call ${call.function.name} was not approved.`
-          )
+          mustSynthesize = true
+          const result = JSON.stringify({
+            error:
+              'The user declined permission. This tool was not run. Explain that the requested action is incomplete; do not retry or claim it ran.',
+          })
+          onEvent?.({ type: 'approval-denied', call })
+          messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+          completedResults.push({ name: call.function.name, result })
+          totalCalls += 1
+          continue
         }
       }
       onEvent?.({ type: 'running', call })

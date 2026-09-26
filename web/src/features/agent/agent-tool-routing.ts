@@ -2,7 +2,11 @@ import type {
   ChatCompletionMessage,
   ChatCompletionToolCall,
 } from '@/features/playground/types'
-import { containsPublicPageUrlReference } from '@/features/playground/lib/input/search-context'
+import {
+  containsPublicPageUrlReference,
+  extractPublicPageUrlReferences,
+  normalizePublicPageUrlInput,
+} from '@/features/playground/lib/input/search-context'
 
 export type GitHubReadIntent =
   | 'status'
@@ -326,14 +330,36 @@ export function shouldRunWebResearchTool(
   const name = call.function.name
   if (isQuestionAboutToolBehavior(text)) return false
 
-  if (name === 'web.fetch') {
+  if (name === 'web.fetch' || name === 'web.crawl') {
+    if (explicitlyDeclinesPageRead(text)) return false
+    if (
+      name === 'web.crawl' &&
+      !/(?:爬取|抓取|遍历|crawl|spider|follow links)/iu.test(text)
+    ) {
+      return false
+    }
+    let args: unknown
+    try {
+      args = JSON.parse(call.function.arguments)
+    } catch {
+      return false
+    }
+    if (!args || typeof args !== 'object' || Array.isArray(args)) return false
+    const url = (args as { url?: unknown }).url
+    if (typeof url !== 'string') return false
+    const toolUrl = normalizePublicPageUrlInput(url)
+    if (!toolUrl) return false
+    const normalizedToolUrl = new URL(toolUrl)
+    normalizedToolUrl.hash = ''
     return (
-      containsPublicPageUrlReference(text) &&
-      !explicitlyDeclinesPageRead(text)
+      extractPublicPageUrlReferences(text).some((reference) => {
+        const normalizedReference = new URL(reference)
+        normalizedReference.hash = ''
+        return normalizedReference.href === normalizedToolUrl.href
+      })
     )
   }
 
-  if (name === 'web.crawl' && explicitlyDeclinesPageRead(text)) return false
   if (explicitlyDeclinesWebResearch(text)) return false
 
   const githubIntent = getGitHubReadIntent(text)
@@ -353,9 +379,6 @@ export function shouldRunWebResearchTool(
       return /(?:搜索|搜一下|查找资料|网上查|网页搜索|研究一下|调研|找项目|探索项目|发现项目|research|web search|search the web|search online|look up online|find interesting|discover projects|latest|current|recent|today|right now|price|release notes|最新|近期|当前版本|当前价格|今天|今日|实时|现在的价格)/iu.test(
         text
       ) || requestsKnownAIEntityDefinition(text)
-    case 'web.crawl':
-      return /https:\/\//iu.test(text) &&
-        /(?:爬取|抓取|遍历|crawl|spider|follow links)/iu.test(text)
     default:
       return false
   }

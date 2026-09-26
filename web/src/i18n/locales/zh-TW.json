@@ -5626,6 +5626,7 @@
     "GitHub CLI actions are available in the Tauri desktop app.": "GitHub CLI actions are available in the Tauri desktop app.",
     "Running local tool: {{tool}}": "Running local tool: {{tool}}",
     "Tool completed: {{tool}}": "Tool completed: {{tool}}",
+    "The tool was not run because you declined permission.": "您拒絕了授權，因此工具未執行。",
     "GitHub CLI check failed.": "GitHub CLI check failed.",
     "Generate a new ticket": "Generate a new ticket",
     "Keep this terminal open until you confirm in the browser. The ticket is hidden while typing, and the device credential is never printed.": "請保持終端機開啟，直到你在瀏覽器中確認。輸入配對票證時內容會隱藏，裝置憑證也不會印出。",

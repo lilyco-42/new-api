@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   containsPublicPageUrlReference,
+  extractPublicPageUrlReferences,
   formatSearchResultsForPrompt,
   normalizePublicPageUrlInput,
 } from '../search-context'
@@ -29,6 +30,14 @@ describe('browser search context', () => {
       containsPublicPageUrlReference('Please explain deepseek.com for me.')
     ).toBe(true)
     expect(containsPublicPageUrlReference('deepseek ai models')).toBe(false)
+  })
+
+  it('returns normalized URLs so page reads can stay tied to the user request', () => {
+    expect(
+      extractPublicPageUrlReferences(
+        'Read https://docs.example.com/guide#intro and https://docs.example.com/guide#faq.'
+      )
+    ).toEqual(['https://docs.example.com/guide'])
   })
 
   it('formats search results as bounded source context for the model', () => {

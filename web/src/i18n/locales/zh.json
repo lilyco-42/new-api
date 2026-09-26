@@ -5626,6 +5626,7 @@
     "GitHub CLI actions are available in the Tauri desktop app.": "GitHub CLI 操作仅在 Tauri 桌面应用中可用。",
     "Running local tool: {{tool}}": "正在运行本机工具：{{tool}}",
     "Tool completed: {{tool}}": "工具已完成：{{tool}}",
+    "The tool was not run because you declined permission.": "你拒绝了授权，工具未执行。",
     "GitHub CLI check failed.": "GitHub CLI 检查失败。",
     "Generate a new ticket": "重新生成配对票据",
     "Keep this terminal open until you confirm in the browser. The ticket is hidden while typing, and the device credential is never printed.": "请保持终端打开，直到你在浏览器中确认。输入配对票据时内容会隐藏，设备凭据也不会打印出来。",
