@@ -50,6 +50,12 @@ export const PROMPT_INPUT_ATTACH_FILES_EVENT =
 
 export const MAX_ATTACHMENT_FILE_SIZE_BYTES = 8 * 1024 * 1024
 
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException('Aborted', 'AbortError')
+  }
+}
+
 export function attachFilesToCurrentPromptInput(files: File[]) {
   if (typeof window === 'undefined' || files.length === 0) return
   window.dispatchEvent(
@@ -115,12 +121,14 @@ function isPdfAttachment(file: FileUIPart): boolean {
 
 /** Convert PromptInput files into OpenAI-compatible request content parts. */
 export async function filePartsToContentParts(
-  files: FileUIPart[]
+  files: FileUIPart[],
+  signal?: AbortSignal
 ): Promise<ContentPart[]> {
   const parts: ContentPart[] = []
   let remainingTextChars = MAX_ATTACHMENT_TEXT_CHARS
 
   for (const file of files) {
+    throwIfAborted(signal)
     const filename = file.filename || 'attachment'
     const mediaType = file.mediaType || 'application/octet-stream'
     const url = file.url || ''
@@ -143,7 +151,7 @@ export async function filePartsToContentParts(
       }
 
       try {
-        const pdf = await extractPdfText(url, remainingTextChars)
+        const pdf = await extractPdfText(url, remainingTextChars, signal)
         let status = ''
         if (!pdf.text.trim()) {
           status =
@@ -159,6 +167,7 @@ export async function filePartsToContentParts(
           remainingTextChars - pdf.text.length - status.length
         )
       } catch {
+        if (signal?.aborted) throwIfAborted(signal)
         throw new Error(
           'Unable to read this PDF. Check that it is not encrypted or damaged.'
         )
@@ -168,6 +177,7 @@ export async function filePartsToContentParts(
 
     if (isTextAttachment(file)) {
       const text = decodeDataUrl(url)
+      throwIfAborted(signal)
       if (text !== null) {
         const boundedText = text.slice(0, remainingTextChars)
         const truncated = boundedText.length < text.length

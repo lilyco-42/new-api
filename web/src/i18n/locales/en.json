@@ -5685,6 +5685,8 @@
     "Open Agent tools": "Open Agent tools",
     "Close Agent tools": "Close Agent tools",
     "Attached files": "Attached files",
+    "Preparing attachments...": "Preparing attachments...",
+    "Unable to prepare attachments. Please try again.": "Unable to prepare attachments. Please try again.",
     "Open this Lain42 Agent workspace.": "Open this Lain42 Agent workspace.",
     "Workspace link copied.": "Workspace link copied.",
     "Copy the current page URL to share this workspace.": "Copy the current page URL to share this workspace.",

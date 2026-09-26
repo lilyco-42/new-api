@@ -98,9 +98,15 @@ export function PlaygroundInput({
     let contentParts: import('../../types').ContentPart[] | undefined
     try {
       contentParts = message.files?.length
-        ? await filePartsToContentParts(message.files)
+        ? await filePartsToContentParts(message.files, message.signal)
         : undefined
+      if (message.signal?.aborted) {
+        throw message.signal.reason ?? new DOMException('Aborted', 'AbortError')
+      }
     } catch (error) {
+      if (message.signal?.aborted) {
+        throw message.signal.reason ?? new DOMException('Aborted', 'AbortError')
+      }
       toast.error(
         t(
           error instanceof Error

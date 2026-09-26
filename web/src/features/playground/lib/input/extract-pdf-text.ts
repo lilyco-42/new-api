@@ -41,20 +41,33 @@ async function loadPdfJs(): Promise<PdfJsModule> {
   return pdfjs
 }
 
-async function readLocalPdfBytes(url: string): Promise<Uint8Array> {
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException('Aborted', 'AbortError')
+  }
+}
+
+async function readLocalPdfBytes(
+  url: string,
+  signal?: AbortSignal
+): Promise<Uint8Array> {
+  throwIfAborted(signal)
   if (url.startsWith('blob:')) {
     const blobUrl = new URL(url)
     if (blobUrl.origin !== window.location.origin) {
       throw new Error('PDF must be read from this browser session.')
     }
 
-    const response = await fetch(url, { credentials: 'omit' })
+    const response = await fetch(url, { credentials: 'omit', signal })
     if (!response.ok) throw new Error('PDF could not be read.')
     const blob = await response.blob()
+    throwIfAborted(signal)
     if (blob.size > MAX_PDF_FILE_SIZE) {
       throw new Error('PDF exceeds the file size limit.')
     }
-    return new Uint8Array(await blob.arrayBuffer())
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    throwIfAborted(signal)
+    return bytes
   }
 
   if (
@@ -116,20 +129,30 @@ function appendTextWithinLimit(
 
 export async function extractPdfText(
   url: string,
-  maxChars: number
+  maxChars: number,
+  signal?: AbortSignal
 ): Promise<PdfTextExtraction> {
-  const data = await readLocalPdfBytes(url)
+  const data = await readLocalPdfBytes(url, signal)
   const { getDocument } = await loadPdfJs()
+  throwIfAborted(signal)
   const loadingTask = getDocument({
     data,
     stopAtErrors: true,
     useSystemFonts: true,
     wasmUrl: new URL('/pdfjs/wasm/', window.location.origin).href,
   })
+  let destroyPromise: Promise<void> | undefined
+  const destroyLoadingTask = () =>
+    (destroyPromise ??= loadingTask.destroy())
+  const abortLoadingTask = () => {
+    void destroyLoadingTask().catch(() => undefined)
+  }
+  signal?.addEventListener('abort', abortLoadingTask, { once: true })
 
   let document: PDFDocumentProxy | undefined
   try {
     document = await loadingTask.promise
+    throwIfAborted(signal)
     const chunks: string[] = []
     let textLength = 0
     let processedPages = 0
@@ -137,6 +160,7 @@ export async function extractPdfText(
     const pageLimit = Math.min(document.numPages, MAX_PDF_PAGES)
 
     for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+      throwIfAborted(signal)
       if (textLength >= maxChars) {
         truncated = true
         break
@@ -152,7 +176,9 @@ export async function extractPdfText(
       const page = await document.getPage(pageNumber)
       processedPages += 1
       try {
+        throwIfAborted(signal)
         const textContent = await page.getTextContent()
+        throwIfAborted(signal)
         const pageChunks: string[] = []
         let pageLength = 0
 
@@ -196,6 +222,7 @@ export async function extractPdfText(
       truncated,
     }
   } finally {
-    await loadingTask.destroy()
+    signal?.removeEventListener('abort', abortLoadingTask)
+    await destroyLoadingTask()
   }
 }

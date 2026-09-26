@@ -156,6 +156,25 @@ describe('filePartsToContentParts', () => {
     )
   })
 
+  it('cancels client-side attachment parsing before reading any files', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      filePartsToContentParts(
+        [
+          {
+            type: 'file',
+            filename: 'notes.txt',
+            mediaType: 'text/plain',
+            url: 'data:text/plain;base64,aGVsbG8=',
+          } as FileUIPart,
+        ],
+        controller.signal
+      )
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('caps PDF extraction by both page count and text length', async () => {
     const page = {
       cleanup: vi.fn(),
