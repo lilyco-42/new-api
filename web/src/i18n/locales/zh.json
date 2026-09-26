@@ -4229,6 +4229,7 @@
     "Could not check GitHub OAuth status (HTTP {{status}}).": "无法检查 GitHub OAuth 状态（HTTP {{status}}），请重试。",
     "GitHub OAuth failed.": "GitHub OAuth 失败，请重试。",
     "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.": "当前模型或 API 渠道暂时不可用。请重试或切换模型；如果所有模型都失败，请检查渠道和服务器状态。",
+    "The site is temporarily at capacity because server resources are exhausted. Switching models may not help. Wait a moment and retry; contact the site administrator if it persists.": "网站服务器资源暂时达到限制，切换模型可能无效。请稍后重试；若持续发生，请联系管理员。",
     "Searching…": "搜索中…",
     "Capture failed.": "捕获失败。",
     "Could not capture an image.": "无法捕获图片。",

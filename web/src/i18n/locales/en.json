@@ -4229,6 +4229,7 @@
     "Could not check GitHub OAuth status (HTTP {{status}}).": "Could not check GitHub OAuth status (HTTP {{status}}).",
     "GitHub OAuth failed.": "GitHub OAuth failed.",
     "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.": "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.",
+    "The site is temporarily at capacity because server resources are exhausted. Switching models may not help. Wait a moment and retry; contact the site administrator if it persists.": "The site is temporarily at capacity because server resources are exhausted. Switching models may not help. Wait a moment and retry; contact the site administrator if it persists.",
     "Searching…": "Searching…",
     "Capture failed.": "Capture failed.",
     "Could not capture an image.": "Could not capture an image.",

@@ -55,6 +55,10 @@ export function getActionableRequestErrorKey(message: string): string | null {
     return 'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.'
   }
 
+  if (/\bsystem[_\s]+(?:cpu|memory|disk)[_\s]+overloaded\b/i.test(message)) {
+    return 'The site is temporarily at capacity because server resources are exhausted. Switching models may not help. Wait a moment and retry; contact the site administrator if it persists.'
+  }
+
   if (
     /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
       message

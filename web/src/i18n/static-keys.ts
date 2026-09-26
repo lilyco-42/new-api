@@ -533,6 +533,7 @@ export const STATIC_I18N_KEYS = [
   'The selected model is temporarily rate limited. Retry shortly or choose another model.',
   'The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.',
   'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.',
+  'The site is temporarily at capacity because server resources are exhausted. Switching models may not help. Wait a moment and retry; contact the site administrator if it persists.',
 
   // Channel upstream updates
   'No processable upstream model updates for this channel',

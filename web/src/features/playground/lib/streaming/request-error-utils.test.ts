@@ -60,4 +60,15 @@ describe('getActionableRequestErrorKey', () => {
     ).toContain('server health')
     expect(getActionableRequestErrorKey('invalid prompt')).toBeNull()
   })
+
+  it('distinguishes site resource limits from model or channel failures', () => {
+    expect(
+      getActionableRequestErrorKey(
+        'system disk overloaded (current: 96.2%, threshold: 95%)'
+      )
+    ).toContain('Switching models may not help')
+    expect(
+      getActionableRequestErrorKey('system_disk_overloaded')
+    ).toContain('contact the site administrator')
+  })
 })
