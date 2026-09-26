@@ -16,8 +16,8 @@ import {
   type ClientSearchScope,
 } from './client-crawler/client-crawler'
 import {
-  explicitlyTargetsLocalGitHub,
   explicitlyRequestsPublicRepositorySearch,
+  explicitlyTargetsLocalGitHub,
   getGitHubReadIntent,
   latestUserRequestText,
   requestsKnownAIEntityDefinition,
@@ -279,6 +279,47 @@ function browserSearchContextMessage(
   }
   browserSearchResultsByContext.set(message, { result, kind })
   return message
+}
+
+function correctionRecoveryContextMessage(
+  messages: ChatCompletionMessage[]
+): ChatCompletionMessage | null {
+  const request = latestUserRequestText(messages)
+  const correction =
+    /(?:刚才|刚刚).{0,32}(?:不是|并非|没|理解错)|我不是.{0,24}(?:问候|打招呼|寒暄)|(?:答非所问|回答跑题|你理解错|你在干嘛|我问你话呢|not what i asked|you misunderstood|off topic)/iu.test(
+      request
+    )
+  if (!correction) return null
+
+  const userMessages = messages.filter((message) => message.role === 'user')
+  const previousUser = userMessages.at(-2)?.content
+  const previousUserText =
+    typeof previousUser === 'string'
+      ? previousUser.trim()
+      : Array.isArray(previousUser)
+        ? previousUser
+            .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
+            .join('\n')
+            .trim()
+        : ''
+  const previousMessageWasGreeting =
+    /^(?:你好|您好|嗨|哈喽|hello|hi|hey)[\s\p{P}\p{S}]*$/iu.test(
+      previousUserText
+    )
+  const correctsGreetingOnly =
+    /(?:刚才|刚刚).{0,24}(?:不是|并非|只是|只).{0,24}(?:问候|打招呼|问好)|我(?:刚才|刚刚)?.{0,12}(?:只是|只).{0,12}(?:问候|打招呼|问好)/iu.test(
+      request
+    )
+  const content =
+    previousMessageWasGreeting && correctsGreetingOnly
+      ? 'The latest user message corrects your response: their previous message was only a greeting. Briefly acknowledge that you misunderstood, then continue naturally by asking what they need. Do not answer with only another greeting, ask whether they want you to say hello, or infer their feelings.'
+      : 'The latest user message corrects your previous response. Interpret it against the preceding user and assistant turns. Briefly acknowledge the specific misunderstanding, then answer the corrected request. Do not repeat the rejected answer or infer the user’s feelings. If no clear request remains, ask one concrete follow-up question.'
+
+  return {
+    role: 'system',
+    name: 'lain42_correction_recovery_context',
+    content,
+  }
 }
 
 function browserSearchQuery(request: string): string {
@@ -776,6 +817,11 @@ export const webAgentToolProvider: LocalToolProvider = {
   },
   prepareContext: async (messages, signal) => {
     const request = latestUserRequestText(messages)
+    const correctionContext = correctionRecoveryContextMessage(messages)
+    const withCorrectionContext = (
+      contexts: ChatCompletionMessage[]
+    ): ChatCompletionMessage[] =>
+      correctionContext ? [...contexts, correctionContext] : contexts
     const [pageUrl] = extractPublicPageUrlReferences(request)
     if (pageUrl && shouldRunWebAgentTool({
       id: 'browser-page-preflight',
@@ -784,29 +830,41 @@ export const webAgentToolProvider: LocalToolProvider = {
     }, messages)) {
       try {
         const page = await fetchClientPage(pageUrl, signal)
-        return [browserSearchContextMessage({
-          execution: 'browser-wasm',
-          query: pageUrl,
-          fetched_at: page.fetched_at,
-          sources: [new URL(page.url).hostname],
-          warnings: [],
-          items: [{
-            title: page.title,
-            url: page.url,
-            snippet: page.text,
-            source: new URL(page.url).hostname,
-          }],
-        }, 'page')]
+        return withCorrectionContext([
+          browserSearchContextMessage(
+            {
+              execution: 'browser-wasm',
+              query: pageUrl,
+              fetched_at: page.fetched_at,
+              sources: [new URL(page.url).hostname],
+              warnings: [],
+              items: [
+                {
+                  title: page.title,
+                  url: page.url,
+                  snippet: page.text,
+                  source: new URL(page.url).hostname,
+                },
+              ],
+            },
+            'page'
+          ),
+        ])
       } catch (error) {
         if (signal.aborted) throw error
-        return [browserSearchContextMessage({
-          execution: 'browser-wasm',
-          query: pageUrl,
-          fetched_at: new Date().toISOString(),
-          sources: [],
-          warnings: [safeErrorMessage(error)],
-          items: [],
-        }, 'page')]
+        return withCorrectionContext([
+          browserSearchContextMessage(
+            {
+              execution: 'browser-wasm',
+              query: pageUrl,
+              fetched_at: new Date().toISOString(),
+              sources: [],
+              warnings: [safeErrorMessage(error)],
+              items: [],
+            },
+            'page'
+          ),
+        ])
       }
     }
     if (
@@ -825,22 +883,22 @@ export const webAgentToolProvider: LocalToolProvider = {
           { limit },
           signal
         )
-        return [
+        return withCorrectionContext([
           browserGitHubRepositoriesContextMessage(
             formatGitHubRepositories(result)
           ),
-        ]
+        ])
       } catch (error) {
         if (signal.aborted) throw error
         const detail = safeErrorMessage(error).slice(0, 1000)
         const isChinese = /[\u3400-\u9fff]/u.test(request)
-        return [
+        return withCorrectionContext([
           browserGitHubRepositoriesContextMessage(
             isChinese
               ? `GitHub OAuth 仓库读取失败：${detail}。这与本机 GitHub CLI 是否登录无关。`
               : `GitHub OAuth repository lookup failed: ${detail}. This is unrelated to local GitHub CLI login.`
           ),
-        ]
+        ])
       }
     }
     const query = browserSearchQuery(request)
@@ -852,17 +910,19 @@ export const webAgentToolProvider: LocalToolProvider = {
         arguments: JSON.stringify({ query, limit: 5, scope: 'auto' }),
       },
     }
-    if (!shouldRunWebAgentTool(searchCall, messages)) return []
+    if (!shouldRunWebAgentTool(searchCall, messages)) {
+      return withCorrectionContext([])
+    }
 
     try {
       const scope = explicitlyRequestsPublicRepositorySearch(request)
         ? 'github'
         : 'auto'
       const result = await searchClientSources(query, 5, signal, scope)
-      return [browserSearchContextMessage(result)]
+      return withCorrectionContext([browserSearchContextMessage(result)])
     } catch (error) {
       if (signal.aborted) throw error
-      return [
+      return withCorrectionContext([
         browserSearchContextMessage({
           execution: 'browser-wasm',
           query,
@@ -871,7 +931,7 @@ export const webAgentToolProvider: LocalToolProvider = {
           warnings: ['The browser-side public-source search failed.'],
           items: [],
         }),
-      ]
+      ])
     }
   },
   finalizeResponse: finalizePreparedBrowserSearch,

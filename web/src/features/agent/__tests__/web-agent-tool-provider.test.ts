@@ -752,18 +752,18 @@ describe('webAgentToolProvider', () => {
     }
   )
 
-  it('sends a correction about a greeting to the model with its conversation context', async () => {
+  it('guides the model to recover when a user corrects a greeting response', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [
-        { role: 'user', content: 'DeepSeek 是什么？' },
-        { role: 'assistant', content: '错误的旧回答' },
+        { role: 'user', content: '你好' },
+        { role: 'assistant', content: '您好！' },
         { role: 'user', content: '刚才不是只问了个问好' },
       ],
       stream: false,
     }
     const request = vi.fn(async (_payload: ChatCompletionRequest) =>
-      modelResponse('抱歉，你是在打招呼，我刚才答偏了。')
+      modelResponse('刚才你只是在打招呼，我理解错了。你好！你现在需要我帮什么？')
     )
 
     const response = await runLocalToolLoop(
@@ -774,9 +774,18 @@ describe('webAgentToolProvider', () => {
       request
     )
 
-    expect(response.choices[0]?.message.content).toContain('我刚才答偏了')
+    expect(response.choices[0]?.message.content).toContain('我理解错了')
     expect(request).toHaveBeenCalledOnce()
-    expect(request.mock.calls[0]?.[0].messages).toEqual(payload.messages)
+    const requestMessages = request.mock.calls[0]?.[0].messages ?? []
+    const correctionContext = requestMessages.find(
+      (message) => message.name === 'lain42_correction_recovery_context'
+    )
+    expect(correctionContext?.content).toContain(
+      'their previous message was only a greeting'
+    )
+    expect(requestMessages.at(-1)).toEqual(payload.messages.at(-1))
+    expect(api.get).not.toHaveBeenCalled()
+    expect(searchClientSources).not.toHaveBeenCalled()
   })
 
   it('runs local preflight before falling back from an unavailable provider', async () => {
