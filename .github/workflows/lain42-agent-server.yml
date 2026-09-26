@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent-ui
+      - 'fix/agent-*'
     paths:
       - '**/*.go'
       - 'go.mod'
