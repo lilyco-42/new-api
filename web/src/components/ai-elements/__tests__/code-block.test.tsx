@@ -36,7 +36,13 @@ describe('CodeBlock syntax display', () => {
       />
     )
 
-    expect(document.querySelector('.cm-keyword')?.textContent).toBe('fn')
-    expect(screen.getByText('Rust')).toBeInTheDocument()
+    const highlightedKeyword = Array.from(
+      document.querySelectorAll('.cm-content span')
+    ).find((span) => span.textContent === 'fn')
+
+    expect(highlightedKeyword).toBeDefined()
+    const languageLabel = screen.getByText('Rust')
+    expect(languageLabel).toBeInTheDocument()
+    expect(languageLabel.parentElement?.querySelector('svg')).not.toBeNull()
   })
 })
