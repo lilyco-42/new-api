@@ -306,6 +306,49 @@ describe('webAgentToolProvider', () => {
     )
   })
 
+  it('gives the model a public GitHub URL without listing private account repositories', async () => {
+    const url = 'https://github.com/ast-grep/ast-grep'
+    const query = `请读取 ${url} ，告诉我这个仓库做什么，并附来源链接。`
+    vi.mocked(fetchClientPage).mockResolvedValue({
+      title: 'ast-grep/ast-grep',
+      url,
+      text: 'AST-based code search, lint, and rewriting.',
+      fetched_at: '2026-09-26T00:00:00.000Z',
+      links: [],
+    })
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'public-repository-answer',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [{
+        index: 0,
+        message: { role: 'assistant' as const, content: 'ast-grep 是代码结构搜索工具。' },
+        finish_reason: 'stop',
+      }],
+    }))
+
+    const response = await runLocalToolLoop(
+      { model: 'test-model', messages: [{ role: 'user', content: query }], stream: false },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(fetchClientPage).toHaveBeenCalledWith(url, expect.any(AbortSignal))
+    expect(api.get).not.toHaveBeenCalled()
+    expect(searchClientSources).not.toHaveBeenCalled()
+    const sent = request.mock.calls[0]?.[0]
+    expect(sent?.messages.some((message) =>
+      message.name === 'lain42_browser_search_context' &&
+      typeof message.content === 'string' &&
+      message.content.includes('AST-based code search, lint, and rewriting.')
+    )).toBe(true)
+    expect(sent?.tools).toEqual([])
+    expect(response.choices[0]?.message.content).toContain(url)
+  })
+
   it('searches a project slug even when the user names it before GitHub', async () => {
     const query = '用网页搜索查找 ast-grep 的 GitHub 官方仓库。请给出仓库名、链接和一句说明；不要搜索我的个人仓库或调用 Radxa。'
     vi.mocked(searchClientSources).mockResolvedValue({

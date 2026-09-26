@@ -77,6 +77,9 @@ type GitHubRepository = {
   description?: string | null
   stargazers_count?: number
   updated_at?: string
+  language?: string | null
+  topics?: string[]
+  private?: boolean
 }
 
 type HuggingFaceModel = {
@@ -329,6 +332,55 @@ export async function fetchClientPage(
   signal: AbortSignal
 ): Promise<ClientPageResult> {
   const requestedUrl = safePublicHttpsUrl(rawUrl)
+  const repositoryPath = requestedUrl.hostname === 'github.com'
+    ? requestedUrl.pathname.split('/').filter(Boolean)
+    : []
+  if (
+    repositoryPath.length === 2 &&
+    repositoryPath.every((part) => /^[a-z\d_.-]+$/iu.test(part))
+  ) {
+    // GitHub's HTML page is not readable cross-origin, but its public REST
+    // repository metadata is. Keep the request on the user's device and do
+    // not attach OAuth credentials or browser cookies.
+    const apiUrl = safePublicHttpsUrl(
+      `https://api.github.com/repos/${repositoryPath.map(encodeURIComponent).join('/')}`
+    )
+    const response = await fetchWithTimeout(
+      apiUrl, signal, 'application/vnd.github+json'
+    )
+    if (!response.ok) {
+      throw new Error(`The public GitHub repository returned HTTP ${response.status}.`)
+    }
+    const repository = JSON.parse(
+      await readBoundedText(response, MAX_SEARCH_RESPONSE_BYTES)
+    ) as GitHubRepository
+    if (repository.private || !repository.full_name || !repository.html_url) {
+      throw new Error('The public GitHub repository metadata is incomplete.')
+    }
+    const canonicalUrl = safePublicHttpsUrl(repository.html_url)
+    if (
+      canonicalUrl.hostname !== 'github.com' ||
+      canonicalUrl.pathname.toLowerCase().replace(/\/$/u, '') !==
+        requestedUrl.pathname.toLowerCase().replace(/\/$/u, '')
+    ) {
+      throw new Error('The GitHub repository metadata did not match the requested page.')
+    }
+    return {
+      title: repository.full_name,
+      url: canonicalUrl.toString(),
+      text: [
+        `Repository: ${repository.full_name}`,
+        `Description: ${repository.description || 'No description provided.'}`,
+        ...(repository.language ? [`Primary language: ${repository.language}`] : []),
+        ...(repository.topics?.length ? [`Topics: ${repository.topics.slice(0, 20).join(', ')}`] : []),
+        ...(typeof repository.stargazers_count === 'number'
+          ? [`Stars: ${repository.stargazers_count}`] : []),
+        ...(repository.updated_at ? [`Updated: ${repository.updated_at}`] : []),
+      ].join('\n').slice(0, MAX_PAGE_TEXT),
+      fetched_at: new Date().toISOString(),
+      links: [],
+    }
+  }
   const response = await fetchWithTimeout(
     requestedUrl,
     signal,

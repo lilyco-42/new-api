@@ -87,7 +87,7 @@ function explicitlyDeclinesAccountRepositories(text: string): boolean {
 
 function targetsAccountRepositories(text: string): boolean {
   const explicitlyTargetsAccount =
-    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)|\bgh\s+repo\s+我的项目/iu.test(
       text
     )
 
@@ -106,16 +106,6 @@ export function getGitHubReadIntent(
 
   const mentionsRepositories =
     /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text)
-  const explicitlyReadsRepositories =
-    mentionsRepositories &&
-    /(?:查看|看|列出|浏览|获取|读取|show|list|view|browse|get|read|fetch|inspect)/iu.test(
-      text
-    ) &&
-    !/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)
-  if (explicitlyReadsRepositories) {
-    return 'repositories'
-  }
-
   if (
     /(?:检查|查看|查询|确认|显示|check|show|tell me).{0,30}(?:github|gh|oauth).{0,24}(?:登录|连接|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in)|(?:github|gh|oauth).{0,24}(?:登录状态|连接状态|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in).{0,24}(?:吗|么|没|是否|check|show|status)?/iu.test(
       text
@@ -139,15 +129,15 @@ export function getGitHubReadIntent(
   ) {
     return 'pull_requests'
   }
+  // An explicit page URL identifies a particular public page. It must never
+  // trigger a listing of the signed-in user's (possibly private) repositories.
+  if (containsPublicPageUrlReference(text)) return null
+
   if (mentionsRepositories) {
     if (/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)) {
       return 'repository_search'
     }
-    if (
-      /(?:查看|看|列出|浏览|获取|show|list|view|browse|get)/iu.test(text) ||
-      /(?:读取|read|fetch|inspect)/iu.test(text) ||
-      /(?:我的|我自己的|我账号的|my(?: own)?)/iu.test(text)
-    ) {
+    if (targetsAccountRepositories(text)) {
       return 'repositories'
     }
   }

@@ -810,6 +810,36 @@ export const webAgentToolProvider: LocalToolProvider = {
   },
   prepareContext: async (messages, signal) => {
     const request = latestUserRequestText(messages)
+    const repositoryUrl = request.match(
+      /https:\/\/github\.com\/[a-z\d_.-]+\/[a-z\d_.-]+(?=[\s/?#，。；！？),;!]|$)/iu
+    )?.[0]
+    if (repositoryUrl && shouldRunWebAgentTool({
+      id: 'browser-page-preflight',
+      type: 'function',
+      function: { name: 'web.fetch', arguments: JSON.stringify({ url: repositoryUrl }) },
+    }, messages)) {
+      try {
+        const page = await fetchClientPage(repositoryUrl, signal)
+        return [browserSearchContextMessage({
+          execution: 'browser-wasm',
+          query: repositoryUrl,
+          fetched_at: page.fetched_at,
+          sources: ['GitHub'],
+          warnings: [],
+          items: [{ title: page.title, url: page.url, snippet: page.text, source: 'GitHub' }],
+        })]
+      } catch (error) {
+        if (signal.aborted) throw error
+        return [browserSearchContextMessage({
+          execution: 'browser-wasm',
+          query: repositoryUrl,
+          fetched_at: new Date().toISOString(),
+          sources: [],
+          warnings: ['The browser could not read this public GitHub repository.'],
+          items: [],
+        })]
+      }
+    }
     const query = browserSearchQuery(request)
     const searchCall: ChatCompletionToolCall = {
       id: 'browser-search-preflight',

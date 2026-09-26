@@ -53,6 +53,23 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('reads a specific public GitHub URL without listing the signed-in account', () => {
+    const request =
+      '请读取 https://github.com/ast-grep/ast-grep ，告诉我这个仓库做什么，并附来源链接。'
+    const messages = userMessage(request)
+
+    expect(getGitHubReadIntent(request)).toBeNull()
+    expect(
+      shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)
+    ).toBe(false)
+    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(true)
+  })
+
+  it('does not treat a generic public repository mention as my account listing', () => {
+    const request = '查看 GitHub 上的 ast-grep 仓库'
+    expect(getGitHubReadIntent(request)).toBeNull()
+  })
+
   it('routes an OAuth-authorized repository read to browser OAuth', () => {
     const request =
       '请读取我通过网站 GitHub OAuth 授权的仓库，只列前 3 个仓库名称和 GitHub 链接；如果 OAuth 仓库查询失败，请说明具体错误。不要要求我登录本机 gh CLI，也不要调用 Radxa。'

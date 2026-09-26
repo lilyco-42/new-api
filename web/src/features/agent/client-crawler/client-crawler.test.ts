@@ -72,6 +72,44 @@ describe('client-side WASM crawler', () => {
     )
   })
 
+  it('reads a public GitHub repository through its browser-accessible API', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      full_name: 'ast-grep/ast-grep',
+      html_url: 'https://github.com/ast-grep/ast-grep',
+      description: 'AST-based code search, lint, and rewriting.',
+      language: 'Rust',
+      private: false,
+    }), { headers: { 'content-type': 'application/json' } }))
+
+    const page = await fetchClientPage(
+      'https://github.com/ast-grep/ast-grep',
+      new AbortController().signal
+    )
+
+    expect(page.title).toBe('ast-grep/ast-grep')
+    expect(page.url).toBe('https://github.com/ast-grep/ast-grep')
+    expect(page.text).toContain('AST-based code search, lint, and rewriting.')
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('https://api.github.com/repos/ast-grep/ast-grep'),
+      expect.objectContaining({ credentials: 'omit', redirect: 'error' })
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects repository metadata that does not match the requested URL', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      full_name: 'someone/else',
+      html_url: 'https://github.com/someone/else',
+      description: 'Wrong repository',
+      private: false,
+    })))
+
+    await expect(fetchClientPage(
+      'https://github.com/ast-grep/ast-grep',
+      new AbortController().signal
+    )).rejects.toThrow('did not match the requested page')
+  })
+
   it('uses a WASM parser with no network or host imports', () => {
     const module = new WebAssembly.Module(wasmBytes)
     expect(WebAssembly.Module.imports(module)).toEqual([])
