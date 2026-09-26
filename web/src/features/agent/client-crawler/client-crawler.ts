@@ -626,24 +626,26 @@ async function searchHuggingFace(
   url.searchParams.set('limit', String(limit))
   url.searchParams.set('sort', 'downloads')
   const organization = findOfficialHuggingFaceOrganization(query)
-  const organizationOverview = organization
+  const organizationSlug = organization?.slug
+  const organizationOverview = organizationSlug
     ? await fetchJson<HuggingFaceOrganizationOverview>(
         new URL(
-          `/api/organizations/${encodeURIComponent(organization.slug)}/overview`,
+          `/api/organizations/${encodeURIComponent(organizationSlug)}/overview`,
           'https://huggingface.co'
         ),
         signal
       )
     : null
   if (
-    organization &&
-    organizationOverview?.name?.toLowerCase() !== organization.slug.toLowerCase()
+    organizationSlug &&
+    organizationOverview?.name?.toLowerCase() !== organizationSlug.toLowerCase()
   ) {
     throw new Error('Hugging Face organization profile did not match the query.')
   }
 
   const response = await fetchJson<HuggingFaceModel[]>(url, signal)
-  const organizationResult: ClientSearchResult[] = organizationOverview
+  const organizationResult: ClientSearchResult[] =
+    organization && organizationOverview
     ? [
         {
           title: [
