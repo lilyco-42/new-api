@@ -468,7 +468,7 @@ describe('webAgentToolProvider', () => {
       message.content.includes('The site blocked cross-origin access (CORS).')
     )).toBe(true)
     expect(response.choices[0]?.message.content).toContain(
-      'may block cross-origin access (CORS)'
+      'The site blocked cross-origin access (CORS).'
     )
     expect(response.choices[0]?.message.content).not.toContain(
       '答案是 42'
