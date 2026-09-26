@@ -10,9 +10,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type agentGitHubRoundTripper func(*http.Request) (*http.Response, error)
@@ -65,6 +69,91 @@ func TestAgentGitHubRepositoriesListUsesTheConnectedUserRepositoryEndpoint(t *te
 	assert.Contains(t, recorder.Body.String(), "lilyco-42/rembg-ui")
 	assert.Contains(t, recorder.Body.String(), `"private":true`)
 	assert.Contains(t, recorder.Body.String(), "2026-09-24T00:00:00Z")
+}
+
+func TestAgentGitHubRepositoriesListUsesOnlyTheAuthenticatedUsersCredential(t *testing.T) {
+	previousDB := model.DB
+	previousSecret := common.CryptoSecret
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	model.DB = db
+	common.CryptoSecret = "agent-github-controller-test-secret"
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.CryptoSecret = previousSecret
+		_ = sqlDB.Close()
+	})
+	require.NoError(t, model.DB.AutoMigrate(&model.AgentGitHubCredential{}))
+	require.NoError(t, model.SaveAgentGitHubCredential(
+		7, "github-user-7", "user-seven", "repo", "token-for-seven",
+	))
+	require.NoError(t, model.SaveAgentGitHubCredential(
+		8, "github-user-8", "user-eight", "repo", "token-for-eight",
+	))
+
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = agentGitHubRoundTripper(
+		func(request *http.Request) (*http.Response, error) {
+			var repository string
+			switch request.Header.Get("Authorization") {
+			case "Bearer token-for-seven":
+				repository = "user-seven/private-project"
+			case "Bearer token-for-eight":
+				repository = "user-eight/private-project"
+			default:
+				return &http.Response{
+					StatusCode: http.StatusUnauthorized,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"message":"bad credentials"}`)),
+				}, nil
+			}
+			body, marshalErr := json.Marshal([]map[string]any{{
+				"full_name": repository,
+				"html_url":  "https://github.com/" + repository,
+				"private":   true,
+			}})
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(string(body))),
+			}, nil
+		},
+	)
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+
+	previousGinMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(previousGinMode) })
+
+	for _, testCase := range []struct {
+		userID          int
+		ownRepository   string
+		otherRepository string
+	}{
+		{userID: 7, ownRepository: "user-seven/private-project", otherRepository: "user-eight/private-project"},
+		{userID: 8, ownRepository: "user-eight/private-project", otherRepository: "user-seven/private-project"},
+	} {
+		recorder := httptest.NewRecorder()
+		requestContext, _ := gin.CreateTestContext(recorder)
+		requestContext.Request = httptest.NewRequest(
+			http.MethodGet,
+			"/api/agent/github/repositories?limit=3",
+			nil,
+		)
+		requestContext.Set("id", testCase.userID)
+
+		AgentGitHubRepositoriesList(requestContext)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), testCase.ownRepository)
+		assert.NotContains(t, recorder.Body.String(), testCase.otherRepository)
+	}
 }
 
 func TestParseBingSearchRSSBoundsAndSanitizesResults(t *testing.T) {
