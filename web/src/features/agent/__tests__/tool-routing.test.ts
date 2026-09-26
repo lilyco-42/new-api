@@ -268,6 +268,17 @@ describe('Agent tool intent routing', () => {
     expect(shouldAdvertiseWebAgentTool('web.search', messages)).toBe(false)
   })
 
+  it('rejects browser page reads for URLs the user did not provide', () => {
+    const messages = userMessage('https://docs.example.com/guide')
+
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('web.fetch', { url: 'https://unrelated.example.com/private' }),
+        messages
+      )
+    ).toBe(false)
+  })
+
   it('recognizes a bare domain as a page to read instead of a search query', () => {
     const messages = userMessage('deepseek.com')
 
