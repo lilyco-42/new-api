@@ -20,6 +20,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { Button } from '@/components/ui/button'
 import {
   PromptInput,
   PromptInputAttachment,
@@ -27,6 +28,7 @@ import {
   PromptInputFooter,
   PromptInputTextarea,
   type PromptInputMessage,
+  usePromptInputAttachments,
 } from '@/components/ai-elements/prompt-input'
 
 import {
@@ -35,6 +37,7 @@ import {
   MAX_ATTACHMENT_FILE_SIZE_BYTES,
 } from '../../lib'
 import type {
+  ContentPart,
   ModelOption,
   GroupOption,
   ParameterEnabled,
@@ -42,6 +45,81 @@ import type {
 } from '../../types'
 import { PlaygroundInputControls } from './playground-input-controls'
 import { PlaygroundInputTools } from './playground-input-tools'
+import { MessageAttachmentPreview } from '../message/message-attachment-preview'
+
+export type AttachmentReview = {
+  text: string
+  parts: ContentPart[]
+  fileIds: string[]
+}
+
+function sameFileSelection(first: string[], second: string[]) {
+  return (
+    first.length === second.length &&
+    first.every((fileId, index) => fileId === second[index])
+  )
+}
+
+export function AttachmentReviewPanel({
+  review,
+  disabled,
+  onConfirm,
+  onCancel,
+}: {
+  review: AttachmentReview
+  disabled: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const { t } = useTranslation()
+  const attachments = usePromptInputAttachments()
+  const selectionMatches = sameFileSelection(
+    review.fileIds,
+    attachments.files.map((file) => file.id)
+  )
+
+  return (
+    <section
+      aria-label={t('Review attachments before sending')}
+      className='bg-muted/30 mx-3 my-2 grid gap-2 rounded-xl border p-3'
+    >
+      <div className='grid gap-1'>
+        <h3 className='text-sm font-medium'>
+          {t('Review attachments before sending')}
+        </h3>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Text and PDFs are extracted in this browser. Images are included; unsupported binary files send only their name and type.'
+          )}
+        </p>
+      </div>
+      {selectionMatches ? (
+        <MessageAttachmentPreview parts={review.parts} />
+      ) : (
+        <p className='text-destructive text-xs' role='alert'>
+          {t('The attachment selection changed. Send again to review the current files.')}
+        </p>
+      )}
+      <div className='flex justify-end gap-2'>
+        <Button onClick={onCancel} size='sm' type='button' variant='outline'>
+          {t('Cancel')}
+        </Button>
+        <Button
+          disabled={disabled || !selectionMatches}
+          onClick={() => {
+            if (!selectionMatches || disabled) return
+            onConfirm()
+            attachments.clear()
+          }}
+          size='sm'
+          type='button'
+        >
+          {t('Send to model')}
+        </Button>
+      </div>
+    </section>
+  )
+}
 
 interface PlaygroundInputProps {
   config: PlaygroundConfig
@@ -90,34 +168,56 @@ export function PlaygroundInput({
 }: PlaygroundInputProps) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
+  const [attachmentReview, setAttachmentReview] =
+    useState<AttachmentReview | null>(null)
 
   const handleSubmit = async (message: PromptInputMessage) => {
     const submittableText = getSubmittableInputText(message, disabled)
 
     if (!submittableText) return
-    let contentParts: import('../../types').ContentPart[] | undefined
-    try {
-      contentParts = message.files?.length
-        ? await filePartsToContentParts(message.files, message.signal)
-        : undefined
-      if (message.signal?.aborted) {
-        throw message.signal.reason ?? new DOMException('Aborted', 'AbortError')
+    if (message.files?.length) {
+      const fileIds = message.files.map((file) => file.id)
+      if (attachmentReview && sameFileSelection(attachmentReview.fileIds, fileIds)) {
+        throw new Error('Attachment review is awaiting confirmation.')
       }
-    } catch (error) {
-      if (message.signal?.aborted) {
-        throw message.signal.reason ?? new DOMException('Aborted', 'AbortError')
-      }
-      toast.error(
-        t(
-          error instanceof Error
-            ? error.message
-            : 'Unable to read this PDF. Check that it is not encrypted or damaged.'
+
+      let contentParts: ContentPart[]
+      try {
+        contentParts = await filePartsToContentParts(message.files, message.signal)
+        if (message.signal?.aborted) {
+          throw message.signal.reason ?? new DOMException('Aborted', 'AbortError')
+        }
+      } catch (error) {
+        if (message.signal?.aborted) {
+          throw message.signal.reason ?? new DOMException('Aborted', 'AbortError')
+        }
+        toast.error(
+          t(
+            error instanceof Error
+              ? error.message
+              : 'Unable to read this PDF. Check that it is not encrypted or damaged.'
+          )
         )
-      )
-      throw error
+        throw error
+      }
+
+      setAttachmentReview({
+        text: submittableText,
+        parts: contentParts,
+        fileIds,
+      })
+      throw new Error('Attachment review is awaiting confirmation.')
     }
-    onSubmit(submittableText, contentParts)
+
+    onSubmit(submittableText)
     setText('')
+  }
+
+  const confirmAttachmentReview = () => {
+    if (!attachmentReview || disabled) return
+    onSubmit(attachmentReview.text, attachmentReview.parts)
+    setText('')
+    setAttachmentReview(null)
   }
 
   const addSearchContextToDraft = (context: string) => {
@@ -125,6 +225,8 @@ export function PlaygroundInput({
       [current.trim(), context.trim()].filter(Boolean).join('\n\n')
     )
   }
+
+  const inputDisabled = Boolean(disabled || attachmentReview)
 
   return (
     <div className='grid shrink-0 gap-4 px-3 pb-3 sm:px-4 sm:pb-4'>
@@ -143,21 +245,32 @@ export function PlaygroundInput({
             {(file) => <PromptInputAttachment data={file} />}
           </PromptInputAttachments>
         </div>
+        {attachmentReview && (
+          <AttachmentReviewPanel
+            disabled={Boolean(disabled || isGenerating)}
+            onCancel={() => setAttachmentReview(null)}
+            onConfirm={confirmAttachmentReview}
+            review={attachmentReview}
+          />
+        )}
         <PromptInputTextarea
           autoComplete='off'
           autoCorrect='off'
           autoCapitalize='off'
           spellCheck={false}
           className='min-h-16 px-4 pt-4 pb-2 leading-7 md:min-h-20 md:text-base'
-          disabled={disabled}
-          onChange={(event) => setText(event.target.value)}
+          disabled={inputDisabled}
+          onChange={(event) => {
+            setText(event.target.value)
+            if (attachmentReview) setAttachmentReview(null)
+          }}
           placeholder={t('Ask anything')}
           value={text}
         />
 
         <PromptInputFooter className='border-0 bg-transparent px-3 pt-1.5 pb-3'>
           <PlaygroundInputControls
-            disabled={disabled}
+            disabled={inputDisabled}
             groups={groups}
             groupValue={groupValue}
             isGenerating={isGenerating}
@@ -171,7 +284,7 @@ export function PlaygroundInput({
             tools={
               <PlaygroundInputTools
                 config={config}
-                disabled={disabled}
+                disabled={inputDisabled}
                 hasMessages={hasMessages}
                 onUseSearchContext={addSearchContextToDraft}
                 onConfigChange={onConfigChange}

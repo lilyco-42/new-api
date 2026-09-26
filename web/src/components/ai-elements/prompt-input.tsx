@@ -435,9 +435,11 @@ export const PromptInputActionAddAttachments = ({
   )
 }
 
+export type PromptInputFile = FileUIPart & { id: string }
+
 export type PromptInputMessage = {
   text?: string
-  files?: FileUIPart[]
+  files?: PromptInputFile[]
   signal?: AbortSignal
 }
 
@@ -772,7 +774,7 @@ export const PromptInput = ({
         })()
 
     try {
-      let convertedFiles: FileUIPart[]
+      let convertedFiles: PromptInputFile[]
       try {
         convertedFiles = await Promise.all(
           files.map(async ({ id, ...item }) => {
@@ -780,16 +782,17 @@ export const PromptInput = ({
               item.mediaType?.toLowerCase() === 'application/pdf' ||
               item.filename?.toLowerCase().endsWith('.pdf') === true
             if (item.url && item.url.startsWith('blob:')) {
-              if (isPdf) return item
+              if (isPdf) return { ...item, id }
               return {
                 ...item,
                 url: await convertBlobUrlToDataUrl(
                   item.url,
                   abortController.signal
                 ),
+                id,
               }
             }
-            return item
+            return { ...item, id }
           })
         )
       } catch {
