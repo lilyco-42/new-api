@@ -346,14 +346,35 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('keeps browser public-index search away from connected account repositories', () => {
+    const request =
+      '请用浏览器公开索引搜索 ast-grep 官方项目，只返回项目全名、用途和来源链接，不访问我的账号仓库。'
+    const messages = userMessage(request)
+
+    expect(getGitHubReadIntent(request)).toBeNull()
+    expect(shouldAdvertiseWebAgentTool('web.search', messages)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('web.search'), messages)).toBe(true)
+    expect(
+      shouldAdvertiseBrowserGitHubTool(
+        'github.oauth.repositories.search',
+        messages,
+        true
+      )
+    ).toBe(false)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.repositories.search'),
+        messages
+      )
+    ).toBe(false)
+  })
+
   it('does not treat a negated mention of personal repositories as an account search', () => {
     const messages = userMessage(
       '请用网页搜索查 GitHub 上 ast-grep 的官方仓库，给出仓库名和链接；不要搜索我的个人仓库。'
     )
 
-    expect(getGitHubReadIntent(messages[0]?.content as string)).toBe(
-      'repository_search'
-    )
+    expect(getGitHubReadIntent(messages[0]?.content as string)).toBeNull()
     expect(
       shouldRunWebAgentTool(toolCall('web.search'), messages)
     ).toBe(true)

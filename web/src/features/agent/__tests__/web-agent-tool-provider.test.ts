@@ -267,7 +267,7 @@ describe('webAgentToolProvider', () => {
   })
 
   it('prepares explicit browser web-search results before model inference', async () => {
-    const query = '请用网页搜索查 GitHub 上 ast-grep 的官方仓库，只搜索公开索引，不要搜索我的个人仓库，不要用 gh CLI，回复仓库名和官方链接。'
+    const query = '请用浏览器公开索引搜索 ast-grep 官方项目，只返回项目全名、用途和来源链接，不访问我的账号仓库。'
     const searchQuery = 'ast-grep'
     const payload: ChatCompletionRequest = {
       model: 'test-model',
@@ -322,8 +322,9 @@ describe('webAgentToolProvider', () => {
       searchQuery,
       5,
       expect.any(AbortSignal),
-      'auto'
+      'github'
     )
+    expect(api.get).not.toHaveBeenCalled()
     expect(searchContext?.content).toContain('AST-based code search')
     expect(searchContext?.content).toContain('https://github.com/ast-grep/ast-grep')
     expect(sent?.tools).toEqual([])

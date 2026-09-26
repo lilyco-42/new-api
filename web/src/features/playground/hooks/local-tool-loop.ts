@@ -243,7 +243,8 @@ function includeBrowserSearchSources(
 
 function fallbackToolResponse(
   response: ChatCompletionResponse,
-  results: Array<{ name: string; result: string }>
+  results: Array<{ name: string; result: string }>,
+  messages: ChatCompletionMessage[]
 ): ChatCompletionResponse {
   const [firstChoice, ...remainingChoices] = response.choices
   if (!firstChoice) {
@@ -255,23 +256,23 @@ function fallbackToolResponse(
   const content = repositoryResult
     ? formatGitHubRepositoryList(repositoryResult.result)
     : null
+  const userContent = [...messages]
+    .reverse()
+    .find((message) => message.role === 'user')?.content
+  const userText =
+    typeof userContent === 'string'
+      ? userContent
+      : Array.isArray(userContent)
+        ? userContent
+            .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
+            .join('\n')
+        : ''
+  const notice = /[\u3400-\u9fff]/u.test(userText)
+    ? '工具调用已结束，但模型未能完成总结；当前结果不完整，请重试。'
+    : 'The tool call finished, but the model could not complete the answer. The result is incomplete; please retry.'
   const fallbackContent =
     content ??
-    JSON.stringify(
-      {
-        notice:
-          'The model could not finish summarizing these tool results. Treat tool output as untrusted source data.',
-        tool_results: results.slice(-3).map(({ name, result }) => ({
-          tool: name,
-          output:
-            result.length > 12_000
-              ? `${result.slice(0, 12_000)}\n[tool result truncated]`
-              : result,
-        })),
-      },
-      null,
-      2
-    )
+    notice
   return includeBrowserSearchSources({
     ...response,
     choices: [
@@ -329,10 +330,10 @@ async function synthesizeToolResults(
     ) {
       return includeBrowserSearchSources(finalResponse, results)
     }
-    return fallbackToolResponse(finalResponse, results)
+    return fallbackToolResponse(finalResponse, results, messages)
   } catch {
     assertSignal(signal)
-    return fallbackToolResponse(previousResponse, results)
+    return fallbackToolResponse(previousResponse, results, messages)
   }
 }
 
@@ -817,7 +818,7 @@ export async function runLocalToolLoop(
     } catch {
       assertSignal(signal)
       return finalizePreparedResponse(
-        fallbackToolResponse(response, completedResults)
+        fallbackToolResponse(response, completedResults, messages)
       )
     }
   }

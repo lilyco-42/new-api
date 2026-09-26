@@ -57,9 +57,19 @@ function explicitlyDeclinesPageRead(text: string): boolean {
   )
 }
 
-function explicitlyRequestsBrowserWebSearch(text: string): boolean {
-  return /(?:浏览器(?:端|中)?(?:的)?(?:网页)?搜索|网页搜索(?:功能)?|用网页搜索|search (?:the )?web|web search)/iu.test(
+export function explicitlyRequestsBrowserWebSearch(text: string): boolean {
+  return /(?:浏览器(?:端|中)?(?:(?:公开|公共)(?:索引)?|索引|网页)?搜索|(?:公开|公共)索引搜索|网页搜索(?:功能)?|用网页搜索|search (?:the )?web|web search)/iu.test(
     text
+  )
+}
+
+export function explicitlyRequestsPublicRepositorySearch(
+  text: string
+): boolean {
+  return (
+    explicitlyRequestsBrowserWebSearch(text) &&
+    /(?:公开|公共|public|official|官方)/iu.test(text) &&
+    /(?:仓库|repository|repos?\b|项目)/iu.test(text)
   )
 }
 
@@ -80,7 +90,7 @@ export function requestsKnownAIEntityDefinition(text: string): boolean {
 
 function explicitlyDeclinesAccountRepositories(text: string): boolean {
   return (
-    /(?:不要|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,8}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /(?:不(?:要|必|想)?|无需|无须|不用|别|不许|禁止|避免|排除|不能|不可)\s*(?:搜索|查找|搜|查看|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
       text
     ) ||
     /\b(?:do not|don't|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access)\s+)?my(?: own)?\s+(?:personal\s+)?(?:github\s+)?(?:repositories|repository|repos?)\b/iu.test(
@@ -136,6 +146,10 @@ export function getGitHubReadIntent(
   // An explicit page URL identifies a particular public page. It must never
   // trigger a listing of the signed-in user's (possibly private) repositories.
   if (containsPublicPageUrlReference(text)) return null
+  // A negated mention is not an account-repository search intent. In
+  // particular, do not let a request to search public sources inherit OAuth
+  // access merely because it says not to access the user's repositories.
+  if (explicitlyDeclinesAccountRepositories(text)) return null
 
   if (mentionsRepositories) {
     if (/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)) {
@@ -201,6 +215,7 @@ export function shouldRunGitHubTool(
   const request = latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(call.function.name) !== intent) return false
+  if (explicitlyDeclinesAccountRepositories(request)) return false
   if (
     intent === 'repository_search' &&
     explicitlyRequestsBrowserWebSearch(request) &&
@@ -302,6 +317,7 @@ export function shouldAdvertiseBrowserGitHubTool(
   const request = latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(name) !== intent) return false
+  if (explicitlyDeclinesAccountRepositories(request)) return false
   if (
     intent === 'repository_search' &&
     explicitlyRequestsBrowserWebSearch(request) &&

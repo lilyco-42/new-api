@@ -811,7 +811,7 @@ describe('local structured tool loop', () => {
     expect(requests.at(-1)?.tool_choice).toBe('none')
   })
 
-  test('returns bounded raw tool output if the model keeps requesting tools', async () => {
+  test('does not expose raw tool output if the model keeps requesting tools', async () => {
     const invoke = vi.fn(async () => '{"items":[{"title":"Rust blog"}]}')
     let callId = 0
     const request = async () => {
@@ -845,8 +845,8 @@ describe('local structured tool loop', () => {
     )
 
     expect(invoke).toHaveBeenCalledOnce()
-    expect(result.choices[0]?.message.content).toContain('tool_results')
-    expect(result.choices[0]?.message.content).toContain('Rust blog')
+    expect(result.choices[0]?.message.content).toContain('result is incomplete')
+    expect(result.choices[0]?.message.content).not.toContain('Rust blog')
     expect(result.choices[0]?.finish_reason).toBe('stop')
   })
 

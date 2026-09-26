@@ -17,6 +17,7 @@ import {
 } from './client-crawler/client-crawler'
 import {
   explicitlyTargetsLocalGitHub,
+  explicitlyRequestsPublicRepositorySearch,
   getGitHubReadIntent,
   latestUserRequestText,
   requestsKnownAIEntityDefinition,
@@ -288,7 +289,10 @@ function browserSearchQuery(request: string): string {
     if (entity?.[0]) return entity[0]
   }
 
-  if (getGitHubReadIntent(request) === 'repository_search') {
+  if (
+    getGitHubReadIntent(request) === 'repository_search' ||
+    explicitlyRequestsPublicRepositorySearch(request)
+  ) {
     const textWithoutUrls = request.replace(/https?:\/\/\S+/giu, ' ')
     const repositoryPath = textWithoutUrls.match(
       /\b([a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*)\b/iu
@@ -851,7 +855,10 @@ export const webAgentToolProvider: LocalToolProvider = {
     if (!shouldRunWebAgentTool(searchCall, messages)) return []
 
     try {
-      const result = await searchClientSources(query, 5, signal, 'auto')
+      const scope = explicitlyRequestsPublicRepositorySearch(request)
+        ? 'github'
+        : 'auto'
+      const result = await searchClientSources(query, 5, signal, scope)
       return [browserSearchContextMessage(result)]
     } catch (error) {
       if (signal.aborted) throw error
