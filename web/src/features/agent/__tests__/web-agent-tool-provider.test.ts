@@ -783,6 +783,7 @@ describe('webAgentToolProvider', () => {
     expect(correctionContext?.content).toContain(
       'their previous message was only a greeting'
     )
+    expect(correctionContext?.content).toContain('你好！有什么我能帮你？')
     expect(requestMessages.at(-1)).toEqual(payload.messages.at(-1))
     expect(api.get).not.toHaveBeenCalled()
     expect(searchClientSources).not.toHaveBeenCalled()

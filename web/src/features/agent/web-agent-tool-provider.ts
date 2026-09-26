@@ -312,7 +312,7 @@ function correctionRecoveryContextMessage(
     )
   const content =
     previousMessageWasGreeting && correctsGreetingOnly
-      ? 'The latest user message corrects your response: their previous message was only a greeting. Briefly acknowledge that you misunderstood, then continue naturally by asking what they need. Do not answer with only another greeting, ask whether they want you to say hello, or infer their feelings.'
+      ? 'The latest user message corrects your response to a greeting. Reply in the user’s language, briefly acknowledge that you failed to continue the conversation, and ask what they need naturally. Keep it to one or two short sentences. For Chinese, a natural style is “刚才我没接好。你好！有什么我能帮你？” Do not explain at length, say “besides greeting again,” ask whether the user is dissatisfied, or infer their feelings.'
       : 'The latest user message corrects your previous response. Interpret it against the preceding user and assistant turns. Briefly acknowledge the specific misunderstanding, then answer the corrected request. Do not repeat the rejected answer or infer the user’s feelings. If no clear request remains, ask one concrete follow-up question.'
 
   return {
