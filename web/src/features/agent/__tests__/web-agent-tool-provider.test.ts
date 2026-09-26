@@ -182,6 +182,12 @@ describe('webAgentToolProvider', () => {
       warnings: [],
       items: [
         {
+          title: 'DeepSeek — Hugging Face organization',
+          url: 'https://huggingface.co/deepseek-ai',
+          snippet: 'Verified organization · 105 models · 2 datasets · 30 papers',
+          source: 'Hugging Face',
+        },
+        {
           title: 'DeepSeek model collection',
           url: 'https://huggingface.co/deepseek-ai',
           snippet: 'Official DeepSeek model releases.',
@@ -225,6 +231,12 @@ describe('webAgentToolProvider', () => {
       'auto'
     )
     expect(searchContext?.content).toContain('Official DeepSeek model releases.')
+    expect(searchContext?.content).toContain(
+      'Verified organization · 105 models · 2 datasets · 30 papers'
+    )
+    expect(searchContext?.content).toContain(
+      'prefer its organization profile over repository names'
+    )
     expect(searchContext?.content).toContain('https://huggingface.co/deepseek-ai')
     expect(sent?.messages.at(-1)).toEqual(payload.messages[0])
     expect(sent?.tools).toEqual([])

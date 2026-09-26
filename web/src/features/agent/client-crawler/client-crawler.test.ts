@@ -204,6 +204,60 @@ describe('client-side WASM crawler', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it(
+    'uses the official Hugging Face organization profile for DeepSeek identity queries',
+    async () => {
+      fetchMock.mockImplementation(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input))
+          expect(init?.credentials).toBe('omit')
+          expect(init?.redirect).toBe('error')
+          if (
+            url.hostname === 'huggingface.co' &&
+            url.pathname === '/api/organizations/deepseek-ai/overview'
+          ) {
+            return Response.json({
+              name: 'deepseek-ai',
+              fullname: 'DeepSeek',
+              isVerified: true,
+              numModels: 105,
+              numDatasets: 2,
+              numPapers: 30,
+            })
+          }
+          if (
+            url.hostname === 'huggingface.co' &&
+            url.pathname === '/api/models'
+          ) {
+            return Response.json([
+              {
+                modelId: 'deepseek-ai/DeepSeek-V4-Flash',
+                pipeline_tag: 'text-generation',
+              },
+            ])
+          }
+          throw new Error(`Unexpected source: ${url.toString()}`)
+        }
+      )
+
+      const result = await searchClientSources(
+        'DeepSeek',
+        5,
+        new AbortController().signal
+      )
+
+      expect(result.sources).toEqual(['Hugging Face'])
+      expect(result.items[0]).toMatchObject({
+        title: 'DeepSeek — Hugging Face organization',
+        url: 'https://huggingface.co/deepseek-ai',
+        snippet: 'Verified organization · 105 models · 2 datasets · 30 papers',
+        source: 'Hugging Face',
+      })
+      expect(result.items.some((item) => item.source === 'GitHub')).toBe(false)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    }
+  )
+
   it('retries an empty GitHub search after removing generic query words', async () => {
     fetchMock.mockImplementation(
       async (input: RequestInfo | URL, init?: RequestInit) => {

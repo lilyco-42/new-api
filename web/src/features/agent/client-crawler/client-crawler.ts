@@ -90,6 +90,15 @@ type HuggingFaceModel = {
   likes?: number
 }
 
+type HuggingFaceOrganizationOverview = {
+  name?: string
+  fullname?: string
+  isVerified?: boolean
+  numModels?: number
+  numDatasets?: number
+  numPapers?: number
+}
+
 type OpenAlexWork = {
   id?: string
   doi?: string | null
@@ -105,6 +114,23 @@ const MAX_PAGE_TEXT = 12_000
 const PAGE_TIMEOUT_MS = 10_000
 const MAX_CRAWL_PAGES = 5
 const CRAWLER_WASM_URL = '/agent/crawler_core.wasm'
+const OFFICIAL_HUGGING_FACE_ORGANIZATIONS = [
+  { slug: 'deepseek-ai', aliases: ['deepseek', 'deepseek-ai'] },
+] as const
+
+function findOfficialHuggingFaceOrganization(query: string) {
+  const queryTokens = new Set(query.toLowerCase().match(/[a-z0-9]+/gu) || [])
+  return OFFICIAL_HUGGING_FACE_ORGANIZATIONS.find(({ aliases }) =>
+    aliases.some((alias) =>
+      alias
+        .toLowerCase()
+        .split(/[^a-z0-9]+/u)
+        .filter(Boolean)
+        .every((token) => queryTokens.has(token))
+    )
+  )
+}
+
 const OPENALEX_QUERY_STOP_WORDS = new Set([
   'about',
   'academic',
@@ -599,25 +625,71 @@ async function searchHuggingFace(
   url.searchParams.set('search', query)
   url.searchParams.set('limit', String(limit))
   url.searchParams.set('sort', 'downloads')
+  const organization = findOfficialHuggingFaceOrganization(query)
+  const organizationOverview = organization
+    ? await fetchJson<HuggingFaceOrganizationOverview>(
+        new URL(
+          `/api/organizations/${encodeURIComponent(organization.slug)}/overview`,
+          'https://huggingface.co'
+        ),
+        signal
+      )
+    : null
+  if (
+    organization &&
+    organizationOverview?.name?.toLowerCase() !== organization.slug.toLowerCase()
+  ) {
+    throw new Error('Hugging Face organization profile did not match the query.')
+  }
+
   const response = await fetchJson<HuggingFaceModel[]>(url, signal)
-  return response.map((model) => {
-    const modelId = model.modelId || model.id || 'Hugging Face model'
-    const encodedPath = modelId.split('/').map(encodeURIComponent).join('/')
-    return {
-      title: modelId,
-      url: `https://huggingface.co/${encodedPath}`,
-      snippet: [
-        model.pipeline_tag,
-        typeof model.downloads === 'number'
-          ? `${model.downloads} downloads`
-          : '',
-        typeof model.likes === 'number' ? `${model.likes} likes` : '',
+  const organizationResult: ClientSearchResult[] = organizationOverview
+    ? [
+        {
+          title: [
+            organizationOverview.fullname || organization.slug,
+            'Hugging Face organization',
+          ].join(' — '),
+          url: `https://huggingface.co/${encodeURIComponent(organization.slug)}`,
+          snippet: [
+            organizationOverview.isVerified ? 'Verified organization' : '',
+            typeof organizationOverview.numModels === 'number'
+              ? `${organizationOverview.numModels} models`
+              : '',
+            typeof organizationOverview.numDatasets === 'number'
+              ? `${organizationOverview.numDatasets} datasets`
+              : '',
+            typeof organizationOverview.numPapers === 'number'
+              ? `${organizationOverview.numPapers} papers`
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          source: 'Hugging Face',
+        },
       ]
-        .filter(Boolean)
-        .join(' · '),
-      source: 'Hugging Face',
-    }
-  })
+    : []
+  return [
+    ...organizationResult,
+    ...response.map((model) => {
+      const modelId = model.modelId || model.id || 'Hugging Face model'
+      const encodedPath = modelId.split('/').map(encodeURIComponent).join('/')
+      return {
+        title: modelId,
+        url: `https://huggingface.co/${encodedPath}`,
+        snippet: [
+          model.pipeline_tag,
+          typeof model.downloads === 'number'
+            ? `${model.downloads} downloads`
+            : '',
+          typeof model.likes === 'number' ? `${model.likes} likes` : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        source: 'Hugging Face',
+      }
+    }),
+  ]
 }
 
 async function searchOpenAlex(
@@ -699,6 +771,16 @@ export async function searchClientSources(
       if (wantsGitHub) selectedNames.push('GitHub')
       if (wantsHuggingFace) selectedNames.push('Hugging Face')
       if (wantsPapers) selectedNames.push('OpenAlex')
+      const matchesOfficialHuggingFaceOrganization =
+        findOfficialHuggingFaceOrganization(query) !== undefined
+      if (
+        matchesOfficialHuggingFaceOrganization &&
+        !wantsGitHub &&
+        !wantsPapers &&
+        !asksForWebsiteSearch
+      ) {
+        selectedNames = ['Hugging Face']
+      }
       if (selectedNames.length === 0 && !asksForWebsiteSearch) {
         // General technical discovery uses project/model indexes. Scholarly
         // search is opt-in so unrelated papers do not pollute ordinary queries.
