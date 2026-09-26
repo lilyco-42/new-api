@@ -166,7 +166,7 @@ describe('webAgentToolProvider', () => {
     ).toBe('auto')
   })
 
-  it('grounds DeepSeek definition in its verified official model search source', async () => {
+  it('keeps the model answer and cites only sources returned by browser search', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
@@ -197,7 +197,7 @@ describe('webAgentToolProvider', () => {
           index: 0,
           message: {
             role: 'assistant' as const,
-            content: 'DeepSeek 是一个知识图谱检索工具。',
+            content: 'DeepSeek 是与人工智能模型相关的公司和模型系列。',
           },
           finish_reason: 'stop',
         },
@@ -228,16 +228,25 @@ describe('webAgentToolProvider', () => {
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
     expect(response.choices[0]?.message.content).toContain(
-      'DeepSeek 是一家人工智能公司，也开发 DeepSeek 系列模型'
-    )
-    expect(response.choices[0]?.message.content).toContain('它不是搜索工具。')
-    expect(response.choices[0]?.message.content).not.toContain('知识图谱检索工具')
-    expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek 官方网站](<https://www.deepseek.com/>)'
+      'DeepSeek 是与人工智能模型相关的公司和模型系列。'
     )
     expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek 官方 Hugging Face 模型组织](<https://huggingface.co/deepseek-ai/models>)'
+      '[DeepSeek model collection](<https://huggingface.co/deepseek-ai>)'
     )
+    expect(response.choices[0]?.message.content).not.toContain(
+      'https://www.deepseek.com/'
+    )
+  })
+
+  it('advertises browser page reading for a user-provided public URL', () => {
+    const tools = webAgentToolProvider.availableTools?.([
+      {
+        role: 'user',
+        content: '请总结这个网页：https://docs.example.com/guide。',
+      },
+    ]) ?? []
+
+    expect(tools.map((tool) => tool.function.name)).toContain('web.fetch')
   })
 
   it('advertises only browser search for public repository queries that exclude personal repositories', () => {
@@ -363,6 +372,107 @@ describe('webAgentToolProvider', () => {
     )).toBe(true)
     expect(sent?.tools).toEqual([])
     expect(response.choices[0]?.message.content).toContain(url)
+  })
+
+  it('reads a public website URL on the client and gives its content to the model', async () => {
+    const url = 'https://docs.example.com/guide'
+    const query = `请总结这个网页：${url}。`
+    vi.mocked(fetchClientPage).mockResolvedValue({
+      title: 'Guide',
+      url,
+      text: 'The guide explains safe Rust async cancellation.',
+      fetched_at: '2026-09-26T00:00:00.000Z',
+      links: [],
+    })
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'public-page-answer',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant' as const,
+          content: '网页介绍了 Rust 异步取消的安全处理。',
+        },
+        finish_reason: 'stop',
+      }],
+    }))
+
+    const response = await runLocalToolLoop(
+      { model: 'test-model', messages: [{ role: 'user', content: query }], stream: false },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    const sent = request.mock.calls[0]?.[0]
+    const pageContext = sent?.messages.find(
+      (message) => message.name === 'lain42_browser_search_context'
+    )
+    expect(fetchClientPage).toHaveBeenCalledWith(url, expect.any(AbortSignal))
+    expect(api.get).not.toHaveBeenCalled()
+    expect(searchClientSources).not.toHaveBeenCalled()
+    expect(pageContext?.content).toContain('The guide explains safe Rust async cancellation.')
+    expect(pageContext?.content).toContain('public HTTPS URL supplied in the latest user message')
+    expect(sent?.tools).toEqual([])
+    expect(sent?.tool_choice).toBe('none')
+    expect(response.choices[0]?.message.content).toContain(
+      '网页介绍了 Rust 异步取消的安全处理。'
+    )
+    expect(response.choices[0]?.message.content).toContain(
+      '[Guide](<https://docs.example.com/guide>)'
+    )
+  })
+
+  it('reports a CORS-blocked URL instead of passing unsupported page claims to the user', async () => {
+    const url = 'https://docs.example.com/private-guide'
+    vi.mocked(fetchClientPage).mockRejectedValueOnce(
+      new Error('The site blocked cross-origin access (CORS).')
+    )
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'page-read-blocked',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant' as const,
+          content: '按网页内容，答案是 42。',
+        },
+        finish_reason: 'stop',
+      }],
+    }))
+
+    const response = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [{ role: 'user', content: `请总结 ${url}` }],
+        stream: false,
+      },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    const sent = request.mock.calls[0]?.[0]
+    expect(fetchClientPage).toHaveBeenCalledWith(url, expect.any(AbortSignal))
+    expect(api.get).not.toHaveBeenCalled()
+    expect(searchClientSources).not.toHaveBeenCalled()
+    expect(sent?.messages.some((message) =>
+      message.name === 'lain42_browser_search_context' &&
+      typeof message.content === 'string' &&
+      message.content.includes('The site blocked cross-origin access (CORS).')
+    )).toBe(true)
+    expect(response.choices[0]?.message.content).toContain(
+      'may block cross-origin access (CORS)'
+    )
+    expect(response.choices[0]?.message.content).not.toContain(
+      '答案是 42'
+    )
   })
 
   it('searches a project slug even when the user names it before GitHub', async () => {

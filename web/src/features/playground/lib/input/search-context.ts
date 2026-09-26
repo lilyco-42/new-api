@@ -29,7 +29,7 @@ export function extractPublicPageUrlReferences(value: string): string[] {
   )
   const references = candidates?.flatMap((candidate) => {
     const normalized = normalizePublicPageUrlInput(
-      candidate.trim().replace(/^[^a-z\d]+|[.,;!?)}\]]+$/giu, '')
+      candidate.trim().replace(/^[^a-z\d]+|[.,;!?)}\]，。；！？、）》】”’]+$/giu, '')
     )
     if (!normalized) return []
     const url = new URL(normalized)

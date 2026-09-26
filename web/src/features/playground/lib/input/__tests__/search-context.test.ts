@@ -40,6 +40,12 @@ describe('browser search context', () => {
     ).toEqual(['https://docs.example.com/guide'])
   })
 
+  it('strips common CJK sentence punctuation from a pasted URL', () => {
+    expect(
+      extractPublicPageUrlReferences('请读取 https://docs.example.com/guide。')
+    ).toEqual(['https://docs.example.com/guide'])
+  })
+
   it('formats search results as bounded source context for the model', () => {
     const context = formatSearchResultsForPrompt('rust ai', [
       {
