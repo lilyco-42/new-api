@@ -119,15 +119,15 @@ describe('webAgentToolProvider', () => {
     expect(searchClientSources).not.toHaveBeenCalled()
   })
 
-  it('answers a short say-hi prompt locally without relying on the model gateway', async () => {
+  it('sends a short greeting to the configured model', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: 'say hi' }],
       stream: false,
     }
-    const request = vi.fn(async () => {
-      throw new Error('A greeting should not need an inference request.')
-    })
+    const request = vi.fn(async (_payload: ChatCompletionRequest) =>
+      modelResponse('Hello from the configured model.')
+    )
 
     const response = await runLocalToolLoop(
       payload,
@@ -137,8 +137,10 @@ describe('webAgentToolProvider', () => {
       request
     )
 
-    expect(response.choices[0]?.message.content).toContain('Hi!')
-    expect(request).not.toHaveBeenCalled()
+    expect(response.choices[0]?.message.content).toContain(
+      'Hello from the configured model.'
+    )
+    expect(request).toHaveBeenCalledOnce()
     expect(searchClientSources).not.toHaveBeenCalled()
   })
 
@@ -676,7 +678,7 @@ describe('webAgentToolProvider', () => {
     expect(imageQuestion).toBeNull()
   })
 
-  it('answers a greeting from the latest turn without carrying over an old topic', async () => {
+  it('sends a greeting to the model instead of returning a canned local answer', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [
@@ -689,9 +691,9 @@ describe('webAgentToolProvider', () => {
       ],
       stream: false,
     }
-    const request = vi.fn(async () => {
-      throw new Error('A standalone greeting should not reach the model.')
-    })
+    const request = vi.fn(async (_payload: ChatCompletionRequest) =>
+      modelResponse('模型回答：你好！')
+    )
 
     const response = await runLocalToolLoop(
       payload,
@@ -701,9 +703,9 @@ describe('webAgentToolProvider', () => {
       request
     )
 
-    expect(response.choices[0]?.message.content).toContain('你好')
-    expect(response.choices[0]?.message.content).not.toContain('DeepSeek')
-    expect(request).not.toHaveBeenCalled()
+    expect(response.choices[0]?.message.content).toContain('模型回答：你好！')
+    expect(request).toHaveBeenCalledOnce()
+    expect(request.mock.calls[0]?.[0].messages).toEqual(payload.messages)
   })
 
   it.each(['?', '??', '>??', '> ??', '\\>??', '\\> ??'])(
@@ -749,15 +751,31 @@ describe('webAgentToolProvider', () => {
     }
   )
 
-  it('acknowledges a correction about a greeting without reusing prior context', () => {
-    const response = webAgentToolProvider.preflight?.([
-      { role: 'user', content: 'DeepSeek 是什么？' },
-      { role: 'assistant', content: '旧话题回复' },
-      { role: 'user', content: '刚才不是只问了个问好' },
-    ])
+  it('sends a correction about a greeting to the model with its conversation context', async () => {
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [
+        { role: 'user', content: 'DeepSeek 是什么？' },
+        { role: 'assistant', content: '错误的旧回答' },
+        { role: 'user', content: '刚才不是只问了个问好' },
+      ],
+      stream: false,
+    }
+    const request = vi.fn(async (_payload: ChatCompletionRequest) =>
+      modelResponse('抱歉，你是在打招呼，我刚才答偏了。')
+    )
 
-    expect(response?.choices[0]?.message.content).toContain('刚才答偏了')
-    expect(response?.choices[0]?.message.content).not.toContain('旧话题')
+    const response = await runLocalToolLoop(
+      payload,
+      webAgentToolProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain('我刚才答偏了')
+    expect(request).toHaveBeenCalledOnce()
+    expect(request.mock.calls[0]?.[0].messages).toEqual(payload.messages)
   })
 
   it('runs local preflight before falling back from an unavailable provider', async () => {

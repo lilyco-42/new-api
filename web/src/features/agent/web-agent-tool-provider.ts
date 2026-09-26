@@ -753,30 +753,6 @@ export const webAgentToolProvider: LocalToolProvider = {
       )
     }
 
-    const normalized = text.toLocaleLowerCase().replace(/\s+/gu, ' ')
-    if (
-      normalized.length <= 48 &&
-      /(?:刚才|刚刚|之前).{0,18}(?:问候|问好|打招呼)|(?:我只是|我就只是|我刚才只是).{0,18}(?:问候|问好|打招呼)/u.test(
-        normalized
-      )
-    ) {
-      return localPreflightResponse(
-        'local-greeting-correction',
-        '抱歉，刚才答偏了。你好！我在这里，会先回应你当前这条消息。'
-      )
-    }
-
-    if (
-      /^(?:(?:say|just say)\s+)?(?:hi|hello|hey|hiya|你好|您好|嗨|哈喽|早安|早上好|晚上好|晚安|在吗)[!！,.，。?？~～]*$/iu.test(
-        normalized
-      )
-    ) {
-      const greeting = /^(?:(?:say|just say)\s+)?(?:hi|hello|hey|hiya)\b/iu.test(normalized)
-        ? "Hi! I'm here. What would you like help with?"
-        : '你好！我在这里，可以帮你查资料、看代码或处理其他问题。你想先做什么？'
-      return localPreflightResponse('local-greeting', greeting)
-    }
-
     // Treat escaped Markdown quote markers like normal blockquote prefixes.
     // Pasted chat transcripts often turn `>??` into the literal `\\>??`; if
     // the backslash survives this normalization, punctuation-only input falls
@@ -789,16 +765,6 @@ export const webAgentToolProvider: LocalToolProvider = {
       return localPreflightResponse(
         'local-ambiguous-message',
         '我看到你发的是一个标点。你想继续刚才的话题，还是有新的问题？'
-      )
-    }
-
-    if (
-      normalized.length <= 64 &&
-      /(?:你在干嘛|你在干什么|我问你话|答非所问|回答跑题)/u.test(normalized)
-    ) {
-      return localPreflightResponse(
-        'local-conversation-repair',
-        '抱歉，刚才没有接住你当前的问题。我会以你最新发来的内容为准；你可以直接告诉我想继续哪件事。'
       )
     }
 
