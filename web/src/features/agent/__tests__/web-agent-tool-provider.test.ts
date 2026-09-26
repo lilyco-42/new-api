@@ -514,7 +514,7 @@ describe('webAgentToolProvider', () => {
     )
 
     expect(searchClientSources).toHaveBeenCalledWith(
-      'ast-grep', 5, expect.any(AbortSignal), 'auto'
+      'ast-grep', 5, expect.any(AbortSignal), 'github'
     )
     expect(request.mock.calls[0]?.[0].messages.some((message) =>
       message.name === 'lain42_browser_search_context' &&
