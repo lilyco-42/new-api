@@ -65,6 +65,7 @@ import type {
   LocalToolProvider,
 } from '@/features/playground/types'
 import { useMediaQuery } from '@/hooks'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createBrowserAgentBridge,
@@ -79,7 +80,12 @@ import {
   type AgentPairingSession,
   type AgentRunEvent,
 } from './agent-bridge'
-import { getNextAgentChatId } from './agent-chat-storage'
+import {
+  getAgentChatStorageNamespace,
+  getAgentChatPlaygroundNamespace,
+  getNextAgentChatId,
+  listAgentChatStorageNamespaces,
+} from './agent-chat-storage'
 import { localAgentToolProvider } from './agent-tool-provider'
 import { AgentBridgeCard } from './components/agent-bridge-card'
 import { AgentSidebar, type AgentPreset } from './components/agent-sidebar'
@@ -464,22 +470,19 @@ type AgentChatSearchResult = {
   updatedAt?: number
 }
 
-function readAgentChatSearchResults(query: string): AgentChatSearchResult[] {
+function readAgentChatSearchResults(
+  query: string,
+  userId: number | null
+): AgentChatSearchResult[] {
   if (typeof window === 'undefined') return []
   const normalizedQuery = query.trim().toLowerCase()
   if (!normalizedQuery) return []
 
   const results: AgentChatSearchResult[] = []
-  const namespacePattern = /^agent-([a-z-]+)-chat-(\d+):playground_messages$/
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const storageKey = window.localStorage.key(index)
-    const match = storageKey?.match(namespacePattern)
-    if (!storageKey || !match) {
-      continue
-    }
+  for (const entry of listAgentChatStorageNamespaces(userId)) {
     try {
       const parsed = JSON.parse(
-        window.localStorage.getItem(storageKey) ?? ''
+        window.localStorage.getItem(entry.key) ?? ''
       ) as {
         data?: Array<{
           key?: string
@@ -495,10 +498,10 @@ function readAgentChatSearchResults(query: string): AgentChatSearchResult[] {
           continue
         }
         results.push({
-          key: message.key ?? `${storageKey}-${results.length}`,
-          namespace: storageKey,
-          presetId: match[1],
-          chatId: Number(match[2]),
+          key: message.key ?? `${entry.key}-${results.length}`,
+          namespace: entry.key,
+          presetId: entry.presetId,
+          chatId: entry.chatId,
           preview: content.slice(0, 180),
           updatedAt: message.createdAt,
         })
@@ -516,14 +519,16 @@ function AgentChatSearchDialog({
   open,
   onOpenChange,
   onSelect,
+  userId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (presetId: string, chatId: number) => void
+  userId: number | null
 }) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
-  const results = readAgentChatSearchResults(query)
+  const results = readAgentChatSearchResults(query, userId)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -623,10 +628,26 @@ function WorkspacePanelHeader({
 }
 
 export function AgentWorkspace() {
+  const userId = useAuthStore((state) => state.auth.user?.id ?? null)
+  const storageScopeId = userId === null ? 'guest' : `user-${userId}`
+  return <AgentWorkspaceContent key={storageScopeId} userId={userId} />
+}
+
+function AgentWorkspaceContent({ userId }: { userId: number | null }) {
   const { t } = useTranslation()
+  const storageScopeId = userId === null ? 'guest' : `user-${userId}`
   const useToolsSheet = useMediaQuery('(max-width: 1279px)')
   const [preset, setPreset] = useState<AgentPreset>(PRESETS[0])
   const [chatId, setChatId] = useState(0)
+  const chatStorageNamespace = getAgentChatStorageNamespace(
+    userId,
+    preset.id,
+    chatId
+  )
+  const chatPlaygroundNamespace = getAgentChatPlaygroundNamespace(
+    preset.id,
+    chatId
+  )
   const [toolsOpen, setToolsOpen] = useState(false)
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('tools')
@@ -841,7 +862,7 @@ export function AgentWorkspace() {
   }
 
   const handleNewChat = () => {
-    setChatId((current) => getNextAgentChatId(preset.id, current))
+    setChatId((current) => getNextAgentChatId(preset.id, current, userId))
     setSidebarOpen(false)
   }
 
@@ -869,8 +890,9 @@ export function AgentWorkspace() {
   }
 
   const exportCurrentConversation = () => {
-    const namespace = `agent-${preset.id}-chat-${chatId}`
-    const raw = window.localStorage.getItem(`${namespace}:playground_messages`)
+    const raw = window.localStorage.getItem(
+      `${chatStorageNamespace}:playground_messages`
+    )
     if (!raw) {
       toast.info(t('No conversation to export yet.'))
       return
@@ -888,6 +910,7 @@ export function AgentWorkspace() {
   return (
     <div className='bg-background text-foreground flex size-full min-h-0 overflow-hidden'>
       <AgentSidebar
+        key={storageScopeId}
         activePresetId={preset.id}
         className='hidden lg:flex'
         onNewChat={handleNewChat}
@@ -896,6 +919,7 @@ export function AgentWorkspace() {
         onSelectChat={handleChatSearchSelect}
         onPresetChange={handlePresetChange}
         presets={PRESETS}
+        userId={userId}
       />
 
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -908,6 +932,7 @@ export function AgentWorkspace() {
             <SheetDescription>{t('Choose an agent')}</SheetDescription>
           </SheetHeader>
           <AgentSidebar
+            key={storageScopeId}
             activePresetId={preset.id}
             className='h-full w-full border-0'
             onNewChat={handleNewChat}
@@ -916,6 +941,7 @@ export function AgentWorkspace() {
             onSelectChat={handleChatSearchSelect}
             onPresetChange={handlePresetChange}
             presets={PRESETS}
+            userId={userId}
           />
         </SheetContent>
       </Sheet>
@@ -1014,12 +1040,12 @@ export function AgentWorkspace() {
         <main className='min-h-0 min-w-0 flex-1'>
           <Playground
             agentMode
-            key={`${preset.id}-${chatId}`}
+            key={`${storageScopeId}-${preset.id}-${chatId}`}
             emptyStateDescription={t(
               'Test a model with a starter prompt, or write your own request below.'
             )}
             emptyStateTitle={t('How can I help you today?')}
-            storageNamespace={`agent-${preset.id}-chat-${chatId}`}
+            storageNamespace={chatPlaygroundNamespace}
             systemPrompt={preset.prompt}
             localToolProvider={activeToolProvider ?? undefined}
           />
@@ -1030,6 +1056,7 @@ export function AgentWorkspace() {
         onOpenChange={setChatSearchOpen}
         onSelect={handleChatSearchSelect}
         open={chatSearchOpen}
+        userId={userId}
       />
 
       {toolsOpen && !useToolsSheet && (

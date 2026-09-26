@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useAuthStore } from '@/stores/auth-store'
+
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
 import {
@@ -24,12 +26,13 @@ import {
   usePlaygroundOptions,
   usePlaygroundState,
 } from './hooks'
+import { getPlaygroundStorageNamespace } from './lib/storage/storage-scope'
 import type { LocalToolProvider } from './types'
 
 export interface PlaygroundProps {
   /** Optional instruction message for a focused agent workspace. */
   systemPrompt?: string
-  /** Isolate agent history/config from the normal playground. */
+  /** Optional namespace for a dedicated workspace within this account. */
   storageNamespace?: string
   /** Optional empty-state heading for branded agent workspaces. */
   emptyStateTitle?: string
@@ -41,14 +44,34 @@ export interface PlaygroundProps {
   agentMode?: boolean
 }
 
-export function Playground({
+export function Playground(props: PlaygroundProps = {}) {
+  const userId = useAuthStore((state) => state.auth.user?.id ?? null)
+  const storageNamespace = getPlaygroundStorageNamespace(
+    userId,
+    props.storageNamespace
+  )
+
+  return (
+    <PlaygroundContent
+      key={storageNamespace}
+      {...props}
+      storageNamespace={storageNamespace}
+    />
+  )
+}
+
+type PlaygroundContentProps = PlaygroundProps & {
+  storageNamespace: string
+}
+
+function PlaygroundContent({
   systemPrompt,
-  storageNamespace = '',
+  storageNamespace,
   emptyStateTitle,
   emptyStateDescription,
   localToolProvider,
   agentMode = false,
-}: PlaygroundProps = {}) {
+}: PlaygroundContentProps) {
   const {
     config,
     parameterEnabled,
