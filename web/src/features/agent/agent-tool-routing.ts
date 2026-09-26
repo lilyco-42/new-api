@@ -87,7 +87,7 @@ function explicitlyDeclinesAccountRepositories(text: string): boolean {
 
 function targetsAccountRepositories(text: string): boolean {
   const explicitlyTargetsAccount =
-    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)|\bgh\s+repo\s+我的项目/iu.test(
+    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)|我通过网站\s*GitHub\s*OAuth\s*授权的仓库|\bgh\s+repo\s+我的项目/iu.test(
       text
     )
 
