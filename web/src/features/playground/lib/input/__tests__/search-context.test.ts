@@ -46,6 +46,22 @@ describe('browser search context', () => {
     ).toEqual(['https://docs.example.com/guide'])
   })
 
+  it('stops a URL at CJK punctuation before the rest of a sentence', () => {
+    expect(
+      extractPublicPageUrlReferences(
+        '请阅读 https://docs.example.com/guide，说明页面用途并给出来源。'
+      )
+    ).toEqual(['https://docs.example.com/guide'])
+  })
+
+  it('preserves query commas before a CJK sentence boundary', () => {
+    expect(
+      extractPublicPageUrlReferences(
+        '请阅读 https://docs.example.com/search?q=rust,wasm，说明结果。'
+      )
+    ).toEqual(['https://docs.example.com/search?q=rust,wasm'])
+  })
+
   it('formats search results as bounded source context for the model', () => {
     const context = formatSearchResultsForPrompt('rust ai', [
       {

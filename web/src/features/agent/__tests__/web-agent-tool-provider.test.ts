@@ -378,7 +378,7 @@ describe('webAgentToolProvider', () => {
 
   it('reads a public website URL on the client and gives its content to the model', async () => {
     const url = 'https://docs.example.com/guide'
-    const query = `请总结这个网页：${url}。`
+    const query = `请总结这个网页：${url}，说明页面用途并给出来源链接。`
     vi.mocked(fetchClientPage).mockResolvedValue({
       title: 'Guide',
       url,

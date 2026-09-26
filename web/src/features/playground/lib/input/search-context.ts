@@ -28,8 +28,13 @@ export function extractPublicPageUrlReferences(value: string): string[] {
     /https:\/\/[^\s<>"'`]+|(?:^|\s)(?:www\.)?(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z]{2,}(?::\d{1,5})?(?:\/[^\s<>"'`]*)?/giu
   )
   const references = candidates?.flatMap((candidate) => {
+    const sentenceBoundary = candidate.search(
+      /[，。；！？、]|[,;!](?=\s|\p{Script=Han})|\?(?=\s|\p{Script=Han})/u
+    )
+    const urlCandidate =
+      sentenceBoundary >= 0 ? candidate.slice(0, sentenceBoundary) : candidate
     const normalized = normalizePublicPageUrlInput(
-      candidate.trim().replace(/^[^a-z\d]+|[.,;!?)}\]，。；！？、）》】”’]+$/giu, '')
+      urlCandidate.trim().replace(/^[^a-z\d]+|[.,;!?)}\]，。；！？、）》】”’]+$/giu, '')
     )
     if (!normalized) return []
     const url = new URL(normalized)
