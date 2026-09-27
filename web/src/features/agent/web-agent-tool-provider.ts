@@ -845,11 +845,33 @@ async function addOfficialIdentityEvidence(
       DEEPSEEK_OFFICIAL_IDENTITY_PAGE.url,
       signal
     )
-    if (
-      !DEEPSEEK_OFFICIAL_IDENTITY_PAGE.evidence.test(page.text) ||
-      !DEEPSEEK_OFFICIAL_IDENTITY_PAGE.required.test(page.text)
-    ) {
+    const evidence = DEEPSEEK_OFFICIAL_IDENTITY_PAGE.evidence.exec(page.text)
+    const ownership = DEEPSEEK_OFFICIAL_IDENTITY_PAGE.required.exec(page.text)
+    if (!evidence || !ownership) {
       throw new Error('The official company terms could not be verified.')
+    }
+    const evidenceStart = Math.min(evidence.index, ownership.index)
+    const evidenceEnd = Math.max(
+      evidence.index + evidence[0].length,
+      ownership.index + ownership[0].length
+    )
+    const contextLimit = 2_400
+    if (evidenceEnd - evidenceStart > contextLimit) {
+      throw new Error('The official company evidence is too far apart to quote safely.')
+    }
+    // Keep the legal-operator clause in the model context. A fixed prefix can
+    // omit it when the terms page places ownership details after its opening.
+    const minStart = Math.max(0, evidenceEnd - contextLimit)
+    const maxStart = Math.max(0, Math.min(evidenceStart, page.text.length - contextLimit))
+    const preferredStart = evidenceStart - Math.floor(
+      (contextLimit - (evidenceEnd - evidenceStart)) / 2
+    )
+    const snippetStart = Math.max(minStart, Math.min(preferredStart, maxStart))
+    const snippet = page.text
+      .slice(snippetStart, Math.min(page.text.length, snippetStart + contextLimit))
+      .trim()
+    if (!snippet.includes(evidence[0]) || !snippet.includes(ownership[0])) {
+      throw new Error('The official company evidence could not be included in context.')
     }
     const source =
       transport === 'browser'
@@ -865,7 +887,7 @@ async function addOfficialIdentityEvidence(
         {
           title: page.title || DEEPSEEK_OFFICIAL_IDENTITY_PAGE.title,
           url: page.url,
-          snippet: page.text.slice(0, 2_400),
+          snippet,
           source,
         },
       ],

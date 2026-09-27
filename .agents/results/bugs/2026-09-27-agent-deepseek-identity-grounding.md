@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-27
 **Severity**: HIGH
-**Status**: Fix prepared; GitHub Actions and production verification pending
+**Status**: Follow-up fix prepared; GitHub Actions and production verification pending
 
 ## Problem
 
@@ -10,15 +10,14 @@ On the live Agent, asking what DeepSeek is could produce answers that called it 
 
 ## Root Cause
 
-The identity preflight supplied Hugging Face organization/model results together with a general model-disclosure page. That disclosure called the legal entity a research team but did not directly state that it owns and operates DeepSeek products. After adding the terms page, production returned HTTP 200 for both bounded fetch requests but the identity preflight still failed closed; a separate user-provided URL read successfully returned the same terms text. This points to a preflight aggregation/validation failure rather than network access. The helper discarded per-page diagnostics, so the exact failing predicate could not be observed.
+The first fix removed hosting-profile noise and fetched the official Terms of Use, but a production browser retry still returned the safe “no official source” response. The server log confirms the terms URL was read successfully (HTTP 200). Comparing the identity path with the successful direct-URL path found that the identity path retained only the first 2,400 characters of the page for the model. The operator clause can occur later in the terms, so the model received the URL but not the evidence needed to answer. This follow-up extracts a bounded excerpt around both the company name and ownership phrase, and verifies both phrases are present in the excerpt before sending it.
 
 ## Fix
 
-- Use DeepSeek's official Terms of Use as direct company/operator evidence.
-- Reduce identity verification to one sequential official page so the result follows the already verified single-URL reading path.
-- For identity questions, send only the verified official pages into the model context; do not include Hugging Face publisher profiles as identity evidence.
-- Tell the model to classify the name as the company/operator when that is what the official evidence establishes, while continuing to generate the answer from evidence and attach a source link.
-- Add a regression case that checks the grounded context and citations.
+- Keep DeepSeek's official Terms of Use as direct company/operator evidence.
+- Preserve the sequential one-page read and exclude Hugging Face publisher profiles from identity evidence.
+- Extract the bounded model excerpt around the verified company and ownership phrases rather than taking a fixed prefix.
+- Add a regression fixture where the legal-operator clause appears after the first 2,400 characters.
 
 ## Files Modified
 
@@ -27,8 +26,8 @@ The identity preflight supplied Hugging Face organization/model results together
 
 ## Testing
 
-- [x] Live failure reproduced after reloading the deployed app; official disclosure was present, but the answer still did not clearly classify the company.
-- [x] Regression test added for official ownership evidence, separate model evidence, removal of hosting-profile noise, and citations.
+- [x] Reproduced on deployed `agent-c4e72ed`; bounded official terms fetch returned HTTP 200, but the model lacked the operator clause.
+- [x] Added a regression fixture with the ownership sentence beyond the fixed 2,400-character prefix.
 - [ ] Run affected test, typecheck, lint, and production package through GitHub Actions.
 - [ ] Re-test the deployed Agent in the browser and verify both the answer and source links.
 
