@@ -855,18 +855,17 @@ async function addOfficialIdentityEvidence(
       evidence.index + evidence[0].length,
       ownership.index + ownership[0].length
     )
-    const contextLimit = 2_400
+    // Search-result formatting applies the same 2,000-character item limit.
+    const contextLimit = 2_000
     if (evidenceEnd - evidenceStart > contextLimit) {
       throw new Error('The official company evidence is too far apart to quote safely.')
     }
     // Keep the legal-operator clause in the model context. A fixed prefix can
     // omit it when the terms page places ownership details after its opening.
-    const minStart = Math.max(0, evidenceEnd - contextLimit)
-    const maxStart = Math.max(0, Math.min(evidenceStart, page.text.length - contextLimit))
-    const preferredStart = evidenceStart - Math.floor(
-      (contextLimit - (evidenceEnd - evidenceStart)) / 2
+    const snippetStart = Math.max(
+      Math.max(0, evidenceStart - 400),
+      Math.max(0, evidenceEnd - contextLimit)
     )
-    const snippetStart = Math.max(minStart, Math.min(preferredStart, maxStart))
     const snippet = page.text
       .slice(snippetStart, Math.min(page.text.length, snippetStart + contextLimit))
       .trim()

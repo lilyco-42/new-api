@@ -10,13 +10,13 @@ On the live Agent, asking what DeepSeek is could produce answers that called it 
 
 ## Root Cause
 
-The first fix removed hosting-profile noise and fetched the official Terms of Use, but a production browser retry still returned the safe “no official source” response. The server log confirms the terms URL was read successfully (HTTP 200). Comparing the identity path with the successful direct-URL path found that the identity path retained only the first 2,400 characters of the page for the model. The operator clause can occur later in the terms, so the model received the URL but not the evidence needed to answer. This follow-up extracts a bounded excerpt around both the company name and ownership phrase, and verifies both phrases are present in the excerpt before sending it.
+The first fix removed hosting-profile noise and fetched the official Terms of Use, but a production browser retry still returned the safe “no official source” response. The server log confirms the terms URL was read successfully (HTTP 200), and a separate direct-URL browser request correctly answered from that page. The identity path first kept only the page's opening 2,400 characters; the shared search formatter then capped excerpts at 2,000 characters. Both truncations could remove the later operator clause. The follow-up extracts a bounded excerpt around the verified company and ownership phrases, constrained to the formatter's 2,000-character limit, and verifies both phrases are present before sending it.
 
 ## Fix
 
 - Keep DeepSeek's official Terms of Use as direct company/operator evidence.
 - Preserve the sequential one-page read and exclude Hugging Face publisher profiles from identity evidence.
-- Extract the bounded model excerpt around the verified company and ownership phrases rather than taking a fixed prefix.
+- Extract the bounded model excerpt around the verified company and ownership phrases, within the formatter's 2,000-character cap.
 - Add a regression fixture where the legal-operator clause appears after the first 2,400 characters.
 
 ## Files Modified
@@ -28,6 +28,7 @@ The first fix removed hosting-profile noise and fetched the official Terms of Us
 
 - [x] Reproduced on deployed `agent-c4e72ed`; bounded official terms fetch returned HTTP 200, but the model lacked the operator clause.
 - [x] Added a regression fixture with the ownership sentence beyond the fixed 2,400-character prefix.
+- [x] GitHub Actions for commit `5638dbd` exposed the second 2,000-character formatter cap; the follow-up now preserves the evidence within that limit.
 - [ ] Run affected test, typecheck, lint, and production package through GitHub Actions.
 - [ ] Re-test the deployed Agent in the browser and verify both the answer and source links.
 
