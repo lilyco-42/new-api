@@ -168,7 +168,7 @@ describe('webAgentToolProvider', () => {
     ).toBe('auto')
   })
 
-  it('gives the model an official identity source alongside browser search results', async () => {
+  it('grounds DeepSeek identity in official company terms instead of hosting profiles', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
@@ -195,22 +195,42 @@ describe('webAgentToolProvider', () => {
         },
       ],
     })
-    const officialURL =
+    const officialTermsURL =
+      'https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html'
+    const officialTermsText =
+      'DeepSeek products and services are owned and operated by Hangzhou DeepSeek Artificial Intelligence Co., Ltd. DeepSeek also develops foundational large language models.'
+    const officialModelURL =
       'https://cdn.deepseek.com/policies/en-US/model-algorithm-disclosure.html'
-    const officialText =
-      'Hangzhou DeepSeek Artificial Intelligence Co., Ltd. is a research team focusing on foundational model technology. Its foundational models are large-scale language models.'
-    vi.mocked(fetchClientPage).mockRejectedValueOnce(
-      new Error('The browser could not read cdn.deepseek.com due to CORS.')
-    )
+    const officialModelText =
+      'Hangzhou DeepSeek Artificial Intelligence Co., Ltd. is a research team focused on foundational model technology. Its foundational models are large-scale language models.'
+    vi.mocked(fetchClientPage)
+      .mockRejectedValueOnce(
+        new Error('The browser could not read cdn.deepseek.com due to CORS.')
+      )
+      .mockRejectedValueOnce(
+        new Error('The browser could not read cdn.deepseek.com due to CORS.')
+      )
     vi.mocked(api.get).mockResolvedValueOnce({
       data: {
         success: true,
         data: {
-          url: officialURL,
-          title: 'Model Algorithm Filing',
+          url: officialTermsURL,
+          title: 'DeepSeek Terms of Use',
           content_type: 'text/html',
           fetched_at: '2026-09-27T00:00:00.000Z',
-          text: officialText,
+          text: officialTermsText,
+          truncated: false,
+        },
+      },
+    } as never).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          url: officialModelURL,
+          title: 'Model Mechanism and Training Methods of DeepSeek',
+          content_type: 'text/html',
+          fetched_at: '2026-09-27T00:00:00.000Z',
+          text: officialModelText,
           truncated: false,
         },
       },
@@ -225,7 +245,8 @@ describe('webAgentToolProvider', () => {
           index: 0,
           message: {
             role: 'assistant' as const,
-            content: 'DeepSeek 是与人工智能模型相关的公司和模型系列。',
+            content:
+              'DeepSeek 是由杭州深度求索人工智能有限公司运营的人工智能公司；DeepSeek 模型系列是该公司开发的产品。',
           },
           finish_reason: 'stop',
         },
@@ -250,37 +271,49 @@ describe('webAgentToolProvider', () => {
       expect.any(AbortSignal),
       'auto'
     )
-    expect(searchContext?.content).toContain('Official DeepSeek model releases.')
     expect(searchContext?.content).toContain(
-      'Verified organization · 105 models · 2 datasets · 30 papers'
+      'Identity clarification for this query: distinguish the company/operator from its model family'
     )
     expect(searchContext?.content).toContain(
-      'prefer the provider’s own official page or policy'
+      'The official terms identify Hangzhou DeepSeek Artificial Intelligence Co., Ltd. as the operator of DeepSeek products and services.'
     )
     expect(searchContext?.content).toContain(
-      'Hangzhou DeepSeek Artificial Intelligence Co., Ltd.'
+      'The official model disclosure describes DeepSeek’s foundational models as large-scale language models.'
     )
-    expect(searchContext?.content).toContain(officialText)
-    expect(searchContext?.content).toContain(officialURL)
     expect(searchContext?.content).toContain(
-      'A GitHub or Hugging Face profile establishes an account or publisher relationship'
+      'do not identify the company as a Hugging Face organization'
     )
-    expect(api.get).toHaveBeenCalledWith(
+    expect(searchContext?.content).toContain(officialTermsText)
+    expect(searchContext?.content).toContain(officialModelText)
+    expect(searchContext?.content).toContain(officialTermsURL)
+    expect(searchContext?.content).toContain(officialModelURL)
+    expect(searchContext?.content).not.toContain('Verified organization · 105 models')
+    expect(searchContext?.content).not.toContain('DeepSeek — Hugging Face organization')
+    expect(api.get).toHaveBeenNthCalledWith(
+      1,
       '/api/agent/fetch',
-      expect.objectContaining({ params: { url: officialURL } })
+      expect.objectContaining({ params: { url: officialTermsURL } })
     )
-    expect(searchContext?.content).toContain('https://huggingface.co/deepseek-ai')
+    expect(api.get).toHaveBeenNthCalledWith(
+      2,
+      '/api/agent/fetch',
+      expect.objectContaining({ params: { url: officialModelURL } })
+    )
+    expect(searchContext?.content).not.toContain('https://huggingface.co/deepseek-ai')
     expect(sent?.messages.at(-1)).toEqual(payload.messages[0])
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
     expect(response.choices[0]?.message.content).toContain(
-      'DeepSeek 是与人工智能模型相关的公司和模型系列。'
+      'DeepSeek 是由杭州深度求索人工智能有限公司运营的人工智能公司'
     )
     expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek model collection](<https://huggingface.co/deepseek-ai>)'
+      `[DeepSeek Terms of Use](<${officialTermsURL}>)`
     )
     expect(response.choices[0]?.message.content).toContain(
-      `[Model Algorithm Filing](<${officialURL}>)`
+      `[Model Mechanism and Training Methods of DeepSeek](<${officialModelURL}>)`
+    )
+    expect(response.choices[0]?.message.content).not.toContain(
+      'Hugging Face organization'
     )
   })
 
