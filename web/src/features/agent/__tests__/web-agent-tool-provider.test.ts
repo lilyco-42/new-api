@@ -199,8 +199,10 @@ describe('webAgentToolProvider', () => {
       'https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html'
     const ownershipSentence =
       'DeepSeek products and services are owned and operated by Hangzhou DeepSeek Artificial Intelligence Co., Ltd.'
-    const officialTermsPreamble =
+    const repeatedTermsPreamble =
       'These terms describe service usage and user responsibilities. '.repeat(90)
+    const officialTermsPreamble =
+      `START_OF_PAGE_ONLY_ANCHOR. ${repeatedTermsPreamble}`
     const officialTermsText =
       `${officialTermsPreamble}${ownershipSentence} DeepSeek also develops foundational large language models.`
     vi.mocked(fetchClientPage).mockRejectedValueOnce(
@@ -265,7 +267,7 @@ describe('webAgentToolProvider', () => {
       'do not identify the company as a Hugging Face organization'
     )
     expect(searchContext?.content).toContain(ownershipSentence)
-    expect(searchContext?.content).not.toContain(officialTermsPreamble.slice(0, 120))
+    expect(searchContext?.content).not.toContain('START_OF_PAGE_ONLY_ANCHOR.')
     expect(searchContext?.content).toContain(officialTermsURL)
     expect(searchContext?.content).not.toContain('Verified organization · 105 models')
     expect(searchContext?.content).not.toContain('DeepSeek — Hugging Face organization')
