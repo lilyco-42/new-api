@@ -168,7 +168,7 @@ describe('webAgentToolProvider', () => {
     ).toBe('auto')
   })
 
-  it('keeps the model answer and cites only sources returned by browser search', async () => {
+  it('gives the model an official identity source alongside browser search results', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
@@ -195,6 +195,26 @@ describe('webAgentToolProvider', () => {
         },
       ],
     })
+    const officialURL =
+      'https://cdn.deepseek.com/policies/en-US/model-algorithm-disclosure.html'
+    const officialText =
+      'Hangzhou DeepSeek Artificial Intelligence Co., Ltd. is a research team focusing on foundational model technology. Its foundational models are large-scale language models.'
+    vi.mocked(fetchClientPage).mockRejectedValueOnce(
+      new Error('The browser could not read cdn.deepseek.com due to CORS.')
+    )
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          url: officialURL,
+          title: 'Model Algorithm Filing',
+          content_type: 'text/html',
+          fetched_at: '2026-09-27T00:00:00.000Z',
+          text: officialText,
+          truncated: false,
+        },
+      },
+    } as never)
     const request = vi.fn(async (input: ChatCompletionRequest) => ({
       id: 'grounded-answer',
       object: 'chat.completion',
@@ -235,7 +255,19 @@ describe('webAgentToolProvider', () => {
       'Verified organization · 105 models · 2 datasets · 30 papers'
     )
     expect(searchContext?.content).toContain(
-      'prefer its organization profile over repository names'
+      'prefer the provider’s own official source or policy'
+    )
+    expect(searchContext?.content).toContain(
+      'Hangzhou DeepSeek Artificial Intelligence Co., Ltd.'
+    )
+    expect(searchContext?.content).toContain(officialText)
+    expect(searchContext?.content).toContain(officialURL)
+    expect(searchContext?.content).toContain(
+      'A GitHub or Hugging Face profile establishes an account or publisher relationship'
+    )
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/fetch',
+      expect.objectContaining({ params: { url: officialURL } })
     )
     expect(searchContext?.content).toContain('https://huggingface.co/deepseek-ai')
     expect(sent?.messages.at(-1)).toEqual(payload.messages[0])
@@ -247,8 +279,8 @@ describe('webAgentToolProvider', () => {
     expect(response.choices[0]?.message.content).toContain(
       '[DeepSeek model collection](<https://huggingface.co/deepseek-ai>)'
     )
-    expect(response.choices[0]?.message.content).not.toContain(
-      'https://www.deepseek.com/'
+    expect(response.choices[0]?.message.content).toContain(
+      `[Model Algorithm Filing](<${officialURL}>)`
     )
   })
 
@@ -441,13 +473,86 @@ describe('webAgentToolProvider', () => {
     )
   })
 
-  it('reports a CORS-blocked URL instead of passing unsupported page claims to the user', async () => {
+  it('uses the bounded Lain42 reader after browser CORS blocks a URL and gives its text to the model', async () => {
+    const url = 'https://docs.example.com/private-guide'
+    const pageText = 'The guide explains how to configure a Rust async runtime.'
+    vi.mocked(fetchClientPage).mockRejectedValueOnce(
+      new Error('The browser could not read docs.example.com due to CORS.')
+    )
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          url,
+          title: 'Private Guide',
+          content_type: 'text/html',
+          fetched_at: '2026-09-27T00:00:00.000Z',
+          text: pageText,
+          truncated: false,
+        },
+      },
+    } as never)
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'page-read-bounded',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant' as const,
+          content: '网页说明了 Rust 异步运行时的配置方法。',
+        },
+        finish_reason: 'stop',
+      }],
+    }))
+
+    const response = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [{ role: 'user', content: `请总结 ${url}` }],
+        stream: false,
+      },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    const sent = request.mock.calls[0]?.[0]
+    const pageContext = sent?.messages.find(
+      (message) => message.name === 'lain42_browser_search_context'
+    )
+    expect(fetchClientPage).toHaveBeenCalledWith(url, expect.any(AbortSignal))
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/fetch',
+      expect.objectContaining({
+        params: { url },
+        signal: expect.any(AbortSignal),
+        skipErrorHandler: true,
+      })
+    )
+    expect(searchClientSources).not.toHaveBeenCalled()
+    expect(pageContext?.content).toContain(pageText)
+    expect(pageContext?.content).toContain('Lain42 bounded fetch')
+    expect(response.choices[0]?.message.content).toContain(
+      '网页说明了 Rust 异步运行时的配置方法。'
+    )
+    expect(response.choices[0]?.message.content).toContain(
+      '[Private Guide](<https://docs.example.com/private-guide>)'
+    )
+  })
+
+  it('does not let the model invent page contents when browser and server reads fail', async () => {
     const url = 'https://docs.example.com/private-guide'
     vi.mocked(fetchClientPage).mockRejectedValueOnce(
-      new Error('The site blocked cross-origin access (CORS).')
+      new Error('The browser could not read docs.example.com due to CORS.')
+    )
+    vi.mocked(api.get).mockRejectedValueOnce(
+      new Error('the page could not be safely fetched as a supported text document')
     )
     const request = vi.fn(async (input: ChatCompletionRequest) => ({
-      id: 'page-read-blocked',
+      id: 'page-read-failed',
       object: 'chat.completion',
       created: 1,
       model: input.model,
@@ -474,20 +579,20 @@ describe('webAgentToolProvider', () => {
     )
 
     const sent = request.mock.calls[0]?.[0]
-    expect(fetchClientPage).toHaveBeenCalledWith(url, expect.any(AbortSignal))
-    expect(api.get).not.toHaveBeenCalled()
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/fetch',
+      expect.objectContaining({ params: { url } })
+    )
     expect(searchClientSources).not.toHaveBeenCalled()
     expect(sent?.messages.some((message) =>
       message.name === 'lain42_browser_search_context' &&
       typeof message.content === 'string' &&
-      message.content.includes('The site blocked cross-origin access (CORS).')
+      message.content.includes('the page could not be safely fetched')
     )).toBe(true)
     expect(response.choices[0]?.message.content).toContain(
-      'The site blocked cross-origin access (CORS).'
+      '页面正文没有发送给模型'
     )
-    expect(response.choices[0]?.message.content).not.toContain(
-      '答案是 42'
-    )
+    expect(response.choices[0]?.message.content).not.toContain('答案是 42')
   })
 
   it('searches a project slug even when the user names it before GitHub', async () => {
@@ -897,10 +1002,23 @@ describe('webAgentToolProvider', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
-  it('returns a readable tool result when the browser cannot fetch a page', async () => {
+  it('returns page text and transport when browser reading falls back after CORS', async () => {
     vi.mocked(fetchClientPage).mockRejectedValueOnce(
       new Error('The site blocked cross-origin access (CORS).')
     )
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          url: 'https://docs.example.com/guide',
+          title: 'Guide',
+          content_type: 'text/html',
+          fetched_at: '2026-09-27T00:00:00.000Z',
+          text: 'Readable guide text',
+          truncated: false,
+        },
+      },
+    } as never)
 
     const result = await webAgentToolProvider.invoke(
       toolCall('web.fetch', { url: 'https://docs.example.com/guide' }),
@@ -908,8 +1026,16 @@ describe('webAgentToolProvider', () => {
     )
 
     expect(JSON.parse(result)).toMatchObject({
-      error: 'The site blocked cross-origin access (CORS).',
+      title: 'Guide',
+      text: 'Readable guide text',
+      transport: 'lain42-bounded-fetch',
     })
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/fetch',
+      expect.objectContaining({
+        params: { url: 'https://docs.example.com/guide' },
+      })
+    )
   })
 
   it('bounds client crawl work and permits an omitted query', async () => {

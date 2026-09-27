@@ -5602,7 +5602,7 @@
     "Select at least one source before exporting.": "Select at least one source before exporting.",
     "Export plan saved: {{sources}} as {{format}}.": "Export plan saved: {{sources}} as {{format}}.",
     "Research sources": "Research sources",
-    "Search GitHub/Hugging Face for technical discovery. OpenAlex is searched only for paper queries. RustCC, CodeReset and GHFind are links, not indexed sources. Provide a public HTTPS URL for browser reading when CORS allows. No cookies are sent.": "技術探索會搜尋 GitHub 和 Hugging Face；只有論文查詢才會搜尋 OpenAlex。RustCC、CodeReset 和 GHFind 目前僅提供外部連結，尚未接入搜尋索引。提供公開 HTTPS 網址後，若目標網站允許跨來源存取，瀏覽器可讀取頁面。不會傳送 Cookie。",
+    "Search GitHub/Hugging Face for technical discovery. OpenAlex is searched only for paper queries. RustCC, CodeReset and GHFind are links, not indexed sources. Provide a public HTTPS URL for browser reading when CORS allows. No cookies are sent.": "技術探索會搜尋 GitHub 和 Hugging Face；只有論文查詢才會搜尋 OpenAlex。RustCC、CodeReset 和 GHFind 目前僅提供外部連結，尚未接入搜尋索引。提供公開 HTTPS 網址後，瀏覽器會優先讀取；若 CORS 阻擋且你已登入，會嘗試受限的 Lain42 網頁讀取器。目標網站不會收到你的登入 Cookie。",
     "Papers and scholarly works": "學術論文與研究成果",
     "Open trusted public sources while you ask the Agent to compare findings.": "Open trusted public sources while you ask the Agent to compare findings.",
     "Search queries are sent to the configured search provider. Do not include secrets.": "搜尋結果只會顯示在這裡。點選「加入結果到訊息」後再傳送給 Agent；若要讀取網頁，請貼上公開 HTTPS 網址。搜尋詞會傳送至已設定的服務，請勿輸入密鑰等機密資訊。",
