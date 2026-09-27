@@ -83,11 +83,10 @@ static int put_bool_member(u8 *output, u32 capacity, u32 *used,
 }
 
 static int begin_result(u8 *output, u32 capacity, u32 *used,
-                        const char *format, int recognized) {
-  int first = 1;
+                        const char *format, int recognized, int *first) {
   return put_char(output, capacity, used, '{') &&
-         put_string_member(output, capacity, used, "format", format, &first) &&
-         put_bool_member(output, capacity, used, "recognized", recognized, &first);
+         put_string_member(output, capacity, used, "format", format, first) &&
+         put_bool_member(output, capacity, used, "recognized", recognized, first);
 }
 
 static int finish_result(u8 *output, u32 capacity, u32 used) {
@@ -138,7 +137,7 @@ static const char *macho_architecture(u32 cpu) {
 static int analyze_elf(const u8 *input, u32 length, u8 *output,
                        u32 capacity, u32 *used) {
   int first = 1;
-  if (!begin_result(output, capacity, used, "ELF executable", 1)) return -1;
+  if (!begin_result(output, capacity, used, "ELF executable", 1, &first)) return -1;
   if (length < 20 || input[4] < 1 || input[4] > 2 ||
       input[5] < 1 || input[5] > 2) {
     if (!put_bool_member(output, capacity, used, "malformed", 1, &first)) return -1;
@@ -155,7 +154,7 @@ static int analyze_pe(const u8 *input, u32 length, u8 *output,
                       u32 capacity, u32 *used) {
   u32 header = length >= 64 ? read_u32_le(input, 0x3c) : length;
   int first = 1;
-  if (!begin_result(output, capacity, used, "PE executable", 1)) return -1;
+  if (!begin_result(output, capacity, used, "PE executable", 1, &first)) return -1;
   if (header > length || length - header < 24 || input[header] != 'P' ||
       input[header + 1] != 'E' || input[header + 2] != 0 || input[header + 3] != 0) {
     if (!put_bool_member(output, capacity, used, "malformed", 1, &first)) return -1;
@@ -182,7 +181,7 @@ static int analyze_macho(const u8 *input, u32 length, u8 *output,
                             (input[0] == 0xbe && input[1] == 0xba));
   int little = input[0] == 0xce || input[0] == 0xcf || input[0] == 0xbe;
   int first = 1;
-  if (!begin_result(output, capacity, used, fat ? "Universal Mach-O" : "Mach-O executable", 1)) return -1;
+  if (!begin_result(output, capacity, used, fat ? "Universal Mach-O" : "Mach-O executable", 1, &first)) return -1;
   if (length < 8) {
     if (!put_bool_member(output, capacity, used, "malformed", 1, &first)) return -1;
     return finish_result(output, capacity, *used);
@@ -297,7 +296,7 @@ static int analyze_wasm(const u8 *input, u32 length, u8 *output,
   int truncated = 0;
   int incomplete = 0;
   int first = 1;
-  if (!begin_result(output, capacity, used, "WebAssembly", 1)) return -1;
+  if (!begin_result(output, capacity, used, "WebAssembly", 1, &first)) return -1;
   if (length >= 8 && !put_number_member(output, capacity, used, "version", read_u32_le(input, 4), &first)) return -1;
   if (!put_member_prefix(output, capacity, used, "sections", &first) ||
       !append_wasm_sections(input, length, output, total_length, capacity, used,
@@ -312,7 +311,7 @@ static int analyze_wasm(const u8 *input, u32 length, u8 *output,
 static int analyze_zip(const u8 *input, u32 length, u8 *output,
                        u32 capacity, u32 *used) {
   int first = 1;
-  if (!begin_result(output, capacity, used, "ZIP archive", 1)) return -1;
+  if (!begin_result(output, capacity, used, "ZIP archive", 1, &first)) return -1;
   if (length < 4) {
     if (!put_bool_member(output, capacity, used, "malformed", 1, &first)) return -1;
   }
@@ -320,8 +319,8 @@ static int analyze_zip(const u8 *input, u32 length, u8 *output,
 }
 
 static int analyze_unknown(u8 *output, u32 capacity, u32 *used) {
-  int first = 0;
-  if (!begin_result(output, capacity, used, "Unknown binary", 0)) return -1;
+  int first = 1;
+  if (!begin_result(output, capacity, used, "Unknown binary", 0, &first)) return -1;
   if (!put_string_member(output, capacity, used, "note", "Format signature not recognized; raw bytes are omitted.", &first)) return -1;
   return finish_result(output, capacity, *used);
 }
