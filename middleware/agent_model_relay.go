@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -71,7 +70,7 @@ func AgentModelRelayAuth() gin.HandlerFunc {
 		requestModel := struct {
 			Model string `json:"model"`
 		}{}
-		if err := json.Unmarshal(body, &requestModel); err != nil || requestModel.Model != modelName {
+		if err := common.Unmarshal(body, &requestModel); err != nil || requestModel.Model != modelName {
 			agentModelRelayError(c, http.StatusUnauthorized, "AGENT_MODEL_RELAY_UNAUTHORIZED", "invalid agent model relay credentials")
 			return
 		}

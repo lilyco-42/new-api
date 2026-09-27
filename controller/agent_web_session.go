@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -45,6 +46,67 @@ func RevokeAgentWebSession(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"status": "revoked"})
+}
+
+type agentWebTurnRequest struct {
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+}
+
+// SubmitAgentWebTurn accepts only the public session id and user text. The
+// authenticated account and internal DSH session are resolved server-side.
+func SubmitAgentWebTurn(c *gin.Context) {
+	mediaType, _, mediaErr := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if mediaErr != nil || !strings.EqualFold(mediaType, "application/json") {
+		writeAgentError(c, http.StatusUnsupportedMediaType, "AGENT_CONTENT_TYPE_REQUIRED", "application/json is required")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, service.AgentWebTurnMaxBodyBytes+1))
+	if err != nil || len(body) == 0 || len(body) > service.AgentWebTurnMaxBodyBytes {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid request body")
+		return
+	}
+	var fields map[string]any
+	if err := common.Unmarshal(body, &fields); err != nil || len(fields) != 2 {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id and text only")
+		return
+	}
+	if _, ok := fields["session_id"]; !ok {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id and text only")
+		return
+	}
+	if _, ok := fields["text"]; !ok {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id and text only")
+		return
+	}
+	var request agentWebTurnRequest
+	if err := common.Unmarshal(body, &request); err != nil || strings.TrimSpace(request.Text) == "" || len([]byte(request.Text)) > service.AgentWebTurnMaxTextBytes {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "text is required and must be at most 24 KiB")
+		return
+	}
+	result, err := service.SubmitAgentWebTurn(c.Request.Context(), c.GetInt("id"), request.SessionID, request.Text)
+	if err != nil {
+		writeAgentWebTurnError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+func writeAgentWebTurnError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		writeAgentError(c, http.StatusNotFound, "AGENT_SESSION_NOT_FOUND", "session was not found")
+	case errors.Is(err, service.ErrAgentTurnInvalidRequest), errors.Is(err, service.ErrAgentWebSessionInvalid):
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "invalid session or turn request")
+	case errors.Is(err, service.ErrAgentTurnBridgeDisabled):
+		writeAgentError(c, http.StatusServiceUnavailable, "AGENT_TURN_UNAVAILABLE", "agent turn service is not configured")
+	case errors.Is(err, service.ErrAgentTurnBridgeTimeout):
+		writeAgentError(c, http.StatusGatewayTimeout, "AGENT_TURN_TIMEOUT", "the agent took too long to respond; try again")
+	case errors.Is(err, service.ErrAgentTurnBridgeFailed):
+		writeAgentError(c, http.StatusBadGateway, "AGENT_TURN_FAILED", "the agent could not complete this turn; try again")
+	default:
+		writeAgentError(c, http.StatusInternalServerError, "AGENT_TURN_INTERNAL", "unable to access this agent session")
+	}
 }
 
 func writeAgentWebSessionError(c *gin.Context, err error) {

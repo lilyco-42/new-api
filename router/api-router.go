@@ -43,6 +43,9 @@ func SetApiRouter(router *gin.Engine) {
 				agentSessionRoute.GET("", middleware.SearchRateLimit(), controller.ListAgentWebSessions)
 				agentSessionRoute.DELETE("/:id", middleware.CriticalRateLimit(), middleware.SessionCookieOriginGuard(), controller.RevokeAgentWebSession)
 			}
+			agentTurnRoute := agentRoute.Group("/turns")
+			agentTurnRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.SessionCookieOriginGuard(), middleware.DisableCache())
+			agentTurnRoute.POST("", controller.SubmitAgentWebTurn)
 			platformAgentRoute := agentRoute.Group("")
 			platformAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
 			{
