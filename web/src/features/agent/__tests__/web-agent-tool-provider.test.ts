@@ -1161,7 +1161,7 @@ describe('webAgentToolProvider', () => {
     expect(names).not.toContain('github.auth.status')
   })
 
-  it('passes OAuth repository data to the model before answering', async () => {
+  it('grounds repository-list answers in the retrieved OAuth data', async () => {
     const bridgeProvider: LocalToolProvider = {
       tools: [],
       isAvailable: () => true,
@@ -1171,9 +1171,7 @@ describe('webAgentToolProvider', () => {
     const requests: ChatCompletionRequest[] = []
     const request = vi.fn(async (payload: ChatCompletionRequest) => {
       requests.push(payload)
-      return modelResponse(
-        '我从你的 GitHub OAuth 读取到 repo-one、repo-two 和 repo-three。'
-      )
+      return modelResponse('OAuth 返回了 my-first-repo 和 learn-python。')
     })
     vi.mocked(api.get).mockResolvedValueOnce({
       data: {
@@ -1185,18 +1183,28 @@ describe('webAgentToolProvider', () => {
               html_url: 'https://github.com/lilyco-42/repo-one',
               private: false,
               stargazers_count: 1,
+              description: 'First repository.',
             },
             {
               full_name: 'lilyco-42/repo-two',
               html_url: 'https://github.com/lilyco-42/repo-two',
               private: false,
               stargazers_count: 2,
+              description: 'Second repository.',
             },
             {
               full_name: 'lilyco-42/repo-three',
               html_url: 'https://github.com/lilyco-42/repo-three',
               private: false,
               stargazers_count: 3,
+              description: 'Third repository.',
+            },
+            {
+              full_name: 'lilyco-42/repo-four',
+              html_url: 'https://github.com/lilyco-42/repo-four',
+              private: false,
+              stargazers_count: 4,
+              description: 'Outside the requested limit.',
             },
           ],
         },
@@ -1226,6 +1234,14 @@ describe('webAgentToolProvider', () => {
       expect.objectContaining({ params: { limit: 3 } })
     )
     expect(result.choices[0]?.message.content).toContain('repo-one')
+    expect(result.choices[0]?.message.content).toContain('First repository.')
+    expect(result.choices[0]?.message.content).toContain('repo-three')
+    expect(result.choices[0]?.message.content).not.toContain('repo-four')
+    expect(result.choices[0]?.message.content).not.toContain('my-first-repo')
+    expect(result.choices[0]?.message.content).not.toContain('learn-python')
+    expect(result.choices[0]?.message.content).toContain(
+      'GitHub OAuth 的本次接口结果'
+    )
     expect(requests).toHaveLength(1)
     const repositoryContext = requests[0]?.messages.find(
       (message) =>

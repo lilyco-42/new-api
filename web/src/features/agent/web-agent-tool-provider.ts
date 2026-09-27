@@ -229,6 +229,10 @@ const browserSearchResultsByContext = new WeakMap<
   ChatCompletionMessage,
   PreparedBrowserPublicContext
 >()
+const browserGitHubRepositoriesByContext = new WeakMap<
+  ChatCompletionMessage,
+  string
+>()
 
 const DEEPSEEK_OFFICIAL_IDENTITY_PAGE = {
   match: /\bdeepseek\b|深度求索/iu,
@@ -248,7 +252,7 @@ type AgentPageRead = {
 function browserGitHubRepositoriesContextMessage(
   content: string
 ): ChatCompletionMessage {
-  return {
+  const message: ChatCompletionMessage = {
     role: 'system',
     name: BROWSER_GITHUB_REPOSITORIES_CONTEXT_NAME,
     content: [
@@ -257,6 +261,8 @@ function browserGitHubRepositoriesContextMessage(
       content,
     ].join('\n'),
   }
+  browserGitHubRepositoriesByContext.set(message, content)
+  return message
 }
 
 function formatBrowserSearchResults(result: ClientSearchResponse): string {
@@ -413,10 +419,26 @@ function finalizePreparedBrowserSearch(
   messages: ChatCompletionMessage[],
   preparedContext: ChatCompletionMessage[]
 ): ChatCompletionResponse {
+  const repositoryAnswer = preparedContext
+    .map((message) => browserGitHubRepositoriesByContext.get(message))
+    .find((value): value is string => value !== undefined)
+  const firstChoice = response.choices?.[0]
+  if (repositoryAnswer !== undefined && firstChoice) {
+    return {
+      ...response,
+      choices: [
+        {
+          ...firstChoice,
+          message: { ...firstChoice.message, content: repositoryAnswer },
+        },
+        ...response.choices.slice(1),
+      ],
+    }
+  }
+
   const prepared = preparedContext
     .map((message) => browserSearchResultsByContext.get(message))
     .find((value): value is PreparedBrowserPublicContext => value !== undefined)
-  const firstChoice = response.choices?.[0]
   if (!prepared || !firstChoice) return response
 
   const { result, kind } = prepared
@@ -508,7 +530,11 @@ function localPreflightResponse(
   }
 }
 
-function formatGitHubRepositories(raw: string): string {
+function escapeGitHubDescription(value: string): string {
+  return value.replace(/[\\`*_{}\[\]()|>]/gu, '\\$&')
+}
+
+function formatGitHubRepositories(raw: string, requestedLimit: number): string {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
@@ -548,15 +574,25 @@ function formatGitHubRepositories(raw: string): string {
       Number.isFinite(repository.stargazers_count)
         ? ` · ★ ${Math.max(0, Math.trunc(repository.stargazers_count))}`
         : ''
-    return [`- [${fullName}](https://github.com/${fullName})（${visibility}${stars}）`]
+    const description =
+      typeof repository.description === 'string'
+        ? repository.description.trim().replace(/\s+/gu, ' ').slice(0, 300)
+        : ''
+    const renderedDescription = description
+      ? ` — ${escapeGitHubDescription(description)}`
+      : ' — 暂无描述'
+    return [
+      `- [${fullName}](https://github.com/${fullName})（${visibility}${stars}）${renderedDescription}`,
+    ]
   })
   if (repositories.length === 0) {
-    return 'GitHub OAuth 读取成功，但当前账号没有可访问的仓库。'
+    return 'GitHub OAuth 仓库读取成功；本次接口返回页没有可访问仓库。'
   }
+  const visibleRepositories = repositories.slice(0, requestedLimit)
   return [
-    `已通过连接的 GitHub OAuth 获取到 ${repositories.length} 个仓库：`,
+    `以下仓库来自 GitHub OAuth 的本次接口结果（返回 ${repositories.length} 个，展示 ${visibleRepositories.length} 个）：`,
     '',
-    ...repositories,
+    ...visibleRepositories,
   ].join('\n')
 }
 
@@ -1061,7 +1097,7 @@ export const webAgentToolProvider: LocalToolProvider = {
         )
         return withCorrectionContext([
           browserGitHubRepositoriesContextMessage(
-            formatGitHubRepositories(result)
+            formatGitHubRepositories(result, limit)
           ),
         ])
       } catch (error) {
