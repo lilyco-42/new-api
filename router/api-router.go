@@ -36,6 +36,13 @@ func SetApiRouter(router *gin.Engine) {
 		// identity; claim/redeem are short-lived desktop ceremony endpoints.
 		agentRoute := apiRouter.Group("/agent")
 		{
+			agentSessionRoute := agentRoute.Group("/sessions")
+			agentSessionRoute.Use(middleware.UserAuth(), middleware.DisableCache())
+			{
+				agentSessionRoute.POST("", middleware.CriticalRateLimit(), middleware.SessionCookieOriginGuard(), controller.CreateAgentWebSession)
+				agentSessionRoute.GET("", middleware.SearchRateLimit(), controller.ListAgentWebSessions)
+				agentSessionRoute.DELETE("/:id", middleware.CriticalRateLimit(), middleware.SessionCookieOriginGuard(), controller.RevokeAgentWebSession)
+			}
 			platformAgentRoute := agentRoute.Group("")
 			platformAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
 			{
