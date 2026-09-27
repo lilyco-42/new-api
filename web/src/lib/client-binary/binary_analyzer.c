@@ -300,7 +300,7 @@ static int analyze_wasm(const u8 *input, u32 length, u8 *output,
   if (!begin_result(output, capacity, used, "WebAssembly", 1)) return -1;
   if (length >= 8 && !put_number_member(output, capacity, used, "version", read_u32_le(input, 4), &first)) return -1;
   if (!put_member_prefix(output, capacity, used, "sections", &first) ||
-      !append_wasm_sections(input, length, total_length, output, capacity, used,
+      !append_wasm_sections(input, length, output, total_length, capacity, used,
                             &section_count, &malformed, &truncated, &incomplete) ||
       !put_number_member(output, capacity, used, "sectionCount", section_count, &first) ||
       !put_bool_member(output, capacity, used, "malformed", malformed, &first) ||

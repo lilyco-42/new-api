@@ -28,7 +28,7 @@ import {
 
 const WASM_OUTPUT_BYTES = 16 * 1024
 const wasmPath = path.resolve('public/agent/binary_analyzer.wasm')
-let wasmBytes: Uint8Array
+let wasmBytes: Uint8Array<ArrayBuffer>
 let wasmExports: {
   memory: WebAssembly.Memory
   analyze_binary: (
