@@ -82,5 +82,6 @@ func TestAgentWebSessionRejectsInvalidIdentity(t *testing.T) {
 	_, err = ResolveAgentWebSession(7, "short")
 	require.ErrorIs(t, err, ErrAgentWebSessionInvalid)
 	require.ErrorIs(t, RevokeAgentWebSession(7, "short", time.Time{}), ErrAgentWebSessionInvalid)
-	require.ErrorIs(t, ListAgentWebSessions(0, 10), ErrAgentWebSessionInvalid)
+	_, err = ListAgentWebSessions(0, 10)
+	require.ErrorIs(t, err, ErrAgentWebSessionInvalid)
 }
