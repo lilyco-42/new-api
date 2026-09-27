@@ -63,6 +63,7 @@ export type ClientCrawlResponse = {
 
 type CrawlerCore = {
   memory: WebAssembly.Memory
+  __heap_base: WebAssembly.Global
   extract_html_text: (
     inputPointer: number,
     inputLength: number,
@@ -287,6 +288,7 @@ async function loadCrawlerCore(): Promise<CrawlerCore> {
     const exports = instance.exports as unknown as CrawlerCore
     if (
       !(exports.memory instanceof WebAssembly.Memory) ||
+      !(exports.__heap_base instanceof WebAssembly.Global) ||
       typeof exports.extract_html_text !== 'function'
     ) {
       throw new Error('The browser-side WASM crawler has an invalid module.')
@@ -302,12 +304,12 @@ async function loadCrawlerCore(): Promise<CrawlerCore> {
 export async function extractHtmlTextWasm(html: string): Promise<string> {
   const core = await loadCrawlerCore()
   const input = new TextEncoder().encode(html)
-  const inputPointer = 1024
-  const outputPointer = Math.ceil((inputPointer + input.byteLength + 8) / 8) * 8
   const outputCapacity = Math.min(
     MAX_PAGE_BYTES,
     Math.max(1024, input.byteLength)
   )
+  const inputPointer = Math.ceil(Number(core.__heap_base.value) / 8) * 8
+  const outputPointer = Math.ceil((inputPointer + input.byteLength) / 8) * 8
   const requiredBytes = outputPointer + outputCapacity
   const missingBytes = requiredBytes - core.memory.buffer.byteLength
   if (missingBytes > 0) core.memory.grow(Math.ceil(missingBytes / 65_536))

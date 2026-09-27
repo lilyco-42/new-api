@@ -31,6 +31,7 @@ const wasmPath = path.resolve('public/agent/binary_analyzer.wasm')
 let wasmBytes: Uint8Array<ArrayBuffer>
 let wasmExports: {
   memory: WebAssembly.Memory
+  __heap_base: WebAssembly.Global
   analyze_binary: (
     inputPointer: number,
     inputLength: number,
@@ -40,12 +41,13 @@ let wasmExports: {
   ) => number
 } = {
   memory: new WebAssembly.Memory({ initial: 4 }),
+  __heap_base: new WebAssembly.Global({ value: 'i32' }, 1024),
   analyze_binary: () => -1,
 }
 
 function inspect(bytes: Uint8Array, totalLength = bytes.byteLength) {
-  const inputPointer = 1024
-  const outputPointer = Math.ceil((inputPointer + bytes.byteLength + 8) / 8) * 8
+  const inputPointer = Math.ceil(Number(wasmExports.__heap_base.value) / 8) * 8
+  const outputPointer = Math.ceil((inputPointer + bytes.byteLength) / 8) * 8
   const memory = new Uint8Array(wasmExports.memory.buffer)
   memory.set(bytes, inputPointer)
   const length = wasmExports.analyze_binary(

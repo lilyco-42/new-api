@@ -25,6 +25,7 @@ const WASM_PAGE_BYTES = 65_536
 
 type BinaryAnalyzerWasm = {
   memory: WebAssembly.Memory
+  __heap_base: WebAssembly.Global
   analyze_binary: (
     inputPointer: number,
     inputLength: number,
@@ -70,6 +71,7 @@ function isBinaryAnalyzerWasm(value: unknown): value is BinaryAnalyzerWasm {
   const exports = value as Partial<BinaryAnalyzerWasm>
   return (
     exports.memory instanceof WebAssembly.Memory &&
+    exports.__heap_base instanceof WebAssembly.Global &&
     typeof exports.analyze_binary === 'function'
   )
 }
@@ -159,8 +161,8 @@ async function analyzeBinaryPrefix(
   const analyzer = await loadBinaryAnalyzer()
   throwIfAborted(signal)
 
-  const inputPointer = 1024
-  const outputPointer = Math.ceil((inputPointer + prefix.byteLength + 8) / 8) * 8
+  const inputPointer = Math.ceil(Number(analyzer.__heap_base.value) / 8) * 8
+  const outputPointer = Math.ceil((inputPointer + prefix.byteLength) / 8) * 8
   const requiredBytes = outputPointer + BINARY_ANALYSIS_OUTPUT_BYTES
   const missingBytes = requiredBytes - analyzer.memory.buffer.byteLength
   if (missingBytes > 0) {

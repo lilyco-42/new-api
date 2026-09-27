@@ -71,6 +71,7 @@ for (const module of modules) {
       '--no-entry',
       ...module.exports.map((name) => `--export=${name}`),
       '--export-memory',
+      '--export=__heap_base',
       `--initial-memory=${module.initialMemory}`,
       `--max-memory=${module.maxMemory}`,
       objectFile,
