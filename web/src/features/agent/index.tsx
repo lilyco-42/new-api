@@ -105,6 +105,7 @@ import {
   webAgentToolProvider,
 } from './web-agent-tool-provider'
 import {
+  readWorkspaceBinaryPreview,
   readWorkspaceTextPreview,
   selectWorkspaceFiles,
 } from './workspace-file-utils'
@@ -250,6 +251,7 @@ type WorkspaceFile = {
   url: string
   file: File
   text?: string
+  binarySummary?: string
 }
 
 function WorkspaceFiles({
@@ -289,6 +291,10 @@ function WorkspaceFiles({
         next.map(async (file, index) => {
           const id = `${file.name}-${file.lastModified}-${index}`
           const text = await readWorkspaceTextPreview(file)
+          const binarySummary =
+            text === undefined
+              ? await readWorkspaceBinaryPreview(file)
+              : undefined
           return {
             id,
             name: file.name,
@@ -296,6 +302,7 @@ function WorkspaceFiles({
             size: file.size,
             file,
             ...(text !== undefined ? { text } : {}),
+            ...(binarySummary !== undefined ? { binarySummary } : {}),
           }
         })
       )
@@ -322,6 +329,11 @@ function WorkspaceFiles({
           <p className='text-muted-foreground text-xs'>
             {t(
               'Files stay in this browser until you attach them to a message.'
+            )}
+          </p>
+          <p className='text-muted-foreground mt-1 text-[10px]'>
+            {t(
+              'Supported binary file headers are analyzed locally; only the summary is sent when attached.'
             )}
           </p>
           <p className='text-muted-foreground mt-1 text-[10px]'>
@@ -414,6 +426,12 @@ function WorkspaceFiles({
           {selected.text}
         </pre>
       )
+    } else if (selected.binarySummary !== undefined) {
+      body = (
+        <pre className='bg-muted/40 min-h-44 overflow-auto rounded-lg p-3 text-xs leading-5 whitespace-pre-wrap'>
+          {selected.binarySummary}
+        </pre>
+      )
     } else {
       body = (
         <div className='text-muted-foreground flex min-h-44 items-center justify-center rounded-lg border border-dashed text-xs'>
@@ -446,7 +464,7 @@ function WorkspaceFiles({
   return (
     <div className='grid min-h-[22rem] gap-3'>
       <input
-        accept='image/*,application/pdf,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
+        accept='image/*,application/pdf,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql,application/octet-stream,.wasm,.elf,.exe,.dll,.so,.dylib,.bin,.zip,.7z,.rar'
         className='hidden'
         multiple
         onChange={(event) => {

@@ -18,10 +18,21 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test, vi } from 'vitest'
 
+const { analyzeBinaryFile, formatBinaryAnalysisForModel } = vi.hoisted(() => ({
+  analyzeBinaryFile: vi.fn(),
+  formatBinaryAnalysisForModel: vi.fn(),
+}))
+
+vi.mock('@/lib/client-binary/analyze-binary', () => ({
+  analyzeBinaryFile,
+  formatBinaryAnalysisForModel,
+}))
+
 import {
   MAX_WORKSPACE_FILE_SIZE,
   MAX_WORKSPACE_FILES,
   MAX_WORKSPACE_TEXT_PREVIEW_BYTES,
+  readWorkspaceBinaryPreview,
   readWorkspaceTextPreview,
   selectWorkspaceFiles,
 } from './workspace-file-utils'
@@ -78,5 +89,40 @@ describe('workspace file limits', () => {
     const file = new File(['hello'], 'notes.txt', { type: 'text/plain' })
 
     await expect(readWorkspaceTextPreview(file)).resolves.toBe('hello')
+  })
+
+  test('parses supported binary metadata in the browser for preview', async () => {
+    const file = new File(['\0asm\x01\0\0\0'], 'module.wasm', {
+      type: 'application/wasm',
+    })
+    analyzeBinaryFile.mockResolvedValueOnce({ format: 'WebAssembly' })
+    formatBinaryAnalysisForModel.mockReturnValueOnce(
+      'Format: WebAssembly. Raw binary bytes were not sent to the model.'
+    )
+
+    const preview = await readWorkspaceBinaryPreview(file)
+
+    expect(analyzeBinaryFile).toHaveBeenCalledWith(file)
+    expect(preview).toContain('Format: WebAssembly.')
+    expect(preview).toContain('Raw binary bytes were not sent to the model.')
+  })
+
+  test('keeps image and PDF preview handling in their existing paths', async () => {
+    const image = fileStub('picture.png', 8, 'image/png')
+    const pdf = fileStub('paper.pdf', 8, 'application/pdf')
+
+    await expect(readWorkspaceBinaryPreview(image)).resolves.toBeUndefined()
+    await expect(readWorkspaceBinaryPreview(pdf)).resolves.toBeUndefined()
+  })
+
+  test('keeps workspace file access usable if the local WASM is unavailable', async () => {
+    const file = new File(['binary'], 'unknown.bin', {
+      type: 'application/octet-stream',
+    })
+    analyzeBinaryFile.mockRejectedValueOnce(new Error('WASM unavailable'))
+
+    await expect(readWorkspaceBinaryPreview(file)).resolves.toContain(
+      'The raw file was not uploaded.'
+    )
   })
 })

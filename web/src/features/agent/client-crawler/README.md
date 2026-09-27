@@ -32,6 +32,10 @@ Sites that deny cross-origin reads need a user-installed browser extension or
 another explicitly user-owned runtime. They must not be routed through a shared
 personal device.
 
-To rebuild the checked-in WASM module, run `bun run build:agent-crawler-wasm`
-from `web/` with LLVM `clang` and `wasm-ld` on `PATH`. The source is
-`crawler_core.c`; the module has no network, filesystem, or cookie imports.
+To build the browser WASM modules, run `bun run build:agent-wasm` from
+`web/` with LLVM `clang` and `wasm-ld` on `PATH`. This builds the checked-in
+`crawler_core.wasm` from `crawler_core.c` and the generated
+`binary_analyzer.wasm` from `src/lib/client-binary/binary_analyzer.c`. Both
+modules have no network, filesystem, or cookie imports. The binary analyzer
+reads at most a 64 KiB prefix and returns metadata only; it never returns file
+bytes. Normal development, build, and test scripts build both modules first.

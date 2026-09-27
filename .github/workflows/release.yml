@@ -27,6 +27,10 @@ jobs:
         run: |
           VERSION=$(git describe --tags)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Set up LLVM WebAssembly toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang lld
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.4.0'
@@ -76,6 +80,11 @@ jobs:
         run: |
           VERSION=$(git describe --tags)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Set up LLVM WebAssembly toolchain
+        run: |
+          brew install llvm lld
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.4.0'
@@ -124,6 +133,10 @@ jobs:
         run: |
           VERSION=$(git describe --tags)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Set up LLVM WebAssembly toolchain
+        run: |
+          choco install llvm --no-progress -y
+          echo "C:/Program Files/LLVM/bin" >> "$GITHUB_PATH"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.4.0'

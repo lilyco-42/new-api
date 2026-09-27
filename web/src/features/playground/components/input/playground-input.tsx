@@ -89,7 +89,7 @@ export function AttachmentReviewPanel({
         </h3>
         <p className='text-muted-foreground text-xs'>
           {t(
-            'Text and PDFs are extracted in this browser. Images are included; unsupported binary files send only their name and type.'
+            'Text and PDFs are extracted in this browser. Images are included; binary files send a bounded local metadata summary.'
           )}
         </p>
       </div>
@@ -231,7 +231,7 @@ export function PlaygroundInput({
   return (
     <div className='grid shrink-0 gap-4 px-3 pb-3 sm:px-4 sm:pb-4'>
       <PromptInput
-        accept='image/*,application/pdf,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
+        accept='image/*,application/pdf,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql,application/octet-stream,.wasm,.elf,.exe,.dll,.so,.dylib,.bin,.zip,.7z,.rar'
         maxFileSize={MAX_ATTACHMENT_FILE_SIZE_BYTES}
         maxFiles={5}
         multiple

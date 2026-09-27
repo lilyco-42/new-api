@@ -26,6 +26,10 @@ import {
 } from 'lucide-react'
 
 import type { ContentPart } from '../../types'
+import {
+  analyzeBinaryDataUrl,
+  formatBinaryAnalysisForModel,
+} from '@/lib/client-binary/analyze-binary'
 import { MAX_PDF_PAGES, extractPdfText } from './extract-pdf-text'
 
 type AttachmentAction = {
@@ -129,8 +133,15 @@ export async function filePartsToContentParts(
 
   for (const file of files) {
     throwIfAborted(signal)
-    const filename = file.filename || 'attachment'
-    const mediaType = file.mediaType || 'application/octet-stream'
+    const filename = (file.filename || 'attachment')
+      .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+      .slice(0, 200)
+    const receivedMediaType = file.mediaType || 'application/octet-stream'
+    const mediaType = /^[\w!#$&^_.+-]+\/[\w!#$&^_.+-]+$/u.test(
+      receivedMediaType
+    )
+      ? receivedMediaType
+      : 'application/octet-stream'
     const url = file.url || ''
 
     if (mediaType.startsWith('image/') && url.startsWith('data:image/')) {
@@ -194,10 +205,36 @@ export async function filePartsToContentParts(
       }
     }
 
+    if (remainingTextChars <= 0) {
+      parts.push({
+        type: 'text',
+        text: `[Attached file: ${filename} (${mediaType})]\n[Local analysis omitted because the attachment text limit was reached.]`,
+      })
+      continue
+    }
+
+    let binaryAnalysis: string
+    try {
+      binaryAnalysis = formatBinaryAnalysisForModel(
+        await analyzeBinaryDataUrl(url, signal)
+      )
+    } catch {
+      if (signal?.aborted) throwIfAborted(signal)
+      binaryAnalysis =
+        'Client-side WebAssembly analysis is unavailable. The raw file was not sent, so its contents cannot be inspected.'
+    }
+    throwIfAborted(signal)
+    const boundedAnalysis = binaryAnalysis.slice(0, remainingTextChars)
+    const truncated = boundedAnalysis.length < binaryAnalysis.length
+    const status = truncated ? '\n[Analysis summary was truncated.]' : ''
     parts.push({
       type: 'text',
-      text: `[Attached file: ${filename} (${mediaType})]`,
+      text: `[Attached binary file: ${filename} (${mediaType})]\n${boundedAnalysis}${status}\n[End attached binary file]`,
     })
+    remainingTextChars = Math.max(
+      0,
+      remainingTextChars - boundedAnalysis.length - status.length
+    )
   }
 
   return parts
