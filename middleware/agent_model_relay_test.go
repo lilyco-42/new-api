@@ -79,7 +79,13 @@ func TestAgentModelRelayRejectsForgedModelAndUnknownSession(t *testing.T) {
 	router.ServeHTTP(forgedModelResponse, forgedModel)
 	require.Equal(t, http.StatusUnauthorized, forgedModelResponse.Code)
 
-	unknownSession := signedAgentModelRelayRequest(t, secret, "z"+session.DshSessionId[1:], "deepseek-chat", "fedcba9876543210fedcba9876543210", "deepseek-chat", now)
+	unknownSessionID := session.DshSessionId
+	unknownPrefix := byte('A')
+	if unknownSessionID[0] == unknownPrefix {
+		unknownPrefix = 'B'
+	}
+	unknownSessionID = string(unknownPrefix) + unknownSessionID[1:]
+	unknownSession := signedAgentModelRelayRequest(t, secret, unknownSessionID, "deepseek-chat", "fedcba9876543210fedcba9876543210", "deepseek-chat", now)
 	unknownSessionResponse := httptest.NewRecorder()
 	router.ServeHTTP(unknownSessionResponse, unknownSession)
 	require.Equal(t, http.StatusUnauthorized, unknownSessionResponse.Code)
