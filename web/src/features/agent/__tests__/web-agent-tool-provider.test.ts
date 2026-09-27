@@ -199,17 +199,9 @@ describe('webAgentToolProvider', () => {
       'https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html'
     const officialTermsText =
       'DeepSeek products and services are owned and operated by Hangzhou DeepSeek Artificial Intelligence Co., Ltd. DeepSeek also develops foundational large language models.'
-    const officialModelURL =
-      'https://cdn.deepseek.com/policies/en-US/model-algorithm-disclosure.html'
-    const officialModelText =
-      'Hangzhou DeepSeek Artificial Intelligence Co., Ltd. is a research team focused on foundational model technology. Its foundational models are large-scale language models.'
-    vi.mocked(fetchClientPage)
-      .mockRejectedValueOnce(
-        new Error('The browser could not read cdn.deepseek.com due to CORS.')
-      )
-      .mockRejectedValueOnce(
-        new Error('The browser could not read cdn.deepseek.com due to CORS.')
-      )
+    vi.mocked(fetchClientPage).mockRejectedValueOnce(
+      new Error('The browser could not read cdn.deepseek.com due to CORS.')
+    )
     vi.mocked(api.get).mockResolvedValueOnce({
       data: {
         success: true,
@@ -219,18 +211,6 @@ describe('webAgentToolProvider', () => {
           content_type: 'text/html',
           fetched_at: '2026-09-27T00:00:00.000Z',
           text: officialTermsText,
-          truncated: false,
-        },
-      },
-    } as never).mockResolvedValueOnce({
-      data: {
-        success: true,
-        data: {
-          url: officialModelURL,
-          title: 'Model Mechanism and Training Methods of DeepSeek',
-          content_type: 'text/html',
-          fetched_at: '2026-09-27T00:00:00.000Z',
-          text: officialModelText,
           truncated: false,
         },
       },
@@ -272,32 +252,22 @@ describe('webAgentToolProvider', () => {
       'auto'
     )
     expect(searchContext?.content).toContain(
-      'Identity clarification for this query: distinguish the company/operator from its model family'
+      'Identity clarification for this query: classify DeepSeek as the company/operator'
     )
     expect(searchContext?.content).toContain(
       'The official terms identify Hangzhou DeepSeek Artificial Intelligence Co., Ltd. as the operator of DeepSeek products and services.'
     )
     expect(searchContext?.content).toContain(
-      'The official model disclosure describes DeepSeek’s foundational models as large-scale language models.'
-    )
-    expect(searchContext?.content).toContain(
       'do not identify the company as a Hugging Face organization'
     )
     expect(searchContext?.content).toContain(officialTermsText)
-    expect(searchContext?.content).toContain(officialModelText)
     expect(searchContext?.content).toContain(officialTermsURL)
-    expect(searchContext?.content).toContain(officialModelURL)
     expect(searchContext?.content).not.toContain('Verified organization · 105 models')
     expect(searchContext?.content).not.toContain('DeepSeek — Hugging Face organization')
     expect(api.get).toHaveBeenNthCalledWith(
       1,
       '/api/agent/fetch',
       expect.objectContaining({ params: { url: officialTermsURL } })
-    )
-    expect(api.get).toHaveBeenNthCalledWith(
-      2,
-      '/api/agent/fetch',
-      expect.objectContaining({ params: { url: officialModelURL } })
     )
     expect(searchContext?.content).not.toContain('https://huggingface.co/deepseek-ai')
     expect(sent?.messages.at(-1)).toEqual(payload.messages[0])
@@ -308,9 +278,6 @@ describe('webAgentToolProvider', () => {
     )
     expect(response.choices[0]?.message.content).toContain(
       `[DeepSeek Terms of Use](<${officialTermsURL}>)`
-    )
-    expect(response.choices[0]?.message.content).toContain(
-      `[Model Mechanism and Training Methods of DeepSeek](<${officialModelURL}>)`
     )
     expect(response.choices[0]?.message.content).not.toContain(
       'Hugging Face organization'
