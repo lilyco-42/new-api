@@ -387,6 +387,7 @@ describe('webAgentToolProvider', () => {
 
   it('sends explicit general web searches to the configured provider and grounds the answer', async () => {
     const query = '请用网页搜索查找 Rust 官方入门书并给出来源链接。'
+    const searchQuery = 'Rust 官方入门书'
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: query }],
@@ -440,7 +441,7 @@ describe('webAgentToolProvider', () => {
     expect(api.get).toHaveBeenCalledWith(
       '/api/agent/search',
       expect.objectContaining({
-        params: { q: query, limit: 5 },
+        params: { q: searchQuery, limit: 5 },
         skipErrorHandler: true,
       })
     )
@@ -535,13 +536,118 @@ describe('webAgentToolProvider', () => {
 
     expect(api.get).toHaveBeenCalledWith(
       '/api/agent/search',
-      expect.objectContaining({ params: { q: query, limit: 5 } })
+      expect.objectContaining({ params: { q: 'Rust 官方教程', limit: 5 } })
     )
     expect(response.choices[0]?.message.content).toContain(
       '网站配置的网页搜索服务暂时不可用'
     )
     expect(response.choices[0]?.message.content).not.toContain(
       'Rust 入门大全'
+    )
+  })
+
+  it('rejects unrelated results and model-invented source links for an explicit search', async () => {
+    const query =
+      '请用网页搜索 Rust 官方入门教程，并根据搜索结果回答名称和来源链接。'
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          query: 'Rust 官方入门教程',
+          provider: 'Bing',
+          items: [
+            {
+              title: '请_百度百科',
+              url: 'https://baike.baidu.com/item/%E8%AF%B7/3772126',
+              snippet: '“请”的释义和用法。',
+            },
+          ],
+        },
+      },
+    } as never)
+    const request = vi.fn(async () =>
+      modelResponse(
+        'Rust 官方入门教程叫 Rust By Example：https://doc.rust-lang.org/rust-by-example/'
+      )
+    )
+
+    const response = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [{ role: 'user', content: query }],
+        stream: false,
+      },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/search',
+      expect.objectContaining({
+        params: { q: 'Rust 官方入门教程', limit: 5 },
+      })
+    )
+    expect(response.choices[0]?.message.content).toContain(
+      '没有来源可引用'
+    )
+    expect(response.choices[0]?.message.content).not.toContain(
+      'Rust By Example'
+    )
+    expect(response.choices[0]?.message.content).not.toContain(
+      'baike.baidu.com'
+    )
+  })
+
+  it('does not expose a model-proposed citation absent from successful search results', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          query: 'Rust official tutorial',
+          provider: 'Bing',
+          items: [
+            {
+              title: 'The Rust Programming Language',
+              url: 'https://doc.rust-lang.org/book/',
+              snippet: 'The official Rust language book.',
+            },
+          ],
+        },
+      },
+    } as never)
+    const request = vi.fn(async () =>
+      modelResponse(
+        'Rust 官方入门教程叫 Rust By Example：https://doc.rust-lang.org/rust-by-example/'
+      )
+    )
+
+    const response = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [
+          {
+            role: 'user',
+            content: '请用网页搜索 Rust 官方入门教程，并给出来源链接。',
+          },
+        ],
+        stream: false,
+      },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(response.choices[0]?.message.content).toContain(
+      '链接没有出现在本次实际检索结果中'
+    )
+    expect(response.choices[0]?.message.content).toContain(
+      'https://doc.rust-lang.org/book/'
+    )
+    expect(response.choices[0]?.message.content).not.toContain(
+      'https://doc.rust-lang.org/rust-by-example/'
     )
   })
 

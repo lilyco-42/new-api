@@ -389,7 +389,102 @@ function browserSearchQuery(request: string): string {
     if (projectSlug?.[0]) return projectSlug[0]
   }
 
+  const specificSearchMarker =
+    /(?:网页搜索(?:功能)?|浏览器(?:端|中)?(?:公开|公共)?(?:索引)?搜索|网络搜索|联网搜索|search (?:the )?web|search online|look up online)/iu
+  const generalSearchMarker =
+    /(?:搜索|搜一下|查找资料|网上查|联网查|调研|研究一下)/iu
+  const marker =
+    specificSearchMarker.exec(request) ?? generalSearchMarker.exec(request)
+  if (marker?.index !== undefined) {
+    const trailingInstruction =
+      /(?:[，,。；;\n]|并(?:且)?(?:根据|按照|总结|回答|给|附|告诉)|然后|只(?:需|要)?(?:返回|列出|提供)|给(?:我|出)|告诉我|附(?:上)?|回答|总结|include|provide|return|list|tell me|and\s+(?:give|return|include|list|tell me))/iu
+    const candidate = (
+      request.slice(marker.index + marker[0].length).split(trailingInstruction, 1)[0] ?? ''
+    )
+      .replace(
+        /^\s*(?:(?:功能|一下|查找|搜索|查询|确认|查证|核实|找出|找到|关于|有关|for|about)\s*)+/iu,
+        ''
+      )
+      .replace(/^[\s:：、\-–—]+|[\s?？!！。.,，;；]+$/gu, '')
+      .replace(/(?:的)?(?:名称|来源链接|链接|官网|官方网站|网址)$/u, '')
+      .trim()
+    if (candidate) return Array.from(candidate).slice(0, 200).join('')
+  }
+
   return request
+}
+
+function searchRelevanceTerms(query: string): string[] {
+  const terms = new Set<string>()
+  const stopWords = new Set([
+    'about',
+    'and',
+    'find',
+    'for',
+    'from',
+    'help',
+    'official',
+    'please',
+    'search',
+    'the',
+    'web',
+    'with',
+    '一下',
+    '不要',
+    '为什么',
+    '什么',
+    '关于',
+    '内容',
+    '告诉',
+    '搜索',
+    '查找',
+    '网页',
+    '来源',
+    '请用',
+    '链接',
+    '返回',
+  ])
+  for (const match of
+    query.toLowerCase().match(/[a-z0-9][a-z0-9._+-]*/gu) ?? []) {
+    if (match.length >= 2 && !stopWords.has(match)) terms.add(match)
+  }
+  for (const run of query.toLowerCase().match(/[\p{Script=Han}]{2,}/gu) ?? []) {
+    const characters = Array.from(run)
+    if (characters.length <= 5) terms.add(run)
+    for (let index = 0; index < characters.length - 1; index += 1) {
+      const pair = characters.slice(index, index + 2).join('')
+      if (!stopWords.has(pair)) terms.add(pair)
+    }
+  }
+  return [...terms]
+}
+
+function retainRelevantSearchResults(
+  result: ClientSearchResponse,
+  requestedQuery: string
+): ClientSearchResponse {
+  const terms = searchRelevanceTerms(requestedQuery)
+  if (terms.length === 0 || result.items.length === 0) return result
+
+  const items = result.items.filter((item) => {
+    const searchableText = [
+      item.title,
+      item.url,
+      item.snippet,
+      item.source,
+    ].join(' ').toLowerCase()
+    return terms.some((term) => searchableText.includes(term))
+  })
+  if (items.length > 0) return { ...result, items }
+
+  return {
+    ...result,
+    items: [],
+    warnings: [
+      ...result.warnings,
+      'The configured web-search provider returned no results matching the requested topic.',
+    ],
+  }
 }
 
 function validBrowserSearchSources(
@@ -413,6 +508,33 @@ function validBrowserSearchSources(
       return [{ title, url: url.toString(), source }]
     } catch {
       return []
+    }
+  })
+}
+
+function answerContainsUnverifiedSource(
+  answer: string,
+  sources: Array<{ title: string; url: string; source: string }>
+): boolean {
+  const allowed = new Set(
+    sources.flatMap(({ url }) => {
+      try {
+        const parsed = new URL(url)
+        parsed.hash = ''
+        return [parsed.toString()]
+      } catch {
+        return []
+      }
+    })
+  )
+  const links = answer.match(/https?:\/\/[^\s<>"')\]]+/giu) ?? []
+  return links.some((link) => {
+    try {
+      const parsed = new URL(link.replace(/[.,!?。，；;：）]+$/u, ''))
+      parsed.hash = ''
+      return !allowed.has(parsed.toString())
+    } catch {
+      return true
     }
   })
 }
@@ -505,6 +627,11 @@ function finalizePreparedBrowserSearch(
     typeof firstChoice.message.content === 'string'
       ? firstChoice.message.content.trim()
       : ''
+  const groundedAnswer = answerContainsUnverifiedSource(answer, sources)
+    ? isChinese
+      ? '模型给出的链接没有出现在本次实际检索结果中，因此这条结论无法核验。我不会把它当作搜索事实。下面列出搜索服务实际返回的来源。'
+      : 'The answer included a link that was not present in the actual search results, so I cannot verify that claim. I will not present it as a search finding. The sources below are the results the search provider returned.'
+    : answer
   return {
     ...response,
     choices: [
@@ -512,7 +639,7 @@ function finalizePreparedBrowserSearch(
         ...firstChoice,
         message: {
           role: 'assistant',
-          content: answer ? `${answer}\n\n${sourceBlock}` : sourceBlock,
+          content: groundedAnswer ? `${groundedAnswer}\n\n${sourceBlock}` : sourceBlock,
         },
         finish_reason: 'stop',
       },
@@ -888,7 +1015,7 @@ async function searchConfiguredWebProvider(
 
   return {
     execution: 'lain42-search-api',
-    query: safeSearchText(payload.query, 200) || boundedQuery,
+    query: boundedQuery,
     fetched_at: new Date().toISOString(),
     sources: [provider],
     warnings:
@@ -907,10 +1034,12 @@ async function searchAgentSources(
   request: string
 ): Promise<ClientSearchResponse> {
   if (!shouldUseConfiguredWebSearch(request, scope)) {
-    return searchClientSources(query, requestedLimit, signal, scope)
+    const result = await searchClientSources(query, requestedLimit, signal, scope)
+    return retainRelevantSearchResults(result, query)
   }
   try {
-    return await searchConfiguredWebProvider(query, requestedLimit, signal)
+    const result = await searchConfiguredWebProvider(query, requestedLimit, signal)
+    return retainRelevantSearchResults(result, query)
   } catch (error) {
     if (signal.aborted) throw error
     return {
