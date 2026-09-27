@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   ChatCompletionRequest,
-  ChatCompletionResponse,
   LocalToolProvider,
 } from '@/features/playground/types'
 import { api } from '@/lib/api'
@@ -37,22 +36,6 @@ function payload(content: ChatCompletionRequest['messages'][number]['content'] =
 function nextNamespace(userId: number): string {
   chatCounter += 1
   return `user-${userId}:agent-general-chat-${chatCounter}:playground_messages`
-}
-
-function answer(content: string): ChatCompletionResponse {
-  return {
-    id: 'gateway-answer',
-    object: 'chat.completion',
-    created: 1,
-    model: 'openai/gpt-5.6-sol',
-    choices: [
-      {
-        index: 0,
-        message: { role: 'assistant', content },
-        finish_reason: 'stop',
-      },
-    ],
-  }
 }
 
 describe('Lain42 DSH web transport', () => {
@@ -121,13 +104,13 @@ describe('Lain42 DSH web transport', () => {
       }),
       expect.any(Object)
     )
-    expect(api.post.mock.calls[2]?.[0]).toBe('/api/agent/turns')
-    expect(api.post.mock.calls[2]?.[1]).toMatchObject({
+    expect(vi.mocked(api.post).mock.calls[2]?.[0]).toBe('/api/agent/turns')
+    expect(vi.mocked(api.post).mock.calls[2]?.[1]).toMatchObject({
       session_id: SESSION_ID,
       request_id: 'message-2',
       text: expect.stringContaining('And what is the number?'),
     })
-    expect(api.post.mock.calls[2]?.[1]).not.toHaveProperty('model')
+    expect(vi.mocked(api.post).mock.calls[2]?.[1]).not.toHaveProperty('model')
   })
 
   it('keeps sessions isolated by account and chat', async () => {
