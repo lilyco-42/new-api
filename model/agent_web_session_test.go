@@ -112,5 +112,5 @@ func TestAgentModelRelayNonceIsSingleUseAndExpires(t *testing.T) {
 	expiresAt := now.Add(time.Minute)
 	require.NoError(t, ClaimAgentModelRelayNonce(nonce, expiresAt, now))
 	require.ErrorIs(t, ClaimAgentModelRelayNonce(nonce, expiresAt, now), ErrAgentModelRelayReplay)
-	require.NoError(t, ClaimAgentModelRelayNonce(nonce, expiresAt, now.Add(time.Minute)))
+	require.NoError(t, ClaimAgentModelRelayNonce(nonce, expiresAt.Add(time.Second), now.Add(time.Minute)))
 }
