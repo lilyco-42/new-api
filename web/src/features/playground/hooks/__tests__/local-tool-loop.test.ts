@@ -249,7 +249,7 @@ describe('local structured tool loop', () => {
     )
   })
 
-  test('sends OAuth repository results to the model before answering', async () => {
+  test('grounds OAuth repository lists in returned data after the model answers', async () => {
     const repositoryTool = {
       type: 'function' as const,
       function: {
@@ -278,25 +278,41 @@ describe('local structured tool loop', () => {
       }
       return response({
         role: 'assistant',
-        content: '你的仓库包括 lilyco-42/rembg-ui。',
+        content: '你的仓库包括 my-first-repo 和 learn-python。',
       })
     })
+    const repositories = [
+      {
+        full_name: 'lilyco-42/rembg-ui',
+        html_url: 'https://github.com/lilyco-42/rembg-ui',
+        private: false,
+        stargazers_count: 15,
+        description: 'A local background removal workflow.',
+      },
+      ...Array.from({ length: 5 }, (_, index) => {
+        const repositoryNumber = index + 2
+        return {
+          full_name: `lilyco-42/repo-${repositoryNumber}`,
+          html_url: `https://github.com/lilyco-42/repo-${repositoryNumber}`,
+          private: false,
+          stargazers_count: 0,
+          description: `Description ${repositoryNumber}.`,
+        }
+      }),
+    ]
     const invoke = vi.fn(async () =>
-      JSON.stringify({
-        items: [
-          {
-            full_name: 'lilyco-42/rembg-ui',
-            html_url: 'https://github.com/lilyco-42/rembg-ui',
-            private: false,
-            stargazers_count: 15,
-          },
-        ],
-      })
+      JSON.stringify({ items: repositories })
     )
     const result = await runLocalToolLoop(
       {
         ...initialPayload,
-        messages: [{ role: 'user', content: '查看我的 GitHub 仓库' }],
+        messages: [
+          {
+            role: 'user',
+            content:
+              '查看我的 GitHub 仓库，列出前 5 个仓库名和描述。请使用网站 GitHub OAuth，不要依赖本机 gh CLI 或 Radxa。',
+          },
+        ],
       },
       {
         tools: [repositoryTool],
@@ -309,7 +325,17 @@ describe('local structured tool loop', () => {
     )
 
     expect(result.choices[0]?.message.content).toContain(
-      '你的仓库包括 lilyco-42/rembg-ui。'
+      'lilyco-42/rembg-ui'
+    )
+    expect(result.choices[0]?.message.content).toContain(
+      'A local background removal workflow.'
+    )
+    expect(result.choices[0]?.message.content).toContain('lilyco-42/repo-5')
+    expect(result.choices[0]?.message.content).not.toContain('lilyco-42/repo-6')
+    expect(result.choices[0]?.message.content).not.toContain('my-first-repo')
+    expect(result.choices[0]?.message.content).not.toContain('learn-python')
+    expect(result.choices[0]?.message.content).toContain(
+      'GitHub OAuth 的本次接口结果'
     )
     expect(requests).toHaveLength(2)
     expect(requests[1]?.messages.at(-1)).toMatchObject({

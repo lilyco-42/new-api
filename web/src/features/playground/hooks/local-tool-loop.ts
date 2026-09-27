@@ -94,19 +94,30 @@ function webFetchSignature(args: Record<string, unknown>): string {
   }
 }
 
-function formatGitHubRepositoryList(result: string): string | null {
+function escapeMarkdownText(value: string): string {
+  return value.replace(/[\\`*_{}\[\]()|>]/gu, '\\$&')
+}
+
+function formatGitHubRepositoryList(
+  result: string,
+  requestedLimit?: number
+): string {
   try {
     const parsed: unknown = JSON.parse(result)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null
+      return 'GitHub OAuth 仓库读取结果无法解析，因此我不能核实或列出仓库。'
     }
     const outer = parsed as Record<string, unknown>
-    if (typeof outer.error === 'string') return null
+    if (typeof outer.error === 'string') {
+      return 'GitHub OAuth 仓库读取失败，因此我不能核实或列出仓库；请检查授权后重试。'
+    }
     const data =
       outer.data && typeof outer.data === 'object' && !Array.isArray(outer.data)
         ? (outer.data as Record<string, unknown>)
         : outer
-    if (typeof data.error === 'string' || !Array.isArray(data.items)) return null
+    if (typeof data.error === 'string' || !Array.isArray(data.items)) {
+      return 'GitHub OAuth 仓库读取结果缺少仓库数据，因此我不能核实或列出仓库。'
+    }
 
     const repositories = data.items.flatMap((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return []
@@ -140,19 +151,93 @@ function formatGitHubRepositoryList(result: string): string | null {
         Number.isFinite(repository.stargazers_count)
           ? ` · ★ ${Math.max(0, Math.trunc(repository.stargazers_count))}`
           : ''
-      return [`- ${link}（${visibility}${stars}）`]
+      const description =
+        typeof repository.description === 'string'
+          ? repository.description.trim().replace(/\s+/gu, ' ').slice(0, 300)
+          : ''
+      const renderedDescription = description
+        ? ` — ${escapeMarkdownText(description)}`
+        : ' — 暂无描述'
+      return [`- ${link}（${visibility}${stars}）${renderedDescription}`]
     })
 
     if (repositories.length === 0) {
-      return 'GitHub OAuth 已连接，仓库列表请求成功；当前返回 0 个可访问仓库。'
+      return 'GitHub OAuth 仓库读取成功；本次接口返回页没有可访问仓库。'
     }
+    const visibleRepositories = requestedLimit
+      ? repositories.slice(0, requestedLimit)
+      : repositories
     return [
-      `已通过连接的 GitHub OAuth 获取到 ${repositories.length} 个仓库：`,
+      `以下仓库来自 GitHub OAuth 的本次接口结果（返回 ${repositories.length} 个，展示 ${visibleRepositories.length} 个）：`,
       '',
-      ...repositories,
+      ...visibleRepositories,
     ].join('\n')
   } catch {
-    return null
+    return 'GitHub OAuth 仓库读取结果无法解析，因此我不能核实或列出仓库。'
+  }
+}
+
+function latestUserText(messages: ChatCompletionMessage[]): string {
+  const userContent = [...messages]
+    .reverse()
+    .find((message) => message.role === 'user')?.content
+  return typeof userContent === 'string'
+    ? userContent
+    : Array.isArray(userContent)
+      ? userContent
+          .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
+          .join('\n')
+      : ''
+}
+
+function asksToListGitHubRepositories(userText: string): boolean {
+  return (
+    /(?:查看|列出|显示|展示|list|show|which|what).{0,80}(?:github.{0,20})?(?:仓库|repositories|repos)/iu.test(
+      userText
+    ) ||
+    /(?:仓库|repositories|repos).{0,40}(?:列表|list|names?)/iu.test(userText)
+  )
+}
+
+function requestedRepositoryLimit(userText: string): number | undefined {
+  const match =
+    userText.match(/(?:前|top|first)\s*(\d{1,2})/iu) ??
+    userText.match(
+      /(?:列出|展示|显示|查看|list|show)\s*(\d{1,2})\s*(?:个|条)?\s*(?:仓库|repositories|repos)/iu
+    )
+  const limit = Number(match?.[1])
+  return Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : undefined
+}
+
+function groundGitHubRepositoryListAnswer(
+  response: ChatCompletionResponse,
+  results: Array<{ name: string; result: string }>,
+  messages: ChatCompletionMessage[]
+): ChatCompletionResponse {
+  const userText = latestUserText(messages)
+  if (!asksToListGitHubRepositories(userText)) return response
+
+  const repositoryResult = [...results]
+    .reverse()
+    .find(({ name }) => name === 'github.oauth.repositories.list')
+  if (!repositoryResult) return response
+
+  const content = formatGitHubRepositoryList(
+    repositoryResult.result,
+    requestedRepositoryLimit(userText)
+  )
+
+  const [firstChoice, ...remainingChoices] = response.choices
+  if (!firstChoice) return response
+  return {
+    ...response,
+    choices: [
+      {
+        ...firstChoice,
+        message: { ...firstChoice.message, content },
+      },
+      ...remainingChoices,
+    ],
   }
 }
 
@@ -256,17 +341,7 @@ function fallbackToolResponse(
   const content = repositoryResult
     ? formatGitHubRepositoryList(repositoryResult.result)
     : null
-  const userContent = [...messages]
-    .reverse()
-    .find((message) => message.role === 'user')?.content
-  const userText =
-    typeof userContent === 'string'
-      ? userContent
-      : Array.isArray(userContent)
-        ? userContent
-            .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
-            .join('\n')
-        : ''
+  const userText = latestUserText(messages)
   const notice = /[\u3400-\u9fff]/u.test(userText)
     ? '工具调用已结束，但模型未能完成总结；当前结果不完整，请重试。'
     : 'The tool call finished, but the model could not complete the answer. The result is incomplete; please retry.'
@@ -614,8 +689,12 @@ export async function runLocalToolLoop(
     )
     const calls = assistantMessage.tool_calls ?? []
     if (calls.length === 0) {
-      return finalizePreparedResponse(
-        includeBrowserSearchSources(response, completedResults)
+      return groundGitHubRepositoryListAnswer(
+        finalizePreparedResponse(
+          includeBrowserSearchSources(response, completedResults)
+        ),
+        completedResults,
+        messages
       )
     }
 
