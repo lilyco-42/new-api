@@ -72,6 +72,49 @@ function provider(invoke: LocalToolProvider['invoke']): LocalToolProvider {
 }
 
 describe('local structured tool loop', () => {
+  test('uses the hosted conversation runtime after preparing browser context', async () => {
+    const contextMessage = {
+      role: 'system' as const,
+      name: 'lain42_browser_search_context',
+      content: 'Source: https://example.com\nThe result says 42.',
+    }
+    const hostedResponse = response({ role: 'assistant', content: 'The answer is 42.' })
+    const completeTurn = vi.fn(async (input: Parameters<NonNullable<LocalToolProvider['completeTurn']>>[0]) => {
+      expect(input.payload.messages).toContainEqual(contextMessage)
+      expect(input.turnId).toBe('message-123')
+      return hostedResponse
+    })
+    const request = vi.fn(async () => {
+      throw new Error('The legacy model route must not run after DSH responds.')
+    })
+    const hostedProvider: LocalToolProvider = {
+      tools: [],
+      isAvailable: () => false,
+      prepareContext: () => [contextMessage],
+      completeTurn,
+      invoke: async () => '',
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [
+          { role: 'system', content: 'Use browser evidence.' },
+          { role: 'user', content: 'What does the page say?' },
+        ],
+      },
+      hostedProvider,
+      new AbortController().signal,
+      undefined,
+      request,
+      'message-123'
+    )
+
+    expect(result).toBe(hostedResponse)
+    expect(completeTurn).toHaveBeenCalledOnce()
+    expect(request).not.toHaveBeenCalled()
+  })
+
   test('returns a provider preflight answer without calling the model or tools', async () => {
     const localAnswer = response({
       role: 'assistant',

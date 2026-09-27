@@ -84,6 +84,7 @@ func TestSubmitAgentWebTurnUsesOwnedPrivateDSHSessionAndSignedBridge(t *testing.
 	t.Setenv(service.AgentDSHBridgeSecretEnv, secret)
 	session, err := model.CreateAgentWebSession(7)
 	require.NoError(t, err)
+	bridgeRequestIDs := make([]string, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		if request.Method != http.MethodPost || request.URL.Path != service.AgentDSHBridgePath {
@@ -105,6 +106,7 @@ func TestSubmitAgentWebTurnUsesOwnedPrivateDSHSessionAndSignedBridge(t *testing.
 			Version   int    `json:"version"`
 			SessionID string `json:"sessionId"`
 			RequestID string `json:"requestId"`
+			Model     string `json:"model"`
 			Text      string `json:"text"`
 		}
 		if err := common.Unmarshal(body, &payload); err != nil {
@@ -112,11 +114,12 @@ func TestSubmitAgentWebTurnUsesOwnedPrivateDSHSessionAndSignedBridge(t *testing.
 			http.Error(writer, "bad request", http.StatusBadRequest)
 			return
 		}
-		if payload.Version != 1 || payload.SessionID != session.DshSessionId || payload.Text != "Explain Rust ownership" || len(payload.RequestID) != 36 {
+		if payload.Version != 1 || payload.SessionID != session.DshSessionId || payload.Text != "Explain Rust ownership" || payload.Model != "openai/gpt-5.6-sol" || len(payload.RequestID) != 36 {
 			t.Errorf("unexpected private DSH payload: %+v", payload)
 			http.Error(writer, "bad request", http.StatusBadRequest)
 			return
 		}
+		bridgeRequestIDs = append(bridgeRequestIDs, payload.RequestID)
 		if strings.Contains(string(body), session.PublicSessionId) || strings.Contains(string(body), "user_id") {
 			t.Errorf("private bridge body exposed browser or account identifiers")
 			http.Error(writer, "bad request", http.StatusBadRequest)
@@ -133,7 +136,8 @@ func TestSubmitAgentWebTurnUsesOwnedPrivateDSHSessionAndSignedBridge(t *testing.
 	defer server.Close()
 	t.Setenv(service.AgentDSHBridgeURLEnv, server.URL+service.AgentDSHBridgePath)
 
-	recorder := submitAgentWebTurnForUser(7, `{"session_id":"`+session.PublicSessionId+`","text":"Explain Rust ownership"}`)
+	body := `{"session_id":"` + session.PublicSessionId + `","request_id":"message-key-001","model":"openai/gpt-5.6-sol","text":"Explain Rust ownership"}`
+	recorder := submitAgentWebTurnForUser(7, body)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var envelope struct {
 		Data struct {
@@ -145,6 +149,11 @@ func TestSubmitAgentWebTurnUsesOwnedPrivateDSHSessionAndSignedBridge(t *testing.
 	require.Len(t, envelope.Data.RequestID, 36)
 	require.Equal(t, "Rust ownership manages value lifetimes.", envelope.Data.Answer)
 	require.NotContains(t, recorder.Body.String(), session.DshSessionId)
+
+	retry := submitAgentWebTurnForUser(7, body)
+	require.Equal(t, http.StatusOK, retry.Code)
+	require.Len(t, bridgeRequestIDs, 2)
+	require.Equal(t, bridgeRequestIDs[0], bridgeRequestIDs[1], "same browser message key must be idempotent at the DSH boundary")
 }
 
 func TestSubmitAgentWebTurnRejectsCrossAccountAndRevokedSessionsBeforeBridge(t *testing.T) {

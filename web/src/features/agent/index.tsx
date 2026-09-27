@@ -87,6 +87,7 @@ import {
   listAgentChatStorageNamespaces,
 } from './agent-chat-storage'
 import { localAgentToolProvider } from './agent-tool-provider'
+import { withDshWebTurn } from './dsh-web-transport'
 import { AgentBridgeCard } from './components/agent-bridge-card'
 import { AgentSidebar, type AgentPreset } from './components/agent-sidebar'
 import { DeveloperToolkitCard } from './components/developer-toolkit-card'
@@ -736,6 +737,10 @@ function AgentWorkspaceContent({ userId }: { userId: number | null }) {
   } else {
     activeToolProvider = createBrowserAgentToolProvider(undefined, false)
   }
+  activeToolProvider = withDshWebTurn(activeToolProvider, {
+    userId: userId ?? 0,
+    chatStorageNamespace,
+  })
 
   useEffect(() => {
     setToolsOpen(!useToolsSheet)

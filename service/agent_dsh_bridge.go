@@ -54,7 +54,20 @@ type agentDSHTurnRequest struct {
 	Version   int    `json:"version"`
 	SessionID string `json:"sessionId"`
 	RequestID string `json:"requestId"`
+	Model     string `json:"model,omitempty"`
 	Text      string `json:"text"`
+}
+
+func validAgentDSHModel(model string) bool {
+	if len(model) == 0 || len(model) > 128 {
+		return false
+	}
+	for _, character := range model {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '.' || character == '_' || character == ':' || character == '/' || character == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 type agentDSHTurnResponse struct {
@@ -67,9 +80,22 @@ type agentDSHTurnResponse struct {
 // SubmitAgentWebTurn forwards one authenticated browser turn to the private
 // DSH bridge. Ownership comes from the active server-side session mapping;
 // browser input can never select the internal DSH session or account.
-func SubmitAgentWebTurn(parent context.Context, userID int, publicSessionID, text string) (*AgentTurnResult, error) {
+func SubmitAgentWebTurn(parent context.Context, userID int, publicSessionID, text, clientRequestID, modelName string) (*AgentTurnResult, error) {
 	publicSessionID = strings.TrimSpace(publicSessionID)
 	if userID <= 0 || len(publicSessionID) != 64 || len(strings.TrimSpace(text)) == 0 || len([]byte(text)) > AgentWebTurnMaxTextBytes {
+		return nil, ErrAgentTurnInvalidRequest
+	}
+	clientRequestID = strings.TrimSpace(clientRequestID)
+	if len(clientRequestID) > 128 {
+		return nil, ErrAgentTurnInvalidRequest
+	}
+	for _, character := range clientRequestID {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '-' || character == '_') {
+			return nil, ErrAgentTurnInvalidRequest
+		}
+	}
+	modelName = strings.TrimSpace(modelName)
+	if modelName != "" && !validAgentDSHModel(modelName) {
 		return nil, ErrAgentTurnInvalidRequest
 	}
 	session, err := model.ResolveAgentWebSession(userID, publicSessionID)
@@ -81,7 +107,13 @@ func SubmitAgentWebTurn(parent context.Context, userID int, publicSessionID, tex
 		return nil, err
 	}
 	requestID := uuid.NewString()
-	turn := agentDSHTurnRequest{Version: 1, SessionID: session.DshSessionId, RequestID: requestID, Text: text}
+	if clientRequestID != "" {
+		// Stable IDs let a browser retry an ambiguous network failure without
+		// prompting DSH twice. Scope the client's opaque message key to the
+		// authenticated account and private DSH session before deriving the ID.
+		requestID = uuid.NewSHA1(uuid.NameSpaceURL, []byte(fmt.Sprintf("lain42-agent-turn:%d:%s:%s", userID, session.DshSessionId, clientRequestID))).String()
+	}
+	turn := agentDSHTurnRequest{Version: 1, SessionID: session.DshSessionId, RequestID: requestID, Model: modelName, Text: text}
 	body, err := common.Marshal(turn)
 	if err != nil {
 		return nil, ErrAgentTurnBridgeFailed

@@ -573,7 +573,8 @@ export async function runLocalToolLoop(
   provider: LocalToolProvider,
   signal: AbortSignal,
   onEvent?: (event: LocalToolLoopEvent) => void,
-  request = sendChatCompletion
+  request = sendChatCompletion,
+  turnId?: string
 ): Promise<ChatCompletionResponse> {
   assertSignal(signal)
   const preflightResponse = provider.preflight?.(initialPayload.messages)
@@ -584,7 +585,9 @@ export async function runLocalToolLoop(
   )
   assertSignal(signal)
   if (beforeModelResponse) return beforeModelResponse
-  if (!provider.isAvailable()) return request(initialPayload, signal)
+  if (!provider.isAvailable() && !provider.completeTurn) {
+    return request(initialPayload, signal)
+  }
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
   const preparedContext = await provider.prepareContext?.(
@@ -612,6 +615,22 @@ export async function runLocalToolLoop(
       responseMessages,
       preparedContext ?? []
     ) ?? response
+  const hostedResponse = await provider.completeTurn?.(
+    {
+      payload: {
+        ...initialPayload,
+        messages,
+        stream: false,
+        tools: [],
+        tool_choice: 'none',
+      },
+      preparedContext: preparedContext ?? [],
+      turnId,
+    },
+    signal
+  )
+  assertSignal(signal)
+  if (hostedResponse) return finalizePreparedResponse(hostedResponse)
   const tools = availableTools(provider, messages)
   if (tools.length === 0) {
     const response = await request(

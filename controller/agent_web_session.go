@@ -51,6 +51,8 @@ func RevokeAgentWebSession(c *gin.Context) {
 type agentWebTurnRequest struct {
 	SessionID string `json:"session_id"`
 	Text      string `json:"text"`
+	RequestID string `json:"request_id,omitempty"`
+	Model     string `json:"model,omitempty"`
 }
 
 // SubmitAgentWebTurn accepts only the public session id and user text. The
@@ -67,24 +69,42 @@ func SubmitAgentWebTurn(c *gin.Context) {
 		return
 	}
 	var fields map[string]any
-	if err := common.Unmarshal(body, &fields); err != nil || len(fields) != 2 {
-		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id and text only")
+	if err := common.Unmarshal(body, &fields); err != nil || len(fields) < 2 || len(fields) > 4 {
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id, text, and optional request_id and model")
 		return
 	}
 	if _, ok := fields["session_id"]; !ok {
-		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id and text only")
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id and text")
 		return
 	}
 	if _, ok := fields["text"]; !ok {
-		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id and text only")
+		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request must contain session_id and text")
 		return
+	}
+	for key := range fields {
+		if key != "session_id" && key != "text" && key != "request_id" && key != "model" {
+			writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request contains an unsupported field")
+			return
+		}
+	}
+	if rawRequestID, ok := fields["request_id"]; ok {
+		if _, valid := rawRequestID.(string); !valid {
+			writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "request_id must be a string")
+			return
+		}
+	}
+	if rawModel, ok := fields["model"]; ok {
+		if _, valid := rawModel.(string); !valid {
+			writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "model must be a string")
+			return
+		}
 	}
 	var request agentWebTurnRequest
 	if err := common.Unmarshal(body, &request); err != nil || strings.TrimSpace(request.Text) == "" || len([]byte(request.Text)) > service.AgentWebTurnMaxTextBytes {
 		writeAgentError(c, http.StatusBadRequest, "AGENT_INVALID_REQUEST", "text is required and must be at most 24 KiB")
 		return
 	}
-	result, err := service.SubmitAgentWebTurn(c.Request.Context(), c.GetInt("id"), request.SessionID, request.Text)
+	result, err := service.SubmitAgentWebTurn(c.Request.Context(), c.GetInt("id"), request.SessionID, request.Text, request.RequestID, request.Model)
 	if err != nil {
 		writeAgentWebTurnError(c, err)
 		return
