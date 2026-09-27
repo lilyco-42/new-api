@@ -83,6 +83,26 @@ func ResolveAgentWebSession(userID int, publicSessionID string) (*AgentWebSessio
 	return &session, nil
 }
 
+// ResolveAgentWebSessionForRelay resolves an active internal DSH session for
+// server-to-server model requests. Callers must authenticate the DSH service
+// before using this lookup; the browser-visible public session ID is never
+// accepted here, and ownership always comes from the stored row.
+func ResolveAgentWebSessionForRelay(dshSessionID string) (*AgentWebSession, error) {
+	dshSessionID = strings.TrimSpace(dshSessionID)
+	if len(dshSessionID) != 64 || DB == nil {
+		return nil, ErrAgentWebSessionInvalid
+	}
+	var session AgentWebSession
+	if err := DB.Where(
+		"dsh_session_id = ? AND status = ?",
+		dshSessionID,
+		AgentWebSessionStatusActive,
+	).First(&session).Error; err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
 // ListAgentWebSessions returns only the caller's active sessions.
 func ListAgentWebSessions(userID, limit int) ([]AgentWebSession, error) {
 	if userID <= 0 || DB == nil {

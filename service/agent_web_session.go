@@ -18,6 +18,10 @@ func ResolveAgentWebSession(userID int, publicSessionID string) (*model.AgentWeb
 	return model.ResolveAgentWebSession(userID, publicSessionID)
 }
 
+func ResolveAgentWebSessionForRelay(dshSessionID string) (*model.AgentWebSession, error) {
+	return model.ResolveAgentWebSessionForRelay(dshSessionID)
+}
+
 func ListAgentWebSessions(userID, limit int) ([]model.AgentWebSession, error) {
 	return model.ListAgentWebSessions(userID, limit)
 }

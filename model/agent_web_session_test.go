@@ -19,7 +19,7 @@ func setupAgentWebSessionModelTest(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	DB = db
-	require.NoError(t, DB.AutoMigrate(&AgentWebSession{}))
+	require.NoError(t, DB.AutoMigrate(&AgentWebSession{}, &AgentModelRelayNonce{}))
 	t.Cleanup(func() {
 		DB = previousDB
 		_ = sqlDB.Close()
@@ -75,6 +75,25 @@ func TestRevokedAgentWebSessionCannotBeResolvedOrRevokedCrossAccount(t *testing.
 	require.Equal(t, now, *persisted.RevokedAt)
 }
 
+func TestInternalRelayLookupResolvesOnlyActiveDshSessionAndReturnsItsOwner(t *testing.T) {
+	setupAgentWebSessionModelTest(t)
+	ownerSeven, err := CreateAgentWebSession(7)
+	require.NoError(t, err)
+	ownerEight, err := CreateAgentWebSession(8)
+	require.NoError(t, err)
+
+	resolved, err := ResolveAgentWebSessionForRelay(ownerSeven.DshSessionId)
+	require.NoError(t, err)
+	require.Equal(t, 7, resolved.UserId)
+	require.Equal(t, ownerSeven.PublicSessionId, resolved.PublicSessionId)
+	_, err = ResolveAgentWebSessionForRelay(ownerEight.PublicSessionId)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+	require.NoError(t, RevokeAgentWebSession(7, ownerSeven.PublicSessionId, time.Now().UTC()))
+	_, err = ResolveAgentWebSessionForRelay(ownerSeven.DshSessionId)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+}
+
 func TestAgentWebSessionRejectsInvalidIdentity(t *testing.T) {
 	setupAgentWebSessionModelTest(t)
 	_, err := CreateAgentWebSession(0)
@@ -84,4 +103,14 @@ func TestAgentWebSessionRejectsInvalidIdentity(t *testing.T) {
 	require.ErrorIs(t, RevokeAgentWebSession(7, "short", time.Time{}), ErrAgentWebSessionInvalid)
 	_, err = ListAgentWebSessions(0, 10)
 	require.ErrorIs(t, err, ErrAgentWebSessionInvalid)
+}
+
+func TestAgentModelRelayNonceIsSingleUseAndExpires(t *testing.T) {
+	setupAgentWebSessionModelTest(t)
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	nonce := "0123456789abcdef0123456789abcdef"
+	expiresAt := now.Add(time.Minute)
+	require.NoError(t, ClaimAgentModelRelayNonce(nonce, expiresAt, now))
+	require.ErrorIs(t, ClaimAgentModelRelayNonce(nonce, expiresAt, now), ErrAgentModelRelayReplay)
+	require.NoError(t, ClaimAgentModelRelayNonce(nonce, expiresAt, now.Add(time.Minute)))
 }
