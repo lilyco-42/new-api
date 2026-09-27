@@ -255,7 +255,7 @@ describe('webAgentToolProvider', () => {
       'Verified organization · 105 models · 2 datasets · 30 papers'
     )
     expect(searchContext?.content).toContain(
-      'prefer the provider’s own official source or policy'
+      'prefer the provider’s own official page or policy'
     )
     expect(searchContext?.content).toContain(
       'Hangzhou DeepSeek Artificial Intelligence Co., Ltd.'
