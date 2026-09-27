@@ -32,7 +32,7 @@ export type ClientPageResult = {
 }
 
 export type ClientSearchResponse = {
-  execution: 'browser-wasm'
+  execution: 'browser-wasm' | 'lain42-search-api'
   query: string
   fetched_at: string
   sources: string[]

@@ -5603,7 +5603,7 @@
     "Select at least one source before exporting.": "导出前至少选择一个来源。",
     "Export plan saved: {{sources}} as {{format}}.": "导出计划已保存：{{sources}}，格式为 {{format}}。",
     "Research sources": "研究来源",
-    "Search GitHub/Hugging Face for technical discovery. OpenAlex is searched only for paper queries. RustCC, CodeReset and GHFind are links, not indexed sources. Provide a public HTTPS URL for browser reading when CORS allows. No cookies are sent.": "技术探索会搜索 GitHub 和 Hugging Face；只有论文查询才会搜索 OpenAlex。RustCC、CodeReset 和 GHFind 仅提供外链，尚未接入搜索索引。提供公开 HTTPS 地址后，浏览器会优先读取；若 CORS 阻止且你已登录，会尝试受限的 Lain42 网页读取器。目标网站不会收到你的登录 Cookie。",
+    "Search GitHub/Hugging Face for technical discovery and OpenAlex for paper queries. Broad web searches use the configured provider through Lain42; it receives the search query, not connected-account credentials or cookies. RustCC, CodeReset and GHFind have no dedicated index. Public HTTPS pages are read in the browser first, with a bounded Lain42 fallback when CORS blocks access; the target site receives no login cookies.": "技术探索会使用浏览器搜索 GitHub 和 Hugging Face；论文查询使用 OpenAlex。一般网页搜索会通过 lain42 调用配置的搜索服务，服务只收到搜索词，不会收到已连接账户的凭据或 Cookie。RustCC、CodeReset 和 GHFind 没有专属索引。公开 HTTPS 页面会优先在浏览器读取；CORS 阻止时使用受限的 Lain42 读取器，目标网站不会收到登录 Cookie。",
     "Papers and scholarly works": "学术论文与研究成果",
     "Open trusted public sources while you ask the Agent to compare findings.": "让 Agent 对比结论时打开可信的公开来源。",
     "Search queries are sent to the configured search provider. Do not include secrets.": "搜索结果只显示在这里。点击“添加结果到消息”后再发送给 Agent；要读取网页，请粘贴公开 HTTPS 地址。搜索词会发送到配置的搜索服务，请勿输入密钥等敏感信息。",

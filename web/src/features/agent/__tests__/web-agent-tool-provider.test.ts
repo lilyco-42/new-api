@@ -385,6 +385,166 @@ describe('webAgentToolProvider', () => {
     )
   })
 
+  it('sends explicit general web searches to the configured provider and grounds the answer', async () => {
+    const query = '请用网页搜索查找 Rust 官方入门书并给出来源链接。'
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [{ role: 'user', content: query }],
+      stream: false,
+    }
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          query: 'Rust official beginner book',
+          provider: 'Bing',
+          items: [
+            {
+              title: 'The Rust Programming Language',
+              url: 'https://doc.rust-lang.org/book/',
+              snippet: 'The official Rust language book.',
+            },
+          ],
+        },
+      },
+    } as never)
+    const request = vi.fn(async (input: ChatCompletionRequest) => ({
+      id: 'configured-web-search-answer',
+      object: 'chat.completion',
+      created: 1,
+      model: input.model,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant' as const,
+            content: 'Rust 官方入门书是《The Rust Programming Language》。',
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }))
+
+    const response = await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    const sent = request.mock.calls[0]?.[0]
+    const searchContext = sent?.messages.find(
+      (message) => message.name === 'lain42_browser_search_context'
+    )
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/search',
+      expect.objectContaining({
+        params: { q: query, limit: 5 },
+        skipErrorHandler: true,
+      })
+    )
+    expect(searchClientSources).not.toHaveBeenCalled()
+    expect(searchContext?.content).toContain(
+      'configured Lain42 web-search provider'
+    )
+    expect(searchContext?.content).toContain(
+      'The Rust Programming Language'
+    )
+    expect(searchContext?.content).toContain(
+      'The official Rust language book.'
+    )
+    expect(searchContext?.content).toContain(
+      'https://doc.rust-lang.org/book/'
+    )
+    expect(sent?.tools).toEqual([])
+    expect(sent?.tool_choice).toBe('none')
+    expect(response.choices[0]?.message.content).toContain(
+      '[The Rust Programming Language](<https://doc.rust-lang.org/book/>)'
+    )
+  })
+
+  it('routes a model-invoked web.search using the current user request', async () => {
+    const requestText = '请用网页搜索查 Rust 官方入门教程。'
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          query: 'Rust official tutorial',
+          provider: 'Bing',
+          items: [
+            {
+              title: 'The Rust Programming Language',
+              url: 'https://doc.rust-lang.org/book/',
+              snippet: 'Official Rust tutorial and reference.',
+            },
+          ],
+        },
+      },
+    } as never)
+    const provider = createBrowserAgentToolProvider()
+    provider.availableTools?.([{ role: 'user', content: requestText }])
+
+    const raw = await provider.invoke(
+      toolCall('web.search', {
+        query: 'Rust official tutorial',
+        limit: 3,
+        scope: 'auto',
+      }),
+      new AbortController().signal
+    )
+    const result = JSON.parse(raw) as {
+      execution: string
+      items: Array<{ title: string; url: string }>
+    }
+
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/search',
+      expect.objectContaining({
+        params: { q: 'Rust official tutorial', limit: 3 },
+      })
+    )
+    expect(searchClientSources).not.toHaveBeenCalled()
+    expect(result.execution).toBe('lain42-search-api')
+    expect(result.items[0]).toEqual({
+      title: 'The Rust Programming Language',
+      url: 'https://doc.rust-lang.org/book/',
+      snippet: 'Official Rust tutorial and reference.',
+      source: 'doc.rust-lang.org',
+    })
+  })
+
+  it('does not let the model invent an answer when configured web search fails', async () => {
+    const query = '请用网页搜索确认 Rust 官方教程的名称。'
+    vi.mocked(api.get).mockRejectedValueOnce(new Error('provider unavailable'))
+    const request = vi.fn(async () =>
+      modelResponse('我猜官方教程叫 Rust 入门大全。')
+    )
+
+    const response = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [{ role: 'user', content: query }],
+        stream: false,
+      },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/search',
+      expect.objectContaining({ params: { q: query, limit: 5 } })
+    )
+    expect(response.choices[0]?.message.content).toContain(
+      '网站配置的网页搜索服务暂时不可用'
+    )
+    expect(response.choices[0]?.message.content).not.toContain(
+      'Rust 入门大全'
+    )
+  })
+
   it('gives the model a public GitHub URL without listing private account repositories', async () => {
     const url = 'https://github.com/ast-grep/ast-grep'
     const query = `请读取 ${url} ，告诉我这个仓库做什么，并附来源链接。`
