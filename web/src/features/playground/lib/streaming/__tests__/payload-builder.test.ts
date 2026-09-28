@@ -85,6 +85,55 @@ describe('buildChatCompletionPayload', () => {
     ])
   })
 
+  it.each(['?', '??', '>??', '\\>??'])(
+    'keeps the preceding answer for punctuation-only Agent follow-up %s',
+    (input) => {
+      const messages = [
+        message('system', 'system', 'answer the latest request'),
+        message('prior-user', 'user', 'DeepSeek 是什么？'),
+        message('prior-assistant', 'assistant', '上一条回答'),
+        message('latest-user', 'user', input),
+      ]
+
+      const payload = buildChatCompletionPayload(
+        messages,
+        DEFAULT_CONFIG,
+        DEFAULT_PARAMETER_ENABLED,
+        true
+      )
+
+      expect(payload.messages).toEqual([
+        { role: 'system', content: 'answer the latest request' },
+        { role: 'user', content: 'DeepSeek 是什么？' },
+        { role: 'assistant', content: '上一条回答' },
+        { role: 'user', content: input },
+      ])
+    }
+  )
+
+  it('does not carry an older answer across a failed turn for punctuation-only input', () => {
+    const messages = [
+      message('system', 'system', 'answer the latest request'),
+      message('prior-user', 'user', 'Earlier question'),
+      message('prior-assistant', 'assistant', 'Earlier answer'),
+      message('failed-user', 'user', 'Unanswered question'),
+      message('failed-assistant', 'assistant', 'Request failed', 'error'),
+      message('latest-user', 'user', '??'),
+    ]
+
+    const payload = buildChatCompletionPayload(
+      messages,
+      DEFAULT_CONFIG,
+      DEFAULT_PARAMETER_ENABLED,
+      true
+    )
+
+    expect(payload.messages).toEqual([
+      { role: 'system', content: 'answer the latest request' },
+      { role: 'user', content: '??' },
+    ])
+  })
+
   it('preserves full conversational context outside Agent mode', () => {
     const messages = [
       message('system', 'system', 'general assistant'),
