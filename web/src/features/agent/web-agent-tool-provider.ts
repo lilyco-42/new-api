@@ -1266,6 +1266,7 @@ async function prepareBrowserGitHubActionsContext(
       }
     } else if (
       selectedRepo &&
+      typeof selectedRunId === 'number' &&
       Number.isSafeInteger(selectedRunId) &&
       selectedRunId > 0 &&
       (jobId !== undefined ||
