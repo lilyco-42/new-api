@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,6 +191,89 @@ func TestAgentDSHToolRelayReadsGitHubActionsRunsAndJobs(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, invalid.Code)
 	assert.Contains(t, invalid.Body.String(), "invalid_arguments")
+}
+
+func TestAgentDSHToolRelayFindsRecentActionsAcrossAccessibleRepositories(t *testing.T) {
+	setupAgentToolRelayTest(t)
+	session, err := model.CreateAgentWebSession(7)
+	require.NoError(t, err)
+	require.NoError(t, model.SaveAgentGitHubCredential(7, "gh-user-7", "user-seven", "repo", "token-seven"))
+	previousTransport := http.DefaultTransport
+	var seenMu sync.Mutex
+	seenRepositories := map[string]bool{}
+	http.DefaultTransport = agentToolRelayRoundTripper(func(request *http.Request) (*http.Response, error) {
+		assert.Equal(t, "Bearer token-seven", request.Header.Get("Authorization"))
+		var body string
+		switch {
+		case request.URL.Path == "/user/repos":
+			body = `[{"full_name":"owner/repo-one"},{"full_name":"owner/repo-two"}]`
+		case strings.HasSuffix(request.URL.Path, "/actions/runs"):
+			repo := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/repos/"), "/actions/runs")
+			seenMu.Lock()
+			seenRepositories[repo] = true
+			seenMu.Unlock()
+			id := 301
+			if repo == "owner/repo-two" {
+				id = 302
+			}
+			body = fmt.Sprintf(`{"workflow_runs":[{"id":%d,"name":"CI","status":"completed","conclusion":"success","head_branch":"main","head_sha":"abc123","run_number":1,"html_url":"https://github.com/%s/actions/runs/%d","updated_at":"2026-09-28T10:00:00Z"}]}`, id, repo, id)
+		default:
+			return nil, fmt.Errorf("unexpected GitHub Actions endpoint: %s", request.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+
+	response := invokeAgentToolRelay(t, map[string]any{
+		"version": 1, "session_id": session.DshSessionId, "tool": "github_actions_runs",
+		"arguments": map[string]any{"limit": 5},
+	})
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), `"repository_full_name":"owner/repo-one"`)
+	assert.Contains(t, response.Body.String(), `"repository_full_name":"owner/repo-two"`)
+	assert.True(t, seenRepositories["owner/repo-one"])
+	assert.True(t, seenRepositories["owner/repo-two"])
+}
+
+func TestAgentGitHubActionsRunsHandlerUsesSignedInBrowserOAuth(t *testing.T) {
+	setupAgentToolRelayTest(t)
+	require.NoError(t, model.SaveAgentGitHubCredential(7, "gh-user-7", "user-seven", "repo", "token-seven"))
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = agentToolRelayRoundTripper(func(request *http.Request) (*http.Response, error) {
+		assert.Equal(t, "Bearer token-seven", request.Header.Get("Authorization"))
+		var body string
+		switch request.URL.Path {
+		case "/user/repos":
+			body = `[{"full_name":"owner/repo"}]`
+		case "/repos/owner/repo/actions/runs":
+			body = `{"workflow_runs":[{"id":401,"name":"CI","status":"completed","conclusion":"success","html_url":"https://github.com/owner/repo/actions/runs/401"}]}`
+		default:
+			return nil, fmt.Errorf("unexpected GitHub Actions endpoint: %s", request.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+
+	router := gin.New()
+	router.GET("/api/agent/github/actions/runs", func(c *gin.Context) {
+		c.Set("id", 7)
+		AgentGitHubActionsRuns(c)
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/agent/github/actions/runs?limit=3", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"repository_full_name":"owner/repo"`)
+	assert.Contains(t, recorder.Body.String(), `"id":401`)
 }
 
 func TestAgentDSHToolRelayReadsBoundedRedactedGitHubActionLogs(t *testing.T) {

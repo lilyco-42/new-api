@@ -14,6 +14,7 @@ export type GitHubReadIntent =
   | 'repository_search'
   | 'issues'
   | 'pull_requests'
+  | 'actions'
 
 function latestUserText(messages: ChatCompletionMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -120,6 +121,26 @@ export function getGitHubReadIntent(
 
   const mentionsRepositories =
     /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text)
+  const mentionsActionsWorkflow =
+    /(?:github\s*actions?|\bactions?\b|workflows?|工作流|流水线|\bci\s*\/\s*cd\b)/iu.test(
+      text
+    )
+  const readsActionsWorkflow =
+    /(?:查看|检查|查询|读取|分析|排查|诊断|修复|看看|列出|失败|错误|红了|show|list|check|inspect|read|review|diagnose|debug|fix|repair|fail(?:ed|ure)?|error|broken)/iu.test(
+      text
+    )
+  const bareActionsRequest =
+    /^(?:github\s*actions?|workflows?|ci\s*\/\s*cd|工作流|流水线)\s*[?？!.。！]*$/iu.test(
+      text
+    )
+  const asksWhatActionsAre =
+    /(?:是什么|是什麼|是什么工具|what\s+is|define|explain)/iu.test(text)
+  if (
+    mentionsActionsWorkflow &&
+    (readsActionsWorkflow || (bareActionsRequest && !asksWhatActionsAre))
+  ) {
+    return 'actions'
+  }
   if (
     /(?:检查|查看|查询|确认|显示|check|show|tell me).{0,30}(?:github|gh|oauth).{0,24}(?:登录|连接|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in)|(?:github|gh|oauth).{0,24}(?:登录状态|连接状态|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in).{0,24}(?:吗|么|没|是否|check|show|status)?/iu.test(
       text
@@ -204,6 +225,7 @@ function toolIntent(name: string): GitHubReadIntent | null {
   ) {
     return 'pull_requests'
   }
+  if (name.startsWith('github.oauth.actions.')) return 'actions'
   return null
 }
 
@@ -255,9 +277,15 @@ export function shouldRunLocalAgentTool(
   }
 
   const action =
-    /(?:列出|浏览|查看|显示|读取|预览|打开|检查|搜索|查找|找到|定位|追踪|分析|list|browse|show|read|preview|open|inspect|check|search|find|trace|explore|analy[sz]e)/iu.test(
+    /(?:列出|浏览|查看|显示|读取|预览|打开|检查|搜索|查找|找到|定位|追踪|分析|排查|诊断|修复|修改|编辑|list|browse|show|read|preview|open|inspect|check|search|find|trace|explore|analy[sz]e|debug|fix|repair|patch)/iu.test(
       text
     )
+  const mutation =
+    /(?:修改|编辑|重写|应用|修复|更改|更新|fix|edit|rewrite|apply|repair|patch|change|update)/iu.test(
+      text
+    )
+  const workflowTarget =
+    /(?:github\s*actions?|\bactions?\b|workflows?|工作流|流水线|\.github)/iu.test(text)
   const workspaceTarget =
     /(?:工作区|工作目录|当前项目|当前仓库|当前目录|本地项目|本地仓库|本地目录|项目目录|代码库|仓库|workspace|worktree|repository|\brepo\b|project)/iu.test(
       text
@@ -289,8 +317,14 @@ export function shouldRunLocalAgentTool(
         (workspaceTarget || /(?:git\s+log|jj\s+log)/iu.test(text)) &&
         (action || /(?:git\s+log|jj\s+log)/iu.test(text))
     case 'code.search':
-      return action && workspaceTarget &&
-        /(?:代码|源码|函数|符号|实现|code|source|function|symbol|identifier|bug|error|defect|错误|缺陷|报错)/iu.test(
+      return action && (workspaceTarget || workflowTarget) &&
+        /(?:代码|源码|函数|符号|实现|工作流|流水线|配置|日志|workflow|actions?|config|log|code|source|function|symbol|identifier|bug|error|defect|错误|缺陷|报错)/iu.test(
+          text
+        )
+    case 'code.rewrite':
+      return mutation &&
+        (workspaceTarget || workflowTarget || fileTarget) &&
+        /(?:代码|源码|文件|工作流|流水线|workflow|actions?|配置|code|source|file|config)/iu.test(
           text
         )
     case 'code.graph':

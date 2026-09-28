@@ -56,6 +56,31 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('treats a bare GitHub Actions request as an account workflow lookup', () => {
+    const messages = userMessage('github action')
+
+    expect(getGitHubReadIntent('github action')).toBe('actions')
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.actions.runs.list'),
+        messages
+      )
+    ).toBe(true)
+    expect(getGitHubReadIntent('GitHub Actions 是什么？')).toBeNull()
+  })
+
+  it('routes an explicit failed-workflow repair to the connected workspace editor', () => {
+    const request = '根据 GitHub Actions 失败日志修复当前仓库的工作流配置'
+    const messages = userMessage(request)
+
+    expect(getGitHubReadIntent(request)).toBe('actions')
+    expect(shouldRunLocalAgentTool('code.search', messages)).toBe(true)
+    expect(shouldRunLocalAgentTool('code.rewrite', messages)).toBe(true)
+    expect(shouldRunLocalAgentTool('code.rewrite', userMessage('GitHub Actions'))).toBe(
+      false
+    )
+  })
+
   it('reads a specific public GitHub URL without listing the signed-in account', () => {
     const request =
       '请读取 https://github.com/ast-grep/ast-grep ，告诉我这个仓库做什么，并附来源链接。'

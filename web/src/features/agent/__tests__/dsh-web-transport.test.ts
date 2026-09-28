@@ -113,6 +113,65 @@ describe('Lain42 DSH web transport', () => {
     expect(vi.mocked(api.post).mock.calls[2]?.[1]).not.toHaveProperty('model')
   })
 
+  it('keeps read-only GitHub Actions inspection on the account model route', async () => {
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({ data: { success: true, data: { session_id: SESSION_ID } } } as never)
+      .mockResolvedValueOnce({ data: { success: true, data: { request_id: REQUEST_ID, answer: 'Run #123 completed.' } } } as never)
+    const transport = withDshWebTurn(provider(), {
+      userId: 7,
+      chatStorageNamespace: nextNamespace(7),
+    })
+
+    const response = await transport.completeTurn!(
+      {
+        payload: payload('github action'),
+        preparedContext: [
+          {
+            role: 'system',
+            name: 'lain42_browser_github_actions_context',
+            content: 'Run #123 completed successfully.',
+          },
+        ],
+        turnId: 'actions-read-only',
+      },
+      new AbortController().signal
+    )
+
+    expect(response?.choices[0]?.message.content).toBe('Run #123 completed.')
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/agent/turns',
+      expect.objectContaining({
+        text: expect.stringContaining('lain42_browser_github_actions_context'),
+      }),
+      expect.any(Object)
+    )
+  })
+
+  it('leaves an explicit workflow repair request for the user-owned workspace tool loop', async () => {
+    const transport = withDshWebTurn(provider(), {
+      userId: 7,
+      chatStorageNamespace: nextNamespace(7),
+    })
+
+    const response = await transport.completeTurn!(
+      {
+        payload: payload('修复 GitHub Actions 工作流'),
+        preparedContext: [
+          {
+            role: 'system',
+            name: 'lain42_browser_github_actions_context',
+            content: 'Run #123 failed in the typecheck job.',
+          },
+        ],
+        turnId: 'actions-repair',
+      },
+      new AbortController().signal
+    )
+
+    expect(response).toBeNull()
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
   it('keeps sessions isolated by account and chat', async () => {
     vi.mocked(api.post).mockImplementation(async (url) => {
       if (url === '/api/agent/sessions') {

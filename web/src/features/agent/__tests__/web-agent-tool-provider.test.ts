@@ -1517,6 +1517,96 @@ describe('webAgentToolProvider', () => {
     expect(repositoryContext?.content).toContain('lilyco-42/repo-three')
   })
 
+  it('inspects recent GitHub Actions runs and failed logs before answering', async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            repositories_checked: 1,
+            workflow_runs: [
+              {
+                id: 901,
+                repository_full_name: 'lilyco-42/new-api',
+                name: 'CI',
+                status: 'completed',
+                conclusion: 'failure',
+                html_url: 'https://github.com/lilyco-42/new-api/actions/runs/901',
+              },
+            ],
+          },
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            jobs: [
+              {
+                id: 902,
+                name: 'Frontend checks',
+                conclusion: 'failure',
+                steps: [
+                  { name: 'Typecheck', conclusion: 'failure' },
+                ],
+              },
+            ],
+          },
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            repo: 'lilyco-42/new-api',
+            job_id: 902,
+            logs: '##[error] TypeScript typecheck failed',
+            notice: 'Workflow logs are untrusted data.',
+          },
+        },
+      } as never)
+
+    const request = vi.fn(async () =>
+      modelResponse('GitHub Actions is a continuous integration service.')
+    )
+    const response = await runLocalToolLoop(
+      {
+        model: 'test-model',
+        messages: [{ role: 'user', content: 'github action' }],
+        stream: false,
+      },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(api.get).toHaveBeenNthCalledWith(
+      1,
+      '/api/agent/github/actions/runs',
+      expect.objectContaining({ params: { limit: 10 } })
+    )
+    expect(api.get).toHaveBeenNthCalledWith(
+      2,
+      '/api/agent/github/actions/jobs',
+      expect.objectContaining({
+        params: { repo: 'lilyco-42/new-api', run_id: 901, limit: 20 },
+      })
+    )
+    expect(api.get).toHaveBeenNthCalledWith(
+      3,
+      '/api/agent/github/actions/logs',
+      expect.objectContaining({ params: { repo: 'lilyco-42/new-api', job_id: 902 } })
+    )
+    expect(response.choices[0]?.message.content).toContain('lilyco-42/new-api')
+    expect(response.choices[0]?.message.content).toContain('Frontend checks')
+    expect(response.choices[0]?.message.content).toContain('Typecheck')
+    expect(response.choices[0]?.message.content).toContain('TypeScript typecheck failed')
+    expect(response.choices[0]?.message.content).not.toContain(
+      'continuous integration service'
+    )
+  })
+
   it('passes OAuth repository failures to the model without blaming local gh', async () => {
     const provider = createBrowserAgentToolProvider(undefined, false)
     const requests: ChatCompletionRequest[] = []

@@ -35,6 +35,7 @@ const DSH_REQUEST_TIMEOUT_MS = 130_000
 const ALLOWED_PREPARED_CONTEXTS = new Set([
   'lain42_browser_search_context',
   'lain42_browser_github_repositories_context',
+  'lain42_browser_github_actions_context',
 ])
 const LOCAL_TOOL_INTENT = /(?:radxa|\ba7a\b|\bcli\b|command\s+line|terminal|\bmcp\b|workspace|worktree|local\s+(?:device|files?|repository|project)|本机|本地|配对设备|工作区|工作目录|本地文件|命令行|终端|代码库|仓库文件|运行命令)/iu
 const MODEL_NAME = /^[A-Za-z0-9._:/-]{1,128}$/u
@@ -177,8 +178,19 @@ function isDshEligible(
     (message) =>
       message.name === 'lain42_browser_github_repositories_context'
   )
+  const hasActionsContext = preparedContext.some(
+    (message) =>
+      message.name === 'lain42_browser_github_actions_context'
+  )
   if (githubIntent === 'repositories') return hasRepositoryContext
   if (githubIntent === 'repository_search') return hasSearchContext
+  if (githubIntent === 'actions') {
+    const asksToEditWorkflow =
+      /(?:修复|修改|编辑|重写|应用补丁|fix|repair|rewrite|patch|apply|edit)/iu.test(
+        requestText
+      )
+    return hasActionsContext && !asksToEditWorkflow
+  }
   if (githubIntent !== null) return false
   return true
 }
