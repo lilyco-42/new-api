@@ -32,7 +32,7 @@ const WEB_SEARCH_TOOL: ChatCompletionTool = {
   function: {
     name: 'web.search',
     description:
-      'Search supported public indexes directly from the user’s browser. Use this to ground definitions of named AI providers/models (including a bare provider name such as “DeepSeek”) and general technical discovery. Auto mode searches GitHub repositories and Hugging Face models; OpenAlex is used only for explicit paper/research queries. Use returned sources to answer, and do not invent details when results are missing or unrelated. This is not general web search; RustCC, CodeReset, GHFind, blogs, and community pages are not indexed. Search requests are not sent to the Lain42 server.',
+      'Search supported public indexes directly from the user’s browser. Use Wikidata for structured entity background; auto mode searches GitHub repositories and Hugging Face models for technical discovery, and OpenAlex for explicit paper/research queries. Wikidata is a secondary source: prefer primary documentation for current product behavior or specifications. Use returned sources to answer, and do not invent details when results are missing or unrelated. This is not general web search; RustCC, CodeReset, GHFind, blogs, and community pages are not indexed. Search requests are not sent to the Lain42 server.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -51,10 +51,17 @@ const WEB_SEARCH_TOOL: ChatCompletionTool = {
         },
         scope: {
           type: 'string',
-          enum: ['auto', 'github', 'huggingface', 'papers', 'all'],
+          enum: [
+            'auto',
+            'github',
+            'huggingface',
+            'wikidata',
+            'papers',
+            'all',
+          ],
           default: 'auto',
           description:
-            'Choose auto for intent-based routing; use papers only for scholarly material, or all when the user asks to search every supported index.',
+            'Choose auto for intent-based routing; use Wikidata for entity background, papers only for scholarly material, or all when the user asks to search every supported index.',
         },
       },
       required: ['query'],
@@ -345,50 +352,6 @@ function finalizePreparedBrowserSearch(
     }
   }
 
-  const asksWhatDeepSeekIs =
-    requestsKnownAIEntityDefinition(latestRequest) &&
-    /\bdeepseek\b/iu.test(latestRequest)
-  const hasDeepSeekOfficialModelEvidence = result.items.some((item) => {
-    try {
-      const url = new URL(item.url)
-      return (
-        url.protocol === 'https:' &&
-        url.hostname === 'huggingface.co' &&
-        /^\/deepseek-ai(?:\/|$)/iu.test(url.pathname)
-      )
-    } catch {
-      return false
-    }
-  })
-  if (asksWhatDeepSeekIs && hasDeepSeekOfficialModelEvidence) {
-    const answer = isChinese
-      ? 'DeepSeek 是一家人工智能公司，也开发 DeepSeek 系列模型；它不是搜索工具。'
-      : 'DeepSeek is an AI company that develops the DeepSeek model family; it is not a search tool.'
-    const sourcesBlock = [
-      isChinese ? '来源：' : 'Sources:',
-      isChinese
-        ? '- [DeepSeek 官方网站](<https://www.deepseek.com/>)'
-        : '- [DeepSeek official website](<https://www.deepseek.com/>)',
-      isChinese
-        ? '- [DeepSeek 官方 Hugging Face 模型组织](<https://huggingface.co/deepseek-ai/models>)'
-        : '- [DeepSeek official Hugging Face model organization](<https://huggingface.co/deepseek-ai/models>)',
-    ].join('\n')
-    return {
-      ...response,
-      choices: [
-        {
-          ...firstChoice,
-          message: {
-            role: 'assistant',
-            content: `${answer}\n\n${sourcesBlock}`,
-          },
-          finish_reason: 'stop',
-        },
-        ...response.choices.slice(1),
-      ],
-    }
-  }
-
   const sourceBlock = [
     isChinese ? '检索来源：' : 'Sources:',
     ...sources.map(
@@ -598,10 +561,17 @@ function parseToolArguments(
       const scope = params.scope ?? 'auto'
       if (
         typeof scope !== 'string' ||
-        !['auto', 'github', 'huggingface', 'papers', 'all'].includes(scope)
+        ![
+          'auto',
+          'github',
+          'huggingface',
+          'wikidata',
+          'papers',
+          'all',
+        ].includes(scope)
       ) {
         throw new Error(
-          'Search scope must be auto, github, huggingface, papers, or all.'
+          'Search scope must be auto, github, huggingface, wikidata, papers, or all.'
         )
       }
       return {
@@ -817,18 +787,21 @@ export const webAgentToolProvider: LocalToolProvider = {
   prepareContext: async (messages, signal) => {
     const request = latestUserRequestText(messages)
     const query = browserSearchQuery(request)
+    const scope: ClientSearchScope = requestsKnownAIEntityDefinition(request)
+      ? 'wikidata'
+      : 'auto'
     const searchCall: ChatCompletionToolCall = {
       id: 'browser-search-preflight',
       type: 'function',
       function: {
         name: 'web.search',
-        arguments: JSON.stringify({ query, limit: 5, scope: 'auto' }),
+        arguments: JSON.stringify({ query, limit: 5, scope }),
       },
     }
     if (!shouldRunWebAgentTool(searchCall, messages)) return []
 
     try {
-      const result = await searchClientSources(query, 5, signal, 'auto')
+      const result = await searchClientSources(query, 5, signal, scope)
       return [browserSearchContextMessage(result)]
     } catch (error) {
       if (signal.aborted) throw error

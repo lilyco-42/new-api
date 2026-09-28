@@ -44,6 +44,7 @@ export type ClientSearchScope =
   | 'auto'
   | 'github'
   | 'huggingface'
+  | 'wikidata'
   | 'papers'
   | 'all'
 
@@ -94,6 +95,16 @@ type OpenAlexWork = {
   publication_year?: number | null
   cited_by_count?: number
   primary_location?: { landing_page_url?: string | null } | null
+}
+
+type WikidataSearchEntity = {
+  id?: string
+  label?: string
+  description?: string
+}
+
+type WikidataSearchResponse = {
+  search?: WikidataSearchEntity[]
 }
 
 const MAX_PAGE_BYTES = 1024 * 1024
@@ -600,6 +611,47 @@ async function searchOpenAlex(
   }))
 }
 
+function wikidataLanguage(): string {
+  const language =
+    typeof navigator === 'undefined' ? 'en' : navigator.language.toLowerCase()
+  const languageCode = language.split(/[-_]/u, 1)[0]
+  return languageCode && /^[a-z]{2,3}$/u.test(languageCode)
+    ? languageCode
+    : 'en'
+}
+
+async function searchWikidata(
+  query: string,
+  limit: number,
+  signal: AbortSignal
+) {
+  const language = wikidataLanguage()
+  const url = new URL('https://wikidata.org/w/api.php')
+  url.searchParams.set('action', 'wbsearchentities')
+  url.searchParams.set('search', query)
+  url.searchParams.set('language', language)
+  url.searchParams.set('uselang', language)
+  url.searchParams.set('type', 'item')
+  url.searchParams.set('limit', String(limit))
+  url.searchParams.set('format', 'json')
+  url.searchParams.set('origin', '*')
+
+  const response = await fetchJson<WikidataSearchResponse>(url, signal)
+  return (response.search ?? []).flatMap((entity) => {
+    const id = entity.id?.trim()
+    const title = entity.label?.trim()
+    const description = entity.description?.trim()
+    if (!id || !/^Q\d+$/u.test(id) || !title || !description) return []
+
+    return [{
+      title,
+      url: `https://www.wikidata.org/wiki/${id}`,
+      snippet: description.slice(0, 400),
+      source: 'Wikidata',
+    }]
+  })
+}
+
 export async function searchClientSources(
   rawQuery: string,
   requestedLimit: number,
@@ -638,8 +690,11 @@ export async function searchClientSources(
     case 'papers':
       selectedNames = ['OpenAlex']
       break
+    case 'wikidata':
+      selectedNames = ['Wikidata']
+      break
     case 'all':
-      selectedNames = ['GitHub', 'Hugging Face', 'OpenAlex']
+      selectedNames = ['GitHub', 'Hugging Face', 'OpenAlex', 'Wikidata']
       break
     default: {
       selectedNames = []
@@ -674,6 +729,7 @@ export async function searchClientSources(
     GitHub: () => searchGitHub(query, perSourceLimit, signal),
     'Hugging Face': () => searchHuggingFace(query, perSourceLimit, signal),
     OpenAlex: () => searchOpenAlex(query, perSourceLimit, signal),
+    Wikidata: () => searchWikidata(query, perSourceLimit, signal),
   }
   const sources = selectedNames.map((name) => ({
     name,
