@@ -634,6 +634,78 @@ describe('webAgentToolProvider', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
+  it('passes an explicitly requested browser page to the model before answering', async () => {
+    const url = 'https://docs.example.com/guide'
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [
+        { role: 'user', content: `请读取这个网页并总结：${url}` },
+      ],
+      stream: false,
+    }
+    const confirm = vi.fn().mockReturnValue(true)
+    vi.stubGlobal('window', { confirm })
+    vi.mocked(fetchClientPage).mockResolvedValueOnce({
+      title: 'Guide',
+      url,
+      text: 'The guide explains how to configure the project.',
+      fetched_at: '2026-09-29T10:00:00.000Z',
+      links: [],
+    })
+    const requests: ChatCompletionRequest[] = []
+    const request = vi.fn(async (input: ChatCompletionRequest) => {
+      requests.push(input)
+      return {
+        id: `page-read-${requests.length}`,
+        object: 'chat.completion' as const,
+        created: 1,
+        model: input.model,
+        choices: [
+          {
+            index: 0,
+            message:
+              requests.length === 1
+                ? {
+                    role: 'assistant' as const,
+                    content: null,
+                    tool_calls: [toolCall('web.fetch', { url })],
+                  }
+                : {
+                    role: 'assistant' as const,
+                    content: `The page explains project setup. Source: ${url}`,
+                  },
+            finish_reason:
+              requests.length === 1 ? ('tool_calls' as const) : ('stop' as const),
+          },
+        ],
+      }
+    })
+
+    const response = await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(fetchClientPage).toHaveBeenCalledWith(
+      url,
+      expect.any(AbortSignal)
+    )
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      content: expect.stringContaining(
+        'The guide explains how to configure the project.'
+      ),
+    })
+    expect(response.choices[0]?.message.content).toContain(
+      `Source: ${url}`
+    )
+  })
+
   it('returns a readable tool result when the browser cannot fetch a page', async () => {
     vi.mocked(fetchClientPage).mockRejectedValueOnce(
       new Error('The site blocked cross-origin access (CORS).')
