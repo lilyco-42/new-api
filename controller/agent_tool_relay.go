@@ -123,7 +123,8 @@ func executeAgentToolRelay(c *gin.Context, userID int, tool string, args map[str
 			return nil, relayFault("page_unavailable", "The public page could not be safely read. It may block automated requests or contain an unsupported format.")
 		}
 		return result, nil
-	case "github_repositories", "github_repositories_search", "github_issues", "github_pull_requests":
+	case "github_repositories", "github_repositories_search", "github_issues", "github_pull_requests",
+		"github_actions_runs", "github_actions_jobs", "github_actions_logs":
 		credentialState := agentToolRelayGitHubCredentialState(userID)
 		if credentialState != nil {
 			return nil, credentialState
@@ -226,6 +227,12 @@ func executeAgentGitHubToolRelay(ctx context.Context, userID int, tool string, a
 			}
 		}
 		return gin.H{"repo": repo, "items": items}, nil
+	case "github_actions_runs":
+		return executeAgentGitHubActionsRuns(ctx, userID, args)
+	case "github_actions_jobs":
+		return executeAgentGitHubActionsJobs(ctx, userID, args)
+	case "github_actions_logs":
+		return executeAgentGitHubActionsLogs(ctx, userID, args)
 	default:
 		return nil, relayFault("unknown_tool", "This GitHub read-only tool is not available.")
 	}

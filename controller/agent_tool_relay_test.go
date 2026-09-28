@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
@@ -143,6 +144,110 @@ func TestAgentDSHToolRelayRejectsRepositoryPathTraversal(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "invalid_arguments")
 	assert.Contains(t, recorder.Body.String(), "owner/name")
+}
+
+func TestAgentDSHToolRelayReadsGitHubActionsRunsAndJobs(t *testing.T) {
+	setupAgentToolRelayTest(t)
+	session, err := model.CreateAgentWebSession(7)
+	require.NoError(t, err)
+	require.NoError(t, model.SaveAgentGitHubCredential(7, "gh-user-7", "user-seven", "repo", "token-seven"))
+	previousTransport := http.DefaultTransport
+	var endpoints []string
+	http.DefaultTransport = agentToolRelayRoundTripper(func(request *http.Request) (*http.Response, error) {
+		endpoints = append(endpoints, request.URL.String())
+		assert.Equal(t, "Bearer token-seven", request.Header.Get("Authorization"))
+		body := `{"workflow_runs":[{"id":123,"name":"CI","event":"push","status":"completed","conclusion":"failure","head_branch":"main","head_sha":"abc123","run_number":8,"html_url":"https://github.com/owner/repo/actions/runs/123","created_at":"2026-09-28T10:00:00Z"}]}`
+		if strings.Contains(request.URL.Path, "/jobs") {
+			body = `{"total_count":1,"jobs":[{"id":456,"name":"test","status":"completed","conclusion":"failure","html_url":"https://github.com/owner/repo/actions/runs/123/job/456","steps":[{"name":"go test","status":"completed","conclusion":"failure","number":4}]}]}`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+
+	runs := invokeAgentToolRelay(t, map[string]any{
+		"version": 1, "session_id": session.DshSessionId, "tool": "github_actions_runs",
+		"arguments": map[string]any{"repo": "owner/repo", "status": "completed", "limit": 5},
+	})
+	require.Equal(t, http.StatusOK, runs.Code)
+	assert.Contains(t, runs.Body.String(), `"conclusion":"failure"`)
+	assert.Contains(t, endpoints[0], "status=completed")
+
+	jobs := invokeAgentToolRelay(t, map[string]any{
+		"version": 1, "session_id": session.DshSessionId, "tool": "github_actions_jobs",
+		"arguments": map[string]any{"repo": "owner/repo", "run_id": 123, "limit": 10},
+	})
+	require.Equal(t, http.StatusOK, jobs.Code)
+	assert.Contains(t, jobs.Body.String(), `"name":"go test"`)
+	assert.Contains(t, endpoints[1], "/actions/runs/123/jobs")
+
+	invalid := invokeAgentToolRelay(t, map[string]any{
+		"version": 1, "session_id": session.DshSessionId, "tool": "github_actions_jobs",
+		"arguments": map[string]any{"repo": "owner/repo", "run_id": "123"},
+	})
+	require.Equal(t, http.StatusOK, invalid.Code)
+	assert.Contains(t, invalid.Body.String(), "invalid_arguments")
+}
+
+func TestAgentDSHToolRelayReadsBoundedRedactedGitHubActionLogs(t *testing.T) {
+	setupAgentToolRelayTest(t)
+	session, err := model.CreateAgentWebSession(7)
+	require.NoError(t, err)
+	require.NoError(t, model.SaveAgentGitHubCredential(7, "gh-user-7", "user-seven", "repo", "token-seven"))
+	var archive bytes.Buffer
+	zipWriter := zip.NewWriter(&archive)
+	logFile, err := zipWriter.Create("0_test_job.txt")
+	require.NoError(t, err)
+	_, err = logFile.Write([]byte("Build failed in go test.\nAuthorization: Bearer raw-secret-value\nGITHUB_TOKEN=ghp_123456789012345678901234567890\n"))
+	require.NoError(t, err)
+	require.NoError(t, zipWriter.Close())
+
+	previousTransport := http.DefaultTransport
+	var archiveRequestSeen bool
+	archiveURL := "https://actionslogs.blob.core.windows.net/logs/job.zip?sig=temporary-secret"
+	http.DefaultTransport = agentToolRelayRoundTripper(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "api.github.com" {
+			assert.Equal(t, "Bearer token-seven", request.Header.Get("Authorization"))
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": []string{archiveURL}},
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		}
+		archiveRequestSeen = true
+		assert.Empty(t, request.Header.Get("Authorization"))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/zip"}},
+			Body:       io.NopCloser(bytes.NewReader(archive.Bytes())),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+
+	response := invokeAgentToolRelay(t, map[string]any{
+		"version": 1, "session_id": session.DshSessionId, "tool": "github_actions_logs",
+		"arguments": map[string]any{"repo": "owner/repo", "job_id": 456},
+	})
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.True(t, archiveRequestSeen)
+	assert.Contains(t, response.Body.String(), "Build failed in go test")
+	assert.Contains(t, response.Body.String(), "untrusted data")
+	assert.NotContains(t, response.Body.String(), "raw-secret-value")
+	assert.NotContains(t, response.Body.String(), "ghp_123456789012345678901234567890")
+	assert.NotContains(t, response.Body.String(), "temporary-secret")
+
+	archiveRequestSeen = false
+	archiveURL = "http://127.0.0.1/private"
+	blocked := invokeAgentToolRelay(t, map[string]any{
+		"version": 1, "session_id": session.DshSessionId, "tool": "github_actions_logs",
+		"arguments": map[string]any{"repo": "owner/repo", "job_id": 456},
+	})
+	require.Equal(t, http.StatusOK, blocked.Code)
+	assert.Contains(t, blocked.Body.String(), "github_request_failed")
+	assert.False(t, archiveRequestSeen)
 }
 
 func invokeAgentToolRelay(t *testing.T, body any) *httptest.ResponseRecorder {
