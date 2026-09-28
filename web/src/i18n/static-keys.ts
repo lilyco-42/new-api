@@ -552,6 +552,10 @@ export const STATIC_I18N_KEYS = [
   'The model that was requested',
   'The upstream channel that served the requests',
 
+  // Agent inference errors
+  'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.',
+  'Request ID',
+
   // Misc
   'Cancel',
   'Status',
