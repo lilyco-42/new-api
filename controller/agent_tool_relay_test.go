@@ -78,7 +78,7 @@ func TestAgentDSHToolRelayUsesOAuthCredentialBoundToStoredSessionOwner(t *testin
 
 	recorder := invokeAgentToolRelay(t, map[string]any{
 		"version": 1, "session_id": userSeven.DshSessionId, "tool": "github_repositories", "arguments": map[string]any{"limit": 3},
-	}, "owner-bound-list")
+	})
 	require.Equal(t, http.StatusOK, recorder.Code)
 	assert.Equal(t, "Bearer token-seven", authorization)
 	assert.Contains(t, recorder.Body.String(), "user-seven/private-repo")
