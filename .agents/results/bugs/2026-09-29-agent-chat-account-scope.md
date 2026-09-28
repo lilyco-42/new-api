@@ -21,8 +21,8 @@ High for shared browser profiles: saved conversation previews and search results
 
 - `git diff --check`: passed.
 - Focused Oxlint check on the changed TypeScript files: passed.
-- Unit regression tests cover distinct account namespaces, excluding another account's keys, and hiding legacy account-free keys.
-- GitHub Actions run `36473224344` passed frontend typecheck/tests and backend vet/build/tests for implementation commit `0e490f9`.
+- Unit and component regression tests cover distinct account namespaces, excluding another account's keys, hiding legacy account-free keys, and refreshing visible history after an account switch.
+- GitHub Actions run `36475214208` passed frontend typecheck/tests and backend vet/build/tests for head commit `3309269`.
 - No local build or test was run.
 - Shared-browser two-account runtime test: not yet run.
 
