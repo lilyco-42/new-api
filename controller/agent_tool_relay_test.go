@@ -131,6 +131,7 @@ func TestAgentDSHToolRelayRejectsRepositoryPathTraversal(t *testing.T) {
 	setupAgentToolRelayTest(t)
 	session, err := model.CreateAgentWebSession(7)
 	require.NoError(t, err)
+	require.NoError(t, model.SaveAgentGitHubCredential(7, "gh-user-7", "user-seven", "repo", "token-seven"))
 
 	recorder := invokeAgentToolRelay(t, map[string]any{
 		"version":    1,
