@@ -463,6 +463,7 @@ function parseTextWebSearchToolCall(
       github: 'github',
       huggingface: 'huggingface',
       hf: 'huggingface',
+      wikidata: 'wikidata',
       papers: 'papers',
       openalex: 'papers',
       all: 'all',

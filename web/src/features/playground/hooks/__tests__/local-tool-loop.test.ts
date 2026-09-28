@@ -665,6 +665,81 @@ describe('local structured tool loop', () => {
     expect(result.choices[0]?.message.content).toContain('浏览器搜索来源')
   })
 
+  test('preserves Wikidata scope for text-encoded browser searches', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const searchResult = JSON.stringify({
+      execution: 'browser-wasm',
+      query: 'DeepSeek',
+      fetched_at: '2026-09-29T10:00:00.000Z',
+      sources: ['Wikidata'],
+      warnings: [],
+      items: [
+        {
+          title: 'DeepSeek',
+          url: 'https://www.wikidata.org/wiki/Q123456',
+          snippet: 'Chinese artificial intelligence company',
+          source: 'Wikidata',
+        },
+      ],
+    })
+    const invoke = vi.fn(
+      async (call: Parameters<LocalToolProvider['invoke']>[0]) => {
+        expect(call.function.name).toBe('web.search')
+        expect(JSON.parse(call.function.arguments)).toEqual({
+          query: 'DeepSeek',
+          scope: 'wikidata',
+        })
+        return searchResult
+      }
+    )
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      return requests.length === 1
+        ? response({
+            role: 'assistant',
+            content:
+              '{"name":"web.search","parameters":{"query":"DeepSeek","scope":"wikidata"}}',
+          })
+        : response({
+            role: 'assistant',
+            content: 'DeepSeek is an artificial intelligence company.',
+          })
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
+      },
+      {
+        tools: [webTool],
+        isAvailable: () => true,
+        shouldRunTool: (call, messages) =>
+          call.function.name === 'web.search' &&
+          messages.some(
+            (message) =>
+              message.role === 'user' &&
+              typeof message.content === 'string' &&
+              message.content.includes('DeepSeek')
+          ),
+        invoke,
+      },
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      content: searchResult,
+    })
+    expect(result.choices[0]?.message.content).toContain(
+      '[DeepSeek](https://www.wikidata.org/wiki/Q123456)'
+    )
+  })
+
   test('does not run a text-encoded search unless the latest request authorizes it', async () => {
     const invoke = vi.fn(async () => 'must not run')
     const requests: ChatCompletionRequest[] = []
