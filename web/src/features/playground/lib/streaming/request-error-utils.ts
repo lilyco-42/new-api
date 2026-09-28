@@ -36,6 +36,8 @@ export type RequestErrorDetails = {
   errorMessage: string
 }
 
+const REQUEST_ID_SUFFIX = /\s+\(request id:\s*([A-Za-z0-9_-]{1,128})\)$/i
+
 export function parseRequestErrorDetails(error: unknown): RequestErrorDetails {
   const requestError = error as RequestErrorLike
   const payload = requestError?.response?.data
@@ -51,19 +53,43 @@ export function parseRequestErrorDetails(error: unknown): RequestErrorDetails {
 }
 
 export function getActionableRequestErrorKey(message: string): string | null {
+  const normalizedMessage = message.trim().replace(REQUEST_ID_SUFFIX, '').trim()
+
+  if (/^openai_error$/i.test(normalizedMessage)) {
+    return 'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.'
+  }
+
   if (
     /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
-      message
+      normalizedMessage
     )
   ) {
     return 'The selected model is temporarily rate limited. Retry shortly or choose another model.'
   }
   if (
     /\b(?:502|503|504)\b|temporarily unavailable|service unavailable/i.test(
-      message
+      normalizedMessage
     )
   ) {
     return 'The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.'
   }
   return null
+}
+
+export function getRequestIdFromErrorMessage(message: string): string | null {
+  return message.trim().match(REQUEST_ID_SUFFIX)?.[1] ?? null
+}
+
+export function formatActionableRequestError(
+  message: string,
+  translate: (key: string) => string
+): string | null {
+  const messageKey = getActionableRequestErrorKey(message)
+  if (!messageKey) return null
+
+  const guidance = translate(messageKey)
+  const requestId = getRequestIdFromErrorMessage(message)
+  return requestId
+    ? `${guidance} (${translate('Request ID')}: ${requestId})`
+    : guidance
 }

@@ -25,7 +25,7 @@ import { ERROR_MESSAGES } from '../constants'
 import {
   applyStreamingChunk,
   buildChatCompletionPayload,
-  getActionableRequestErrorKey,
+  formatActionableRequestError,
   updateAssistantMessageWithError,
   updateLastAssistantMessage,
   parseRequestErrorDetails,
@@ -212,10 +212,12 @@ export function useChatHandler({
         return t(error)
       }
 
-      // Upstream channels commonly surface transient 429/5xx errors as bare
-      // Axios status strings. Turn those into useful recovery guidance.
-      const actionableErrorKey = getActionableRequestErrorKey(error)
-      if (actionableErrorKey) return t(actionableErrorKey)
+      // Normalize upstream error codes and transient status strings while
+      // keeping server request IDs available for support.
+      const actionableError = formatActionableRequestError(error, (key) =>
+        t(key)
+      )
+      if (actionableError) return actionableError
 
       const connectionClosedSuffix = `: ${ERROR_MESSAGES.CONNECTION_CLOSED}`
       if (error.endsWith(connectionClosedSuffix)) {
