@@ -20,18 +20,63 @@ For commercial licensing, please contact support@quantumnous.com
 type AgentChatKeyStorage = Pick<Storage, 'length' | 'key'>
 
 const PLAYGROUND_MESSAGES_SUFFIX = ':playground_messages'
+const AGENT_CHAT_NAMESPACE_PATTERN = /^agent-user-(\d+)-([a-z-]+)-chat-(\d+)$/
+
+export type AgentChatStorageKey = {
+  namespace: string
+  presetId: string
+  chatId: number
+}
+
+export function getAgentChatStorageNamespace(
+  userId: number,
+  presetId: string,
+  chatId: number
+): string {
+  return `agent-user-${userId}-${presetId}-chat-${chatId}`
+}
+
+export function parseAgentChatStorageKey(
+  storageKey: string,
+  userId: number
+): AgentChatStorageKey | null {
+  if (!Number.isSafeInteger(userId) || userId < 0) return null
+  if (!storageKey.endsWith(PLAYGROUND_MESSAGES_SUFFIX)) return null
+
+  const namespace = storageKey.slice(0, -PLAYGROUND_MESSAGES_SUFFIX.length)
+  const match = namespace.match(AGENT_CHAT_NAMESPACE_PATTERN)
+  if (!match) return null
+
+  const storedUserId = Number(match[1])
+  const chatId = Number(match[3])
+  if (
+    !Number.isSafeInteger(storedUserId) ||
+    storedUserId !== userId ||
+    !Number.isSafeInteger(chatId)
+  ) {
+    return null
+  }
+
+  return {
+    namespace,
+    presetId: match[2],
+    chatId,
+  }
+}
 
 export function getNextAgentChatId(
+  userId: number,
   presetId: string,
   currentChatId: number,
   storage?: AgentChatKeyStorage
 ): number {
   let nextChatId = Math.max(0, currentChatId + 1)
+  if (!Number.isSafeInteger(userId) || userId < 0) return nextChatId
   if (!storage && typeof window === 'undefined') return nextChatId
 
   try {
     const keyStorage = storage ?? window.localStorage
-    const prefix = `agent-${presetId}-chat-`
+    const prefix = `agent-user-${userId}-${presetId}-chat-`
     let highestStoredChatId = -1
 
     for (let index = 0; index < keyStorage.length; index += 1) {
@@ -48,7 +93,9 @@ export function getNextAgentChatId(
         -PLAYGROUND_MESSAGES_SUFFIX.length
       )
       if (!/^\d+$/.test(rawChatId)) continue
-      highestStoredChatId = Math.max(highestStoredChatId, Number(rawChatId))
+      const storedChatId = Number(rawChatId)
+      if (!Number.isSafeInteger(storedChatId)) continue
+      highestStoredChatId = Math.max(highestStoredChatId, storedChatId)
     }
 
     nextChatId = Math.max(nextChatId, highestStoredChatId + 1)
