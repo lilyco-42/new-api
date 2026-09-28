@@ -60,27 +60,35 @@ func AgentWebSearch(c *gin.Context) {
 		return
 	}
 	limit := parseBoundedAgentInt(c.Query("limit"), 5, 1, maxAgentSearchItems)
+	result, err := searchAgentWeb(c.Request.Context(), query, limit)
+	if err != nil {
+		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search provider is unavailable or returned an invalid response")
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+func searchAgentWeb(ctx context.Context, query string, limit int) (gin.H, error) {
 	provider := "bing"
 	var items []agentWebSearchItem
 	var err error
 	searchEndpoint := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_URL"))
 	if searchEndpoint == "" {
-		items, err = searchBingRSS(c.Request.Context(), query, limit)
+		items, err = searchBingRSS(ctx, query, limit)
 	} else {
 		provider = "searxng"
-		items, err = searchSearXNG(c.Request.Context(), searchEndpoint, query, limit)
+		items, err = searchSearXNG(ctx, searchEndpoint, query, limit)
 	}
 	if err != nil {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search provider is unavailable or returned an invalid response")
-		return
+		return nil, err
 	}
 	searchURL := "https://www.bing.com/search?q=" + url.QueryEscape(query)
-	common.ApiSuccess(c, gin.H{
+	return gin.H{
 		"query":      query,
 		"provider":   provider,
 		"items":      items,
 		"search_url": searchURL,
-	})
+	}, nil
 }
 
 func searchBingRSS(ctx context.Context, query string, limit int) ([]agentWebSearchItem, error) {
@@ -274,6 +282,14 @@ type agentGitHubActivity struct {
 
 var agentGitHubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
+func isValidAgentGitHubRepo(repo string) bool {
+	if !agentGitHubRepoPattern.MatchString(repo) {
+		return false
+	}
+	parts := strings.Split(repo, "/")
+	return len(parts) == 2 && parts[0] != "." && parts[0] != ".." && parts[1] != "." && parts[1] != ".."
+}
+
 func AgentGitHubRepositoriesList(c *gin.Context) {
 	limit := parseBoundedAgentInt(c.Query("limit"), 10, 1, maxAgentGitHubItems)
 	query := url.Values{}
@@ -282,7 +298,7 @@ func AgentGitHubRepositoriesList(c *gin.Context) {
 	query.Set("per_page", strconv.Itoa(limit))
 	endpoint := "https://api.github.com/user/repos?" + query.Encode()
 	var items []agentGitHubRepository
-	if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &items); err != nil {
+	if err := agentGitHubRequestForUser(c.Request.Context(), c.GetInt("id"), http.MethodGet, endpoint, nil, &items); err != nil {
 		writeAgentGitHubRequestError(c, "repository list", err)
 		return
 	}
@@ -301,7 +317,7 @@ func AgentGitHubRepositoriesSearch(c *gin.Context) {
 	limit := parseBoundedAgentInt(c.Query("limit"), 10, 1, maxAgentGitHubItems)
 	var queryURL = "https://api.github.com/search/repositories?q=" + url.QueryEscape(query) + "&per_page=" + strconv.Itoa(limit)
 	var result agentGitHubSearchResponse
-	if err := agentGitHubRequest(c, http.MethodGet, queryURL, nil, &result); err != nil {
+	if err := agentGitHubRequestForUser(c.Request.Context(), c.GetInt("id"), http.MethodGet, queryURL, nil, &result); err != nil {
 		writeAgentGitHubRequestError(c, "repository search", err)
 		return
 	}
@@ -313,7 +329,7 @@ func AgentGitHubPullRequests(c *gin.Context) { agentGitHubActivityList(c, true) 
 
 func agentGitHubActivityList(c *gin.Context, pulls bool) {
 	repo := strings.TrimSpace(c.Query("repo"))
-	if !agentGitHubRepoPattern.MatchString(repo) {
+	if !isValidAgentGitHubRepo(repo) {
 		writeAgentError(c, http.StatusBadRequest, "AGENT_GITHUB_INVALID", "repository must use owner/name form")
 		return
 	}
@@ -328,7 +344,7 @@ func agentGitHubActivityList(c *gin.Context, pulls bool) {
 	}
 	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s?state=%s&per_page=%d&sort=updated&direction=desc", repo, resource, url.QueryEscape(state), limit)
 	var raw []map[string]any
-	if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &raw); err != nil {
+	if err := agentGitHubRequestForUser(c.Request.Context(), c.GetInt("id"), http.MethodGet, endpoint, nil, &raw); err != nil {
 		action := "issue list"
 		if pulls {
 			action = "pull request list"
@@ -350,15 +366,15 @@ func agentGitHubActivityList(c *gin.Context, pulls bool) {
 	common.ApiSuccess(c, gin.H{"repo": repo, "items": items})
 }
 
-func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader, output any) error {
-	request, err := http.NewRequestWithContext(c.Request.Context(), method, endpoint, body)
+func agentGitHubRequestForUser(ctx context.Context, userID int, method, endpoint string, body io.Reader, output any) error {
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	request.Header.Set("User-Agent", "Lain42-Agent/1.0 (+https://lain42.top/agent)")
-	if _, token, tokenErr := model.GetAgentGitHubCredential(c.GetInt("id")); tokenErr == nil && token != "" {
+	if _, token, tokenErr := model.GetAgentGitHubCredential(userID); tokenErr == nil && token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
 	response, err := (&http.Client{Timeout: 12 * time.Second}).Do(request)

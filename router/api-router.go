@@ -36,6 +36,9 @@ func SetApiRouter(router *gin.Engine) {
 		// identity; claim/redeem are short-lived desktop ceremony endpoints.
 		agentRoute := apiRouter.Group("/agent")
 		{
+			// Only the private DSH service can use this HMAC-authenticated
+			// route; the controller resolves account identity from its session.
+			agentRoute.POST("/bridge/v1/tool", middleware.DisableCache(), controller.AgentDSHToolRelay)
 			agentSessionRoute := agentRoute.Group("/sessions")
 			agentSessionRoute.Use(middleware.UserAuth(), middleware.DisableCache())
 			{
