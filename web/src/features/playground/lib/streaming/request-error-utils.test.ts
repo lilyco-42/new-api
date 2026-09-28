@@ -39,6 +39,15 @@ describe('parseRequestErrorDetails', () => {
 })
 
 describe('getActionableRequestErrorKey', () => {
+  it('turns a bare upstream error type into useful recovery guidance', () => {
+    expect(getActionableRequestErrorKey('openai_error')).toBe(
+      'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.'
+    )
+    expect(getActionableRequestErrorKey('  OPENAI_ERROR  ')).toBe(
+      'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.'
+    )
+  })
+
   it('maps rate limits and transient gateway failures to recovery guidance', () => {
     expect(
       getActionableRequestErrorKey('Request failed with status code 429')
@@ -50,5 +59,16 @@ describe('getActionableRequestErrorKey', () => {
       getActionableRequestErrorKey('HTTP 504: Connection closed')
     ).toContain('server health')
     expect(getActionableRequestErrorKey('invalid prompt')).toBeNull()
+  })
+
+  it('distinguishes site resource limits from model or channel failures', () => {
+    expect(
+      getActionableRequestErrorKey(
+        'system disk overloaded (current: 96.2%, threshold: 95%)'
+      )
+    ).toContain('Switching models may not help')
+    expect(
+      getActionableRequestErrorKey('system_disk_overloaded')
+    ).toContain('contact the site administrator')
   })
 })

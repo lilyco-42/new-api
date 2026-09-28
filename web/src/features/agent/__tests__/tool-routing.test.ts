@@ -18,11 +18,14 @@ function userMessage(content: string): ChatCompletionMessage[] {
   return [{ role: 'user', content }]
 }
 
-function toolCall(name: string): ChatCompletionToolCall {
+function toolCall(
+  name: string,
+  args: Record<string, unknown> = {}
+): ChatCompletionToolCall {
   return {
     id: 'routing-test',
     type: 'function',
-    function: { name, arguments: '{}' },
+    function: { name, arguments: JSON.stringify(args) },
   }
 }
 
@@ -51,6 +54,55 @@ describe('Agent tool intent routing', () => {
     expect(
       shouldRunWebAgentTool(toolCall('github.oauth.auth.status'), messages)
     ).toBe(false)
+  })
+
+  it('treats a bare GitHub Actions request as an account workflow lookup', () => {
+    const messages = userMessage('github action')
+
+    expect(getGitHubReadIntent('github action')).toBe('actions')
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.actions.runs.list'),
+        messages
+      )
+    ).toBe(true)
+    expect(getGitHubReadIntent('GitHub Actions 是什么？')).toBeNull()
+  })
+
+  it('routes an explicit failed-workflow repair to the connected workspace editor', () => {
+    const request = '根据 GitHub Actions 失败日志修复当前仓库的工作流配置'
+    const messages = userMessage(request)
+
+    expect(getGitHubReadIntent(request)).toBe('actions')
+    expect(shouldRunLocalAgentTool('code.search', messages)).toBe(true)
+    expect(shouldRunLocalAgentTool('code.rewrite', messages)).toBe(true)
+    expect(shouldRunLocalAgentTool('code.rewrite', userMessage('GitHub Actions'))).toBe(
+      false
+    )
+  })
+
+  it('reads a specific public GitHub URL without listing the signed-in account', () => {
+    const request =
+      '请读取 https://github.com/ast-grep/ast-grep ，告诉我这个仓库做什么，并附来源链接。'
+    const messages = userMessage(request)
+
+    expect(getGitHubReadIntent(request)).toBeNull()
+    expect(
+      shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)
+    ).toBe(false)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('web.fetch', {
+          url: 'https://github.com/ast-grep/ast-grep',
+        }),
+        messages
+      )
+    ).toBe(true)
+  })
+
+  it('does not treat a generic public repository mention as my account listing', () => {
+    const request = '查看 GitHub 上的 ast-grep 仓库'
+    expect(getGitHubReadIntent(request)).toBeNull()
   })
 
   it('routes an OAuth-authorized repository read to browser OAuth', () => {
@@ -232,15 +284,36 @@ describe('Agent tool intent routing', () => {
     const messages = userMessage('https://docs.example.com/guide')
 
     expect(shouldAdvertiseWebAgentTool('web.fetch', messages)).toBe(true)
-    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(true)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('web.fetch', { url: 'https://docs.example.com/guide' }),
+        messages
+      )
+    ).toBe(true)
     expect(shouldAdvertiseWebAgentTool('web.search', messages)).toBe(false)
+  })
+
+  it('rejects browser page reads for URLs the user did not provide', () => {
+    const messages = userMessage('https://docs.example.com/guide')
+
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('web.fetch', { url: 'https://unrelated.example.com/private' }),
+        messages
+      )
+    ).toBe(false)
   })
 
   it('recognizes a bare domain as a page to read instead of a search query', () => {
     const messages = userMessage('deepseek.com')
 
     expect(shouldAdvertiseWebAgentTool('web.fetch', messages)).toBe(true)
-    expect(shouldRunWebAgentTool(toolCall('web.fetch'), messages)).toBe(true)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('web.fetch', { url: 'https://deepseek.com/' }),
+        messages
+      )
+    ).toBe(true)
   })
 
   it('does not read a URL when the user explicitly says not to open it', () => {
@@ -298,14 +371,35 @@ describe('Agent tool intent routing', () => {
     ).toBe(false)
   })
 
+  it('keeps browser public-index search away from connected account repositories', () => {
+    const request =
+      '请用浏览器公开索引搜索 ast-grep 官方项目，只返回项目全名、用途和来源链接，不访问我的账号仓库。'
+    const messages = userMessage(request)
+
+    expect(getGitHubReadIntent(request)).toBeNull()
+    expect(shouldAdvertiseWebAgentTool('web.search', messages)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('web.search'), messages)).toBe(true)
+    expect(
+      shouldAdvertiseBrowserGitHubTool(
+        'github.oauth.repositories.search',
+        messages,
+        true
+      )
+    ).toBe(false)
+    expect(
+      shouldRunWebAgentTool(
+        toolCall('github.oauth.repositories.search'),
+        messages
+      )
+    ).toBe(false)
+  })
+
   it('does not treat a negated mention of personal repositories as an account search', () => {
     const messages = userMessage(
       '请用网页搜索查 GitHub 上 ast-grep 的官方仓库，给出仓库名和链接；不要搜索我的个人仓库。'
     )
 
-    expect(getGitHubReadIntent(messages[0]?.content as string)).toBe(
-      'repository_search'
-    )
+    expect(getGitHubReadIntent(messages[0]?.content as string)).toBeNull()
     expect(
       shouldRunWebAgentTool(toolCall('web.search'), messages)
     ).toBe(true)

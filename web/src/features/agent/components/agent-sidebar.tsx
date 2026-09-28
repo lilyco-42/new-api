@@ -39,6 +39,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { listAgentChatStorageNamespaces } from '../agent-chat-storage'
+
 export type AgentPreset = {
   id: string
   title: string
@@ -59,6 +61,7 @@ type RecentAgentChat = {
 type AgentSidebarProps = {
   presets: AgentPreset[]
   activePresetId: string
+  userId: number | null
   className?: string
   onNewChat: () => void
   onSearchChats: () => void
@@ -67,19 +70,14 @@ type AgentSidebarProps = {
   onPresetChange: (preset: AgentPreset) => void
 }
 
-function readRecentAgentChats(): RecentAgentChat[] {
+function readRecentAgentChats(userId: number | null): RecentAgentChat[] {
   if (typeof window === 'undefined') return []
 
   const results: RecentAgentChat[] = []
-  const namespacePattern = /^agent-([a-z-]+)-chat-(\d+):playground_messages$/
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const storageKey = window.localStorage.key(index)
-    const match = storageKey?.match(namespacePattern)
-    if (!storageKey || !match) continue
-
+  for (const entry of listAgentChatStorageNamespaces(userId)) {
     try {
       const parsed = JSON.parse(
-        window.localStorage.getItem(storageKey) ?? ''
+        window.localStorage.getItem(entry.key) ?? ''
       ) as {
         data?: Array<{
           from?: string
@@ -103,9 +101,9 @@ function readRecentAgentChats(): RecentAgentChat[] {
       const preview = latest?.versions?.at(-1)?.content?.trim()
       if (!preview) continue
       results.push({
-        key: storageKey,
-        presetId: match[1],
-        chatId: Number(match[2]),
+        key: entry.key,
+        presetId: entry.presetId,
+        chatId: entry.chatId,
         preview: preview.slice(0, 72),
         updatedAt: latest?.createdAt ?? 0,
       })
@@ -122,6 +120,7 @@ function readRecentAgentChats(): RecentAgentChat[] {
 export function AgentSidebar({
   presets,
   activePresetId,
+  userId,
   className,
   onNewChat,
   onSearchChats,
@@ -138,12 +137,12 @@ export function AgentSidebar({
   const accountInitials = accountName.slice(0, 2).toUpperCase()
 
   useEffect(() => {
-    const refresh = () => setRecentChats(readRecentAgentChats())
+    const refresh = () => setRecentChats(readRecentAgentChats(userId))
     refresh()
     window.addEventListener('lain42:agent-chat-updated', refresh)
     return () =>
       window.removeEventListener('lain42:agent-chat-updated', refresh)
-  }, [])
+  }, [userId])
 
   return (
     <aside

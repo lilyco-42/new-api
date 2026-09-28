@@ -72,6 +72,44 @@ describe('client-side WASM crawler', () => {
     )
   })
 
+  it('reads a public GitHub repository through its browser-accessible API', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      full_name: 'ast-grep/ast-grep',
+      html_url: 'https://github.com/ast-grep/ast-grep',
+      description: 'AST-based code search, lint, and rewriting.',
+      language: 'Rust',
+      private: false,
+    }), { headers: { 'content-type': 'application/json' } }))
+
+    const page = await fetchClientPage(
+      'https://github.com/ast-grep/ast-grep',
+      new AbortController().signal
+    )
+
+    expect(page.title).toBe('ast-grep/ast-grep')
+    expect(page.url).toBe('https://github.com/ast-grep/ast-grep')
+    expect(page.text).toContain('AST-based code search, lint, and rewriting.')
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('https://api.github.com/repos/ast-grep/ast-grep'),
+      expect.objectContaining({ credentials: 'omit', redirect: 'error' })
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects repository metadata that does not match the requested URL', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      full_name: 'someone/else',
+      html_url: 'https://github.com/someone/else',
+      description: 'Wrong repository',
+      private: false,
+    })))
+
+    await expect(fetchClientPage(
+      'https://github.com/ast-grep/ast-grep',
+      new AbortController().signal
+    )).rejects.toThrow('did not match the requested page')
+  })
+
   it('uses a WASM parser with no network or host imports', () => {
     const module = new WebAssembly.Module(wasmBytes)
     expect(WebAssembly.Module.imports(module)).toEqual([])
@@ -165,6 +203,60 @@ describe('client-side WASM crawler', () => {
     ])
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  it(
+    'uses the official Hugging Face organization profile for DeepSeek identity queries',
+    async () => {
+      fetchMock.mockImplementation(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input))
+          expect(init?.credentials).toBe('omit')
+          expect(init?.redirect).toBe('error')
+          if (
+            url.hostname === 'huggingface.co' &&
+            url.pathname === '/api/organizations/deepseek-ai/overview'
+          ) {
+            return Response.json({
+              name: 'deepseek-ai',
+              fullname: 'DeepSeek',
+              isVerified: true,
+              numModels: 105,
+              numDatasets: 2,
+              numPapers: 30,
+            })
+          }
+          if (
+            url.hostname === 'huggingface.co' &&
+            url.pathname === '/api/models'
+          ) {
+            return Response.json([
+              {
+                modelId: 'deepseek-ai/DeepSeek-V4-Flash',
+                pipeline_tag: 'text-generation',
+              },
+            ])
+          }
+          throw new Error(`Unexpected source: ${url.toString()}`)
+        }
+      )
+
+      const result = await searchClientSources(
+        'DeepSeek',
+        5,
+        new AbortController().signal
+      )
+
+      expect(result.sources).toEqual(['Hugging Face'])
+      expect(result.items[0]).toMatchObject({
+        title: 'DeepSeek — Hugging Face organization',
+        url: 'https://huggingface.co/deepseek-ai',
+        snippet: 'Verified organization · 105 models · 2 datasets · 30 papers',
+        source: 'Hugging Face',
+      })
+      expect(result.items.some((item) => item.source === 'GitHub')).toBe(false)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    }
+  )
 
   it('retries an empty GitHub search after removing generic query words', async () => {
     fetchMock.mockImplementation(

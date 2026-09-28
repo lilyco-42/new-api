@@ -2,7 +2,11 @@ import type {
   ChatCompletionMessage,
   ChatCompletionToolCall,
 } from '@/features/playground/types'
-import { containsPublicPageUrlReference } from '@/features/playground/lib/input/search-context'
+import {
+  containsPublicPageUrlReference,
+  extractPublicPageUrlReferences,
+  normalizePublicPageUrlInput,
+} from '@/features/playground/lib/input/search-context'
 
 export type GitHubReadIntent =
   | 'status'
@@ -10,6 +14,7 @@ export type GitHubReadIntent =
   | 'repository_search'
   | 'issues'
   | 'pull_requests'
+  | 'actions'
 
 function latestUserText(messages: ChatCompletionMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -53,9 +58,19 @@ function explicitlyDeclinesPageRead(text: string): boolean {
   )
 }
 
-function explicitlyRequestsBrowserWebSearch(text: string): boolean {
-  return /(?:浏览器(?:端|中)?(?:的)?(?:网页)?搜索|网页搜索(?:功能)?|用网页搜索|search (?:the )?web|web search)/iu.test(
+export function explicitlyRequestsBrowserWebSearch(text: string): boolean {
+  return /(?:浏览器(?:端|中)?(?:(?:公开|公共)(?:索引)?|索引|网页)?搜索|(?:公开|公共)索引搜索|网页搜索(?:功能)?|用网页搜索|search (?:the )?web|web search)/iu.test(
     text
+  )
+}
+
+export function explicitlyRequestsPublicRepositorySearch(
+  text: string
+): boolean {
+  return (
+    explicitlyRequestsBrowserWebSearch(text) &&
+    /(?:公开|公共|public|official|官方)/iu.test(text) &&
+    /(?:仓库|repository|repos?\b|项目)/iu.test(text)
   )
 }
 
@@ -76,7 +91,7 @@ export function requestsKnownAIEntityDefinition(text: string): boolean {
 
 function explicitlyDeclinesAccountRepositories(text: string): boolean {
   return (
-    /(?:不要|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,8}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /(?:不(?:要|必|想)?|无需|无须|不用|别|不许|禁止|避免|排除|不能|不可)\s*(?:搜索|查找|搜|查看|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
       text
     ) ||
     /\b(?:do not|don't|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access)\s+)?my(?: own)?\s+(?:personal\s+)?(?:github\s+)?(?:repositories|repository|repos?)\b/iu.test(
@@ -87,7 +102,7 @@ function explicitlyDeclinesAccountRepositories(text: string): boolean {
 
 function targetsAccountRepositories(text: string): boolean {
   const explicitlyTargetsAccount =
-    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)|我通过网站\s*GitHub\s*OAuth\s*授权的仓库|\bgh\s+repo\s+我的项目/iu.test(
       text
     )
 
@@ -106,16 +121,26 @@ export function getGitHubReadIntent(
 
   const mentionsRepositories =
     /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text)
-  const explicitlyReadsRepositories =
-    mentionsRepositories &&
-    /(?:查看|看|列出|浏览|获取|读取|show|list|view|browse|get|read|fetch|inspect)/iu.test(
+  const mentionsActionsWorkflow =
+    /(?:github\s*actions?|\bactions?\b|workflows?|工作流|流水线|\bci\s*\/\s*cd\b)/iu.test(
       text
-    ) &&
-    !/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)
-  if (explicitlyReadsRepositories) {
-    return 'repositories'
+    )
+  const readsActionsWorkflow =
+    /(?:查看|检查|查询|读取|分析|排查|诊断|修复|看看|列出|失败|错误|红了|show|list|check|inspect|read|review|diagnose|debug|fix|repair|fail(?:ed|ure)?|error|broken)/iu.test(
+      text
+    )
+  const bareActionsRequest =
+    /^(?:github\s*actions?|workflows?|ci\s*\/\s*cd|工作流|流水线)\s*[?？!.。！]*$/iu.test(
+      text
+    )
+  const asksWhatActionsAre =
+    /(?:是什么|是什麼|是什么工具|what\s+is|define|explain)/iu.test(text)
+  if (
+    mentionsActionsWorkflow &&
+    (readsActionsWorkflow || (bareActionsRequest && !asksWhatActionsAre))
+  ) {
+    return 'actions'
   }
-
   if (
     /(?:检查|查看|查询|确认|显示|check|show|tell me).{0,30}(?:github|gh|oauth).{0,24}(?:登录|连接|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in)|(?:github|gh|oauth).{0,24}(?:登录状态|连接状态|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in).{0,24}(?:吗|么|没|是否|check|show|status)?/iu.test(
       text
@@ -139,15 +164,19 @@ export function getGitHubReadIntent(
   ) {
     return 'pull_requests'
   }
+  // An explicit page URL identifies a particular public page. It must never
+  // trigger a listing of the signed-in user's (possibly private) repositories.
+  if (containsPublicPageUrlReference(text)) return null
+  // A negated mention is not an account-repository search intent. In
+  // particular, do not let a request to search public sources inherit OAuth
+  // access merely because it says not to access the user's repositories.
+  if (explicitlyDeclinesAccountRepositories(text)) return null
+
   if (mentionsRepositories) {
     if (/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)) {
       return 'repository_search'
     }
-    if (
-      /(?:查看|看|列出|浏览|获取|show|list|view|browse|get)/iu.test(text) ||
-      /(?:读取|read|fetch|inspect)/iu.test(text) ||
-      /(?:我的|我自己的|我账号的|my(?: own)?)/iu.test(text)
-    ) {
+    if (targetsAccountRepositories(text)) {
       return 'repositories'
     }
   }
@@ -196,6 +225,7 @@ function toolIntent(name: string): GitHubReadIntent | null {
   ) {
     return 'pull_requests'
   }
+  if (name.startsWith('github.oauth.actions.')) return 'actions'
   return null
 }
 
@@ -207,6 +237,7 @@ export function shouldRunGitHubTool(
   const request = latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(call.function.name) !== intent) return false
+  if (explicitlyDeclinesAccountRepositories(request)) return false
   if (
     intent === 'repository_search' &&
     explicitlyRequestsBrowserWebSearch(request) &&
@@ -246,9 +277,15 @@ export function shouldRunLocalAgentTool(
   }
 
   const action =
-    /(?:列出|浏览|查看|显示|读取|预览|打开|检查|搜索|查找|找到|定位|追踪|分析|list|browse|show|read|preview|open|inspect|check|search|find|trace|explore|analy[sz]e)/iu.test(
+    /(?:列出|浏览|查看|显示|读取|预览|打开|检查|搜索|查找|找到|定位|追踪|分析|排查|诊断|修复|修改|编辑|list|browse|show|read|preview|open|inspect|check|search|find|trace|explore|analy[sz]e|debug|fix|repair|patch)/iu.test(
       text
     )
+  const mutation =
+    /(?:修改|编辑|重写|应用|修复|更改|更新|fix|edit|rewrite|apply|repair|patch|change|update)/iu.test(
+      text
+    )
+  const workflowTarget =
+    /(?:github\s*actions?|\bactions?\b|workflows?|工作流|流水线|\.github)/iu.test(text)
   const workspaceTarget =
     /(?:工作区|工作目录|当前项目|当前仓库|当前目录|本地项目|本地仓库|本地目录|项目目录|代码库|仓库|workspace|worktree|repository|\brepo\b|project)/iu.test(
       text
@@ -280,8 +317,14 @@ export function shouldRunLocalAgentTool(
         (workspaceTarget || /(?:git\s+log|jj\s+log)/iu.test(text)) &&
         (action || /(?:git\s+log|jj\s+log)/iu.test(text))
     case 'code.search':
-      return action && workspaceTarget &&
-        /(?:代码|源码|函数|符号|实现|code|source|function|symbol|identifier|bug|error|defect|错误|缺陷|报错)/iu.test(
+      return action && (workspaceTarget || workflowTarget) &&
+        /(?:代码|源码|函数|符号|实现|工作流|流水线|配置|日志|workflow|actions?|config|log|code|source|function|symbol|identifier|bug|error|defect|错误|缺陷|报错)/iu.test(
+          text
+        )
+    case 'code.rewrite':
+      return mutation &&
+        (workspaceTarget || workflowTarget || fileTarget) &&
+        /(?:代码|源码|文件|工作流|流水线|workflow|actions?|配置|code|source|file|config)/iu.test(
           text
         )
     case 'code.graph':
@@ -308,6 +351,7 @@ export function shouldAdvertiseBrowserGitHubTool(
   const request = latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(name) !== intent) return false
+  if (explicitlyDeclinesAccountRepositories(request)) return false
   if (
     intent === 'repository_search' &&
     explicitlyRequestsBrowserWebSearch(request) &&
@@ -336,14 +380,36 @@ export function shouldRunWebResearchTool(
   const name = call.function.name
   if (isQuestionAboutToolBehavior(text)) return false
 
-  if (name === 'web.fetch') {
+  if (name === 'web.fetch' || name === 'web.crawl') {
+    if (explicitlyDeclinesPageRead(text)) return false
+    if (
+      name === 'web.crawl' &&
+      !/(?:爬取|抓取|遍历|crawl|spider|follow links)/iu.test(text)
+    ) {
+      return false
+    }
+    let args: unknown
+    try {
+      args = JSON.parse(call.function.arguments)
+    } catch {
+      return false
+    }
+    if (!args || typeof args !== 'object' || Array.isArray(args)) return false
+    const url = (args as { url?: unknown }).url
+    if (typeof url !== 'string') return false
+    const toolUrl = normalizePublicPageUrlInput(url)
+    if (!toolUrl) return false
+    const normalizedToolUrl = new URL(toolUrl)
+    normalizedToolUrl.hash = ''
     return (
-      containsPublicPageUrlReference(text) &&
-      !explicitlyDeclinesPageRead(text)
+      extractPublicPageUrlReferences(text).some((reference) => {
+        const normalizedReference = new URL(reference)
+        normalizedReference.hash = ''
+        return normalizedReference.href === normalizedToolUrl.href
+      })
     )
   }
 
-  if (name === 'web.crawl' && explicitlyDeclinesPageRead(text)) return false
   if (explicitlyDeclinesWebResearch(text)) return false
 
   const githubIntent = getGitHubReadIntent(text)
@@ -363,9 +429,6 @@ export function shouldRunWebResearchTool(
       return /(?:搜索|搜一下|查找资料|网上查|网页搜索|研究一下|调研|找项目|探索项目|发现项目|research|web search|search the web|search online|look up online|find interesting|discover projects|latest|current|recent|today|right now|price|release notes|最新|近期|当前版本|当前价格|今天|今日|实时|现在的价格)/iu.test(
         text
       ) || requestsKnownAIEntityDefinition(text)
-    case 'web.crawl':
-      return /https:\/\//iu.test(text) &&
-        /(?:爬取|抓取|遍历|crawl|spider|follow links)/iu.test(text)
     default:
       return false
   }
@@ -390,11 +453,21 @@ export function shouldAdvertiseWebAgentTool(
   name: string,
   messages: ChatCompletionMessage[]
 ): boolean {
+  // Advertisement has no model-supplied arguments yet. Use one of the
+  // user's own URLs as a probe so the strict execution-time URL match does
+  // not hide the fetch tool before the model can call it. Execution still
+  // validates the actual requested URL against every URL in the user turn.
+  const args: Record<string, string> = {}
+  if (name === 'web.fetch' || name === 'web.crawl') {
+    const [userUrl] = extractPublicPageUrlReferences(latestUserText(messages))
+    if (userUrl) args.url = userUrl
+  }
+
   return shouldRunWebAgentTool(
     {
       id: 'routing-check',
       type: 'function',
-      function: { name, arguments: '{}' },
+      function: { name, arguments: JSON.stringify(args) },
     },
     messages
   )

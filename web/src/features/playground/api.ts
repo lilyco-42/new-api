@@ -25,6 +25,10 @@ import type {
   ModelOption,
   GroupOption,
 } from './types'
+import {
+  mapToolNamesForModel,
+  restoreInternalToolNames,
+} from './lib/tool-name-compat'
 
 /**
  * Send chat completion request (non-streaming)
@@ -33,11 +37,12 @@ export async function sendChatCompletion(
   payload: ChatCompletionRequest,
   signal?: AbortSignal
 ): Promise<ChatCompletionResponse> {
-  const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, {
+  const mapped = mapToolNamesForModel(payload)
+  const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, mapped.payload, {
     signal,
     skipErrorHandler: true,
   } as Record<string, unknown>)
-  return res.data
+  return restoreInternalToolNames(res.data, mapped.internalNamesByModelName)
 }
 
 /**

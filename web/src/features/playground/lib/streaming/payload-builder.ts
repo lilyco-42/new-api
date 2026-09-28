@@ -53,8 +53,14 @@ function isFollowUpRequest(message: Message): boolean {
     return false
   }
 
-  return /^(?:and\b|also\b|then\b|it\b|that\b|this\b|those\b|these\b|its\b|they\b|how about\b|what about\b|continue\b|tell me more\b|use (?:chinese|english)|answer in\b|那|这个|它|这些|继续|接着|再说|刚才|上面|之前|还有|然后|详细说|简短点|用(?:中文|英文)|改成|不要|同样)/iu.test(
-    text
+  return (
+    /^(?:and\b|also\b|then\b|it\b|that\b|this\b|those\b|these\b|its\b|they\b|how about\b|what about\b|continue\b|tell me more\b|use (?:chinese|english)|answer in\b)/iu.test(
+      text
+    ) ||
+    /^(?:那|这个|它|这些|继续|接着|再说|刚才|上面|之前|还有|然后|详细说|简短点|用(?:中文|英文)|改成|不要|同样)/u.test(
+      text
+    ) ||
+    /^(?:你在干嘛|你在干什么|我问你话|答非所问|回答跑题)/u.test(text)
   )
 }
 

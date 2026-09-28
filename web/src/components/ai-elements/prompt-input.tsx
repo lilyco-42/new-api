@@ -435,9 +435,12 @@ export const PromptInputActionAddAttachments = ({
   )
 }
 
+export type PromptInputFile = FileUIPart & { id: string }
+
 export type PromptInputMessage = {
   text?: string
-  files?: FileUIPart[]
+  files?: PromptInputFile[]
+  signal?: AbortSignal
 }
 
 export type PromptInputProps = Omit<
@@ -454,7 +457,7 @@ export type PromptInputProps = Omit<
   maxFiles?: number
   maxFileSize?: number // bytes
   onError?: (err: {
-    code: 'max_files' | 'max_file_size' | 'accept'
+    code: 'max_files' | 'max_file_size' | 'accept' | 'read'
     message: string
   }) => void
   onSubmit: (
@@ -504,6 +507,9 @@ export const PromptInput = ({
   const [items, setItems] = useState<(FileUIPart & { id: string })[]>([])
   const localItemsRef = useRef<(FileUIPart & { id: string })[]>([])
   const files = usingProvider ? controller.attachments.files : items
+  const submitInProgressRef = useRef(false)
+  const submitAbortControllerRef = useRef<AbortController | null>(null)
+  const [isPreparingSubmit, setIsPreparingSubmit] = useState(false)
 
   const openFileDialogLocal = useCallback(() => {
     inputRef.current?.click()
@@ -590,6 +596,13 @@ export const PromptInput = ({
     [controller, addLocal]
   )
 
+  const addUnlessSubmitting = useCallback(
+    (fileList: File[] | FileList) => {
+      if (!submitInProgressRef.current) add(fileList)
+    },
+    [add]
+  )
+
   const remove = useMemo(
     () =>
       controller
@@ -644,7 +657,7 @@ export const PromptInput = ({
         e.preventDefault()
       }
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        add(e.dataTransfer.files)
+        addUnlessSubmitting(e.dataTransfer.files)
       }
     }
     form.addEventListener('dragover', onDragOver)
@@ -653,7 +666,7 @@ export const PromptInput = ({
       form.removeEventListener('dragover', onDragOver)
       form.removeEventListener('drop', onDrop)
     }
-  }, [add])
+  }, [addUnlessSubmitting])
 
   useEffect(() => {
     if (!globalDrop) return
@@ -668,7 +681,7 @@ export const PromptInput = ({
         e.preventDefault()
       }
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        add(e.dataTransfer.files)
+        addUnlessSubmitting(e.dataTransfer.files)
       }
     }
     document.addEventListener('dragover', onDragOver)
@@ -677,7 +690,11 @@ export const PromptInput = ({
       document.removeEventListener('dragover', onDragOver)
       document.removeEventListener('drop', onDrop)
     }
-  }, [add, globalDrop])
+  }, [addUnlessSubmitting, globalDrop])
+
+  useEffect(() => {
+    return () => submitAbortControllerRef.current?.abort()
+  }, [])
 
   useEffect(
     () => () => {
@@ -692,17 +709,38 @@ export const PromptInput = ({
 
   const handleChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     if (event.currentTarget.files) {
-      add(event.currentTarget.files)
+      addUnlessSubmitting(event.currentTarget.files)
     }
   }
 
-  const convertBlobUrlToDataUrl = async (url: string): Promise<string> => {
-    const response = await fetch(url)
+  const convertBlobUrlToDataUrl = async (
+    url: string,
+    signal: AbortSignal
+  ): Promise<string> => {
+    const response = await fetch(url, { signal })
+    if (!response.ok) throw new Error('Attachment could not be read.')
     const blob = await response.blob()
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = reject
+      const onAbort = () => reader.abort()
+      const cleanup = () => signal.removeEventListener('abort', onAbort)
+      reader.onload = () => {
+        cleanup()
+        resolve(reader.result as string)
+      }
+      reader.onerror = () => {
+        cleanup()
+        reject(reader.error)
+      }
+      reader.onabort = () => {
+        cleanup()
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+      }
+      if (signal.aborted) {
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
       reader.readAsDataURL(blob)
     })
   }
@@ -710,17 +748,22 @@ export const PromptInput = ({
   const ctx = useMemo<AttachmentsContext>(
     () => ({
       files: files.map((item) => ({ ...item, id: item.id })),
-      add,
+      add: addUnlessSubmitting,
       remove,
       clear,
       openFileDialog,
       fileInputRef: inputRef,
     }),
-    [files, add, remove, clear, openFileDialog]
+    [files, addUnlessSubmitting, remove, clear, openFileDialog]
   )
 
-  const handleSubmit: FormEventHandler<HTMLFormElement> = (event) => {
+  const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault()
+    if (submitInProgressRef.current) return
+    submitInProgressRef.current = true
+    setIsPreparingSubmit(true)
+    const abortController = new AbortController()
+    submitAbortControllerRef.current = abortController
 
     const form = event.currentTarget
     const text = usingProvider
@@ -730,54 +773,59 @@ export const PromptInput = ({
           return (formData.get('message') as string) || ''
         })()
 
-    // Reset form immediately after capturing text to avoid race condition
-    // where user input during async blob conversion would be lost
-    if (!usingProvider) {
-      form.reset()
-    }
-
-    // Convert blob URLs to data URLs asynchronously
-    Promise.all(
-      files.map(async ({ id, ...item }) => {
-        const isPdf =
-          item.mediaType?.toLowerCase() === 'application/pdf' ||
-          item.filename?.toLowerCase().endsWith('.pdf') === true
-        if (item.url && item.url.startsWith('blob:')) {
-          if (isPdf) return item
-          return {
-            ...item,
-            url: await convertBlobUrlToDataUrl(item.url),
-          }
-        }
-        return item
-      })
-    ).then((convertedFiles: FileUIPart[]) => {
+    try {
+      let convertedFiles: PromptInputFile[]
       try {
-        const result = onSubmit({ text, files: convertedFiles }, event)
-
-        // Handle both sync and async onSubmit
-        if (result instanceof Promise) {
-          result
-            .then(() => {
-              clear()
-              if (usingProvider) {
-                controller.textInput.clear()
+        convertedFiles = await Promise.all(
+          files.map(async ({ id, ...item }) => {
+            const isPdf =
+              item.mediaType?.toLowerCase() === 'application/pdf' ||
+              item.filename?.toLowerCase().endsWith('.pdf') === true
+            if (item.url && item.url.startsWith('blob:')) {
+              if (isPdf) return { ...item, id }
+              return {
+                ...item,
+                url: await convertBlobUrlToDataUrl(
+                  item.url,
+                  abortController.signal
+                ),
+                id,
               }
-            })
-            .catch(() => {
-              // Don't clear on error - user may want to retry
-            })
-        } else {
-          // Sync function completed without throwing, clear attachments
-          clear()
-          if (usingProvider) {
-            controller.textInput.clear()
-          }
+            }
+            return { ...item, id }
+          })
+        )
+      } catch {
+        if (!abortController.signal.aborted) {
+          onError?.({
+            code: 'read',
+            message: t('Unable to prepare attachments. Please try again.'),
+          })
         }
-      } catch (_error) {
-        // Don't clear on error - user may want to retry
+        return
       }
-    })
+
+      try {
+        await onSubmit(
+          { text, files: convertedFiles, signal: abortController.signal },
+          event
+        )
+      } catch {
+        // Keep the draft and attachments so the user can retry.
+        return
+      }
+
+      clear()
+      if (usingProvider) {
+        controller.textInput.clear()
+      } else {
+        form.reset()
+      }
+    } finally {
+      submitAbortControllerRef.current = null
+      submitInProgressRef.current = false
+      setIsPreparingSubmit(false)
+    }
   }
 
   // Render with or without local provider
@@ -788,6 +836,7 @@ export const PromptInput = ({
         accept={accept}
         aria-label={t('Upload files')}
         className='hidden'
+        disabled={isPreparingSubmit}
         multiple={multiple}
         onChange={handleChange}
         ref={inputRef}
@@ -796,10 +845,30 @@ export const PromptInput = ({
       />
       <form
         className={cn('w-full', className)}
+        aria-busy={isPreparingSubmit}
         onSubmit={handleSubmit}
         {...props}
       >
-        <InputGroup className={groupClassName}>{children}</InputGroup>
+        {isPreparingSubmit && (
+          <div
+            className='text-muted-foreground flex items-center justify-between gap-3 px-3 py-2 text-xs'
+            role='status'
+          >
+            <span>{t('Preparing attachments...')}</span>
+            <Button
+              aria-label={t('Cancel')}
+              onClick={() => submitAbortControllerRef.current?.abort()}
+              size='sm'
+              type='button'
+              variant='ghost'
+            >
+              {t('Cancel')}
+            </Button>
+          </div>
+        )}
+        <fieldset className='contents' disabled={isPreparingSubmit}>
+          <InputGroup className={groupClassName}>{children}</InputGroup>
+        </fieldset>
       </form>
     </>
   )

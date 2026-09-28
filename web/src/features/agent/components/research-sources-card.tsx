@@ -92,7 +92,7 @@ export function ResearchSourcesCard() {
         </CardTitle>
         <CardDescription className='text-xs leading-5'>
           {t(
-            'Search GitHub/Hugging Face for technical discovery. OpenAlex is searched only for paper queries. RustCC, CodeReset and GHFind are links, not indexed sources. Provide a public HTTPS URL for browser reading when CORS allows. No cookies are sent.'
+            'Search GitHub/Hugging Face for technical discovery and OpenAlex for paper queries. Broad web searches use the configured provider through Lain42; it receives the search query, not connected-account credentials or cookies. RustCC, CodeReset and GHFind have no dedicated index. Public HTTPS pages are read in the browser first, with a bounded Lain42 fallback when CORS blocks access; the target site receives no login cookies.'
           )}
         </CardDescription>
         <CardDescription className='text-xs leading-5'>

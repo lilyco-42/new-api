@@ -32,7 +32,7 @@ export type ClientPageResult = {
 }
 
 export type ClientSearchResponse = {
-  execution: 'browser-wasm'
+  execution: 'browser-wasm' | 'lain42-search-api'
   query: string
   fetched_at: string
   sources: string[]
@@ -63,6 +63,7 @@ export type ClientCrawlResponse = {
 
 type CrawlerCore = {
   memory: WebAssembly.Memory
+  __heap_base: WebAssembly.Global
   extract_html_text: (
     inputPointer: number,
     inputLength: number,
@@ -77,6 +78,9 @@ type GitHubRepository = {
   description?: string | null
   stargazers_count?: number
   updated_at?: string
+  language?: string | null
+  topics?: string[]
+  private?: boolean
 }
 
 type HuggingFaceModel = {
@@ -85,6 +89,15 @@ type HuggingFaceModel = {
   pipeline_tag?: string
   downloads?: number
   likes?: number
+}
+
+type HuggingFaceOrganizationOverview = {
+  name?: string
+  fullname?: string
+  isVerified?: boolean
+  numModels?: number
+  numDatasets?: number
+  numPapers?: number
 }
 
 type OpenAlexWork = {
@@ -102,6 +115,23 @@ const MAX_PAGE_TEXT = 12_000
 const PAGE_TIMEOUT_MS = 10_000
 const MAX_CRAWL_PAGES = 5
 const CRAWLER_WASM_URL = '/agent/crawler_core.wasm'
+const OFFICIAL_HUGGING_FACE_ORGANIZATIONS = [
+  { slug: 'deepseek-ai', aliases: ['deepseek', 'deepseek-ai'] },
+] as const
+
+function findOfficialHuggingFaceOrganization(query: string) {
+  const queryTokens = new Set(query.toLowerCase().match(/[a-z0-9]+/gu) || [])
+  return OFFICIAL_HUGGING_FACE_ORGANIZATIONS.find(({ aliases }) =>
+    aliases.some((alias) =>
+      alias
+        .toLowerCase()
+        .split(/[^a-z0-9]+/u)
+        .filter(Boolean)
+        .every((token) => queryTokens.has(token))
+    )
+  )
+}
+
 const OPENALEX_QUERY_STOP_WORDS = new Set([
   'about',
   'academic',
@@ -258,6 +288,7 @@ async function loadCrawlerCore(): Promise<CrawlerCore> {
     const exports = instance.exports as unknown as CrawlerCore
     if (
       !(exports.memory instanceof WebAssembly.Memory) ||
+      !(exports.__heap_base instanceof WebAssembly.Global) ||
       typeof exports.extract_html_text !== 'function'
     ) {
       throw new Error('The browser-side WASM crawler has an invalid module.')
@@ -273,12 +304,12 @@ async function loadCrawlerCore(): Promise<CrawlerCore> {
 export async function extractHtmlTextWasm(html: string): Promise<string> {
   const core = await loadCrawlerCore()
   const input = new TextEncoder().encode(html)
-  const inputPointer = 1024
-  const outputPointer = Math.ceil((inputPointer + input.byteLength + 8) / 8) * 8
   const outputCapacity = Math.min(
     MAX_PAGE_BYTES,
     Math.max(1024, input.byteLength)
   )
+  const inputPointer = Math.ceil(Number(core.__heap_base.value) / 8) * 8
+  const outputPointer = Math.ceil((inputPointer + input.byteLength) / 8) * 8
   const requiredBytes = outputPointer + outputCapacity
   const missingBytes = requiredBytes - core.memory.buffer.byteLength
   if (missingBytes > 0) core.memory.grow(Math.ceil(missingBytes / 65_536))
@@ -329,6 +360,55 @@ export async function fetchClientPage(
   signal: AbortSignal
 ): Promise<ClientPageResult> {
   const requestedUrl = safePublicHttpsUrl(rawUrl)
+  const repositoryPath = requestedUrl.hostname === 'github.com'
+    ? requestedUrl.pathname.split('/').filter(Boolean)
+    : []
+  if (
+    repositoryPath.length === 2 &&
+    repositoryPath.every((part) => /^[a-z\d_.-]+$/iu.test(part))
+  ) {
+    // GitHub's HTML page is not readable cross-origin, but its public REST
+    // repository metadata is. Keep the request on the user's device and do
+    // not attach OAuth credentials or browser cookies.
+    const apiUrl = safePublicHttpsUrl(
+      `https://api.github.com/repos/${repositoryPath.map(encodeURIComponent).join('/')}`
+    )
+    const response = await fetchWithTimeout(
+      apiUrl, signal, 'application/vnd.github+json'
+    )
+    if (!response.ok) {
+      throw new Error(`The public GitHub repository returned HTTP ${response.status}.`)
+    }
+    const repository = JSON.parse(
+      await readBoundedText(response, MAX_SEARCH_RESPONSE_BYTES)
+    ) as GitHubRepository
+    if (repository.private || !repository.full_name || !repository.html_url) {
+      throw new Error('The public GitHub repository metadata is incomplete.')
+    }
+    const canonicalUrl = safePublicHttpsUrl(repository.html_url)
+    if (
+      canonicalUrl.hostname !== 'github.com' ||
+      canonicalUrl.pathname.toLowerCase().replace(/\/$/u, '') !==
+        requestedUrl.pathname.toLowerCase().replace(/\/$/u, '')
+    ) {
+      throw new Error('The GitHub repository metadata did not match the requested page.')
+    }
+    return {
+      title: repository.full_name,
+      url: canonicalUrl.toString(),
+      text: [
+        `Repository: ${repository.full_name}`,
+        `Description: ${repository.description || 'No description provided.'}`,
+        ...(repository.language ? [`Primary language: ${repository.language}`] : []),
+        ...(repository.topics?.length ? [`Topics: ${repository.topics.slice(0, 20).join(', ')}`] : []),
+        ...(typeof repository.stargazers_count === 'number'
+          ? [`Stars: ${repository.stargazers_count}`] : []),
+        ...(repository.updated_at ? [`Updated: ${repository.updated_at}`] : []),
+      ].join('\n').slice(0, MAX_PAGE_TEXT),
+      fetched_at: new Date().toISOString(),
+      links: [],
+    }
+  }
   const response = await fetchWithTimeout(
     requestedUrl,
     signal,
@@ -547,25 +627,73 @@ async function searchHuggingFace(
   url.searchParams.set('search', query)
   url.searchParams.set('limit', String(limit))
   url.searchParams.set('sort', 'downloads')
+  const organization = findOfficialHuggingFaceOrganization(query)
+  const organizationSlug = organization?.slug
+  const organizationOverview = organizationSlug
+    ? await fetchJson<HuggingFaceOrganizationOverview>(
+        new URL(
+          `/api/organizations/${encodeURIComponent(organizationSlug)}/overview`,
+          'https://huggingface.co'
+        ),
+        signal
+      )
+    : null
+  if (
+    organizationSlug &&
+    organizationOverview?.name?.toLowerCase() !== organizationSlug.toLowerCase()
+  ) {
+    throw new Error('Hugging Face organization profile did not match the query.')
+  }
+
   const response = await fetchJson<HuggingFaceModel[]>(url, signal)
-  return response.map((model) => {
-    const modelId = model.modelId || model.id || 'Hugging Face model'
-    const encodedPath = modelId.split('/').map(encodeURIComponent).join('/')
-    return {
-      title: modelId,
-      url: `https://huggingface.co/${encodedPath}`,
-      snippet: [
-        model.pipeline_tag,
-        typeof model.downloads === 'number'
-          ? `${model.downloads} downloads`
-          : '',
-        typeof model.likes === 'number' ? `${model.likes} likes` : '',
+  const organizationResult: ClientSearchResult[] =
+    organization && organizationOverview
+    ? [
+        {
+          title: [
+            organizationOverview.fullname || organization.slug,
+            'Hugging Face organization',
+          ].join(' — '),
+          url: `https://huggingface.co/${encodeURIComponent(organization.slug)}`,
+          snippet: [
+            organizationOverview.isVerified ? 'Verified organization' : '',
+            typeof organizationOverview.numModels === 'number'
+              ? `${organizationOverview.numModels} models`
+              : '',
+            typeof organizationOverview.numDatasets === 'number'
+              ? `${organizationOverview.numDatasets} datasets`
+              : '',
+            typeof organizationOverview.numPapers === 'number'
+              ? `${organizationOverview.numPapers} papers`
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          source: 'Hugging Face',
+        },
       ]
-        .filter(Boolean)
-        .join(' · '),
-      source: 'Hugging Face',
-    }
-  })
+    : []
+  return [
+    ...organizationResult,
+    ...response.map((model) => {
+      const modelId = model.modelId || model.id || 'Hugging Face model'
+      const encodedPath = modelId.split('/').map(encodeURIComponent).join('/')
+      return {
+        title: modelId,
+        url: `https://huggingface.co/${encodedPath}`,
+        snippet: [
+          model.pipeline_tag,
+          typeof model.downloads === 'number'
+            ? `${model.downloads} downloads`
+            : '',
+          typeof model.likes === 'number' ? `${model.likes} likes` : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        source: 'Hugging Face',
+      }
+    }),
+  ]
 }
 
 async function searchOpenAlex(
@@ -647,6 +775,16 @@ export async function searchClientSources(
       if (wantsGitHub) selectedNames.push('GitHub')
       if (wantsHuggingFace) selectedNames.push('Hugging Face')
       if (wantsPapers) selectedNames.push('OpenAlex')
+      const matchesOfficialHuggingFaceOrganization =
+        findOfficialHuggingFaceOrganization(query) !== undefined
+      if (
+        matchesOfficialHuggingFaceOrganization &&
+        !wantsGitHub &&
+        !wantsPapers &&
+        !asksForWebsiteSearch
+      ) {
+        selectedNames = ['Hugging Face']
+      }
       if (selectedNames.length === 0 && !asksForWebsiteSearch) {
         // General technical discovery uses project/model indexes. Scholarly
         // search is opt-in so unrelated papers do not pollute ordinary queries.

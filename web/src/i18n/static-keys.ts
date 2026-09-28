@@ -521,6 +521,20 @@ export const STATIC_I18N_KEYS = [
   'No enabled tokens available',
   'Redirecting to chat page...',
 
+  // Agent developer toolkit descriptions (passed to t at runtime)
+  '交互式 Rust 终端文件管理器；Agent 不会代为操作它，工作区读取使用独立的只读接口。',
+  'Agent 目前只用 jj 查看工作区提交历史；变更操作尚未开放。',
+  'Agent 目前只在工作区执行受限代码搜索；文件重写尚未开放。',
+  '只读探索工作区的符号与调用关系；独立影响分析操作尚未开放。',
+  'MCP 服务示例；需在桌面版配置并连接后才能调用，每次调用都要确认。',
+  'CLI、TUI、Web 与 MCP 共用 schema 的框架参考；目前不是可直接调用的 Agent 工具。',
+
+  // Actionable model request errors returned by the streaming client
+  'The selected model is temporarily rate limited. Retry shortly or choose another model.',
+  'The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.',
+  'The model service returned an unspecified error. Retry or switch models; if it keeps happening, contact the site administrator.',
+  'The site is temporarily at capacity because server resources are exhausted. Switching models may not help. Wait a moment and retry; contact the site administrator if it persists.',
+
   // Channel upstream updates
   'No processable upstream model updates for this channel',
   'Upstream model updates applied: {{added}} added, {{removed}} removed, {{ignored}} ignored this time, {{totalIgnored}} total ignored models',

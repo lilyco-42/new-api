@@ -36,6 +36,19 @@ func SetApiRouter(router *gin.Engine) {
 		// identity; claim/redeem are short-lived desktop ceremony endpoints.
 		agentRoute := apiRouter.Group("/agent")
 		{
+			// Only the private DSH service can use this HMAC-authenticated
+			// route; the controller resolves account identity from its session.
+			agentRoute.POST("/bridge/v1/tool", middleware.DisableCache(), controller.AgentDSHToolRelay)
+			agentSessionRoute := agentRoute.Group("/sessions")
+			agentSessionRoute.Use(middleware.UserAuth(), middleware.DisableCache())
+			{
+				agentSessionRoute.POST("", middleware.CriticalRateLimit(), middleware.SessionCookieOriginGuard(), controller.CreateAgentWebSession)
+				agentSessionRoute.GET("", middleware.SearchRateLimit(), controller.ListAgentWebSessions)
+				agentSessionRoute.DELETE("/:id", middleware.CriticalRateLimit(), middleware.SessionCookieOriginGuard(), controller.RevokeAgentWebSession)
+			}
+			agentTurnRoute := agentRoute.Group("/turns")
+			agentTurnRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.SessionCookieOriginGuard(), middleware.DisableCache())
+			agentTurnRoute.POST("", controller.SubmitAgentWebTurn)
 			platformAgentRoute := agentRoute.Group("")
 			platformAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
 			{
@@ -90,6 +103,9 @@ func SetApiRouter(router *gin.Engine) {
 			browserAgentRoute.GET("/github/repositories/search", controller.AgentGitHubRepositoriesSearch)
 			browserAgentRoute.GET("/github/issues", controller.AgentGitHubIssues)
 			browserAgentRoute.GET("/github/pull-requests", controller.AgentGitHubPullRequests)
+			browserAgentRoute.GET("/github/actions/runs", controller.AgentGitHubActionsRuns)
+			browserAgentRoute.GET("/github/actions/jobs", controller.AgentGitHubActionsJobs)
+			browserAgentRoute.GET("/github/actions/logs", controller.AgentGitHubActionsLogs)
 			browserAgentMutationRoute := agentRoute.Group("")
 			browserAgentMutationRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
 			browserAgentMutationRoute.DELETE("/github/authorization", middleware.SessionCookieOriginGuard(), controller.AgentGitHubDisconnect)

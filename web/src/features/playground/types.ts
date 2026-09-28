@@ -121,6 +121,15 @@ export interface LocalToolProvider {
     messages: ChatCompletionMessage[],
     preparedContext: ChatCompletionMessage[]
   ) => ChatCompletionResponse
+  /** Optionally complete a supported browser Agent turn through its hosted conversation runtime. */
+  completeTurn?: (
+    input: {
+      payload: ChatCompletionRequest
+      preparedContext: ChatCompletionMessage[]
+      turnId?: string
+    },
+    signal: AbortSignal
+  ) => Promise<ChatCompletionResponse | null>
   /**
    * Optional approval gate for tools that can affect external systems. The
    * loop must wait for a user decision before invoking the tool.

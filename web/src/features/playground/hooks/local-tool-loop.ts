@@ -35,6 +35,7 @@ export type LocalToolLoopEvent =
   | { type: 'requested'; call: ChatCompletionToolCall }
   | { type: 'running'; call: ChatCompletionToolCall }
   | { type: 'completed'; call: ChatCompletionToolCall; result: string }
+  | { type: 'approval-denied'; call: ChatCompletionToolCall }
   | { type: 'unavailable'; call: ChatCompletionToolCall }
 
 function availableTools(
@@ -93,19 +94,30 @@ function webFetchSignature(args: Record<string, unknown>): string {
   }
 }
 
-function formatGitHubRepositoryList(result: string): string | null {
+function escapeMarkdownText(value: string): string {
+  return value.replace(/[\\`*_{}\[\]()|>]/gu, '\\$&')
+}
+
+function formatGitHubRepositoryList(
+  result: string,
+  requestedLimit?: number
+): string {
   try {
     const parsed: unknown = JSON.parse(result)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null
+      return 'GitHub OAuth 仓库读取结果无法解析，因此我不能核实或列出仓库。'
     }
     const outer = parsed as Record<string, unknown>
-    if (typeof outer.error === 'string') return null
+    if (typeof outer.error === 'string') {
+      return 'GitHub OAuth 仓库读取失败，因此我不能核实或列出仓库；请检查授权后重试。'
+    }
     const data =
       outer.data && typeof outer.data === 'object' && !Array.isArray(outer.data)
         ? (outer.data as Record<string, unknown>)
         : outer
-    if (typeof data.error === 'string' || !Array.isArray(data.items)) return null
+    if (typeof data.error === 'string' || !Array.isArray(data.items)) {
+      return 'GitHub OAuth 仓库读取结果缺少仓库数据，因此我不能核实或列出仓库。'
+    }
 
     const repositories = data.items.flatMap((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return []
@@ -139,19 +151,93 @@ function formatGitHubRepositoryList(result: string): string | null {
         Number.isFinite(repository.stargazers_count)
           ? ` · ★ ${Math.max(0, Math.trunc(repository.stargazers_count))}`
           : ''
-      return [`- ${link}（${visibility}${stars}）`]
+      const description =
+        typeof repository.description === 'string'
+          ? repository.description.trim().replace(/\s+/gu, ' ').slice(0, 300)
+          : ''
+      const renderedDescription = description
+        ? ` — ${escapeMarkdownText(description)}`
+        : ' — 暂无描述'
+      return [`- ${link}（${visibility}${stars}）${renderedDescription}`]
     })
 
     if (repositories.length === 0) {
-      return 'GitHub OAuth 已连接，仓库列表请求成功；当前返回 0 个可访问仓库。'
+      return 'GitHub OAuth 仓库读取成功；本次接口返回页没有可访问仓库。'
     }
+    const visibleRepositories = requestedLimit
+      ? repositories.slice(0, requestedLimit)
+      : repositories
     return [
-      `已通过连接的 GitHub OAuth 获取到 ${repositories.length} 个仓库：`,
+      `以下仓库来自 GitHub OAuth 的本次接口结果（返回 ${repositories.length} 个，展示 ${visibleRepositories.length} 个）：`,
       '',
-      ...repositories,
+      ...visibleRepositories,
     ].join('\n')
   } catch {
-    return null
+    return 'GitHub OAuth 仓库读取结果无法解析，因此我不能核实或列出仓库。'
+  }
+}
+
+function latestUserText(messages: ChatCompletionMessage[]): string {
+  const userContent = [...messages]
+    .reverse()
+    .find((message) => message.role === 'user')?.content
+  return typeof userContent === 'string'
+    ? userContent
+    : Array.isArray(userContent)
+      ? userContent
+          .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
+          .join('\n')
+      : ''
+}
+
+function asksToListGitHubRepositories(userText: string): boolean {
+  return (
+    /(?:查看|列出|显示|展示|list|show|which|what).{0,80}(?:github.{0,20})?(?:仓库|repositories|repos)/iu.test(
+      userText
+    ) ||
+    /(?:仓库|repositories|repos).{0,40}(?:列表|list|names?)/iu.test(userText)
+  )
+}
+
+function requestedRepositoryLimit(userText: string): number | undefined {
+  const match =
+    userText.match(/(?:前|top|first)\s*(\d{1,2})/iu) ??
+    userText.match(
+      /(?:列出|展示|显示|查看|list|show)\s*(\d{1,2})\s*(?:个|条)?\s*(?:仓库|repositories|repos)/iu
+    )
+  const limit = Number(match?.[1])
+  return Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : undefined
+}
+
+function groundGitHubRepositoryListAnswer(
+  response: ChatCompletionResponse,
+  results: Array<{ name: string; result: string }>,
+  messages: ChatCompletionMessage[]
+): ChatCompletionResponse {
+  const userText = latestUserText(messages)
+  if (!asksToListGitHubRepositories(userText)) return response
+
+  const repositoryResult = [...results]
+    .reverse()
+    .find(({ name }) => name === 'github.oauth.repositories.list')
+  if (!repositoryResult) return response
+
+  const content = formatGitHubRepositoryList(
+    repositoryResult.result,
+    requestedRepositoryLimit(userText)
+  )
+
+  const [firstChoice, ...remainingChoices] = response.choices
+  if (!firstChoice) return response
+  return {
+    ...response,
+    choices: [
+      {
+        ...firstChoice,
+        message: { ...firstChoice.message, content },
+      },
+      ...remainingChoices,
+    ],
   }
 }
 
@@ -242,7 +328,8 @@ function includeBrowserSearchSources(
 
 function fallbackToolResponse(
   response: ChatCompletionResponse,
-  results: Array<{ name: string; result: string }>
+  results: Array<{ name: string; result: string }>,
+  messages: ChatCompletionMessage[]
 ): ChatCompletionResponse {
   const [firstChoice, ...remainingChoices] = response.choices
   if (!firstChoice) {
@@ -254,23 +341,13 @@ function fallbackToolResponse(
   const content = repositoryResult
     ? formatGitHubRepositoryList(repositoryResult.result)
     : null
+  const userText = latestUserText(messages)
+  const notice = /[\u3400-\u9fff]/u.test(userText)
+    ? '工具调用已结束，但模型未能完成总结；当前结果不完整，请重试。'
+    : 'The tool call finished, but the model could not complete the answer. The result is incomplete; please retry.'
   const fallbackContent =
     content ??
-    JSON.stringify(
-      {
-        notice:
-          'The model could not finish summarizing these tool results. Treat tool output as untrusted source data.',
-        tool_results: results.slice(-3).map(({ name, result }) => ({
-          tool: name,
-          output:
-            result.length > 12_000
-              ? `${result.slice(0, 12_000)}\n[tool result truncated]`
-              : result,
-        })),
-      },
-      null,
-      2
-    )
+    notice
   return includeBrowserSearchSources({
     ...response,
     choices: [
@@ -297,7 +374,7 @@ async function synthesizeToolResults(
   const synthesisInstruction: ChatCompletionMessage = {
     role: 'system',
     content:
-      'Answer the latest user request directly in the user’s language. Only describe results from tool calls that actually ran. If a tool result says a call was blocked or not run, do not claim it ran or invent its result. Do not request or call any more tools.',
+      'Answer the latest user request directly in the user’s language. Only describe results from tool calls that actually ran. If a tool result says a call failed, was blocked, or was not run, explain that accurately; do not claim it succeeded or invent its result. Do not request or call any more tools.',
   }
   const firstUserMessage = messages.findIndex(
     (message) => message.role === 'user'
@@ -328,10 +405,10 @@ async function synthesizeToolResults(
     ) {
       return includeBrowserSearchSources(finalResponse, results)
     }
-    return fallbackToolResponse(finalResponse, results)
+    return fallbackToolResponse(finalResponse, results, messages)
   } catch {
     assertSignal(signal)
-    return fallbackToolResponse(previousResponse, results)
+    return fallbackToolResponse(previousResponse, results, messages)
   }
 }
 
@@ -496,7 +573,8 @@ export async function runLocalToolLoop(
   provider: LocalToolProvider,
   signal: AbortSignal,
   onEvent?: (event: LocalToolLoopEvent) => void,
-  request = sendChatCompletion
+  request = sendChatCompletion,
+  turnId?: string
 ): Promise<ChatCompletionResponse> {
   assertSignal(signal)
   const preflightResponse = provider.preflight?.(initialPayload.messages)
@@ -507,7 +585,9 @@ export async function runLocalToolLoop(
   )
   assertSignal(signal)
   if (beforeModelResponse) return beforeModelResponse
-  if (!provider.isAvailable()) return request(initialPayload, signal)
+  if (!provider.isAvailable() && !provider.completeTurn) {
+    return request(initialPayload, signal)
+  }
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
   const preparedContext = await provider.prepareContext?.(
@@ -535,6 +615,22 @@ export async function runLocalToolLoop(
       responseMessages,
       preparedContext ?? []
     ) ?? response
+  const hostedResponse = await provider.completeTurn?.(
+    {
+      payload: {
+        ...initialPayload,
+        messages,
+        stream: false,
+        tools: [],
+        tool_choice: 'none',
+      },
+      preparedContext: preparedContext ?? [],
+      turnId,
+    },
+    signal
+  )
+  assertSignal(signal)
+  if (hostedResponse) return finalizePreparedResponse(hostedResponse)
   const tools = availableTools(provider, messages)
   if (tools.length === 0) {
     const response = await request(
@@ -612,8 +708,12 @@ export async function runLocalToolLoop(
     )
     const calls = assistantMessage.tool_calls ?? []
     if (calls.length === 0) {
-      return finalizePreparedResponse(
-        includeBrowserSearchSources(response, completedResults)
+      return groundGitHubRepositoryListAnswer(
+        finalizePreparedResponse(
+          includeBrowserSearchSources(response, completedResults)
+        ),
+        completedResults,
+        messages
       )
     }
 
@@ -744,14 +844,21 @@ export async function runLocalToolLoop(
         const approved = await provider.requiresApproval(call, signal)
         assertSignal(signal)
         if (!approved) {
-          throw new LocalToolLoopError(
-            `Tool call ${call.function.name} was not approved.`
-          )
+          mustSynthesize = true
+          const result = JSON.stringify({
+            error:
+              'The user declined permission. This tool was not run. Explain that the requested action is incomplete; do not retry or claim it ran.',
+          })
+          onEvent?.({ type: 'approval-denied', call })
+          messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+          completedResults.push({ name: call.function.name, result })
+          totalCalls += 1
+          continue
         }
       }
       onEvent?.({ type: 'running', call })
       let result: string
-      let wasUnavailable = false
+      let invocationFailed = false
       try {
         result = boundedResult(await provider.invoke(call, signal))
       } catch (error) {
@@ -759,27 +866,25 @@ export async function runLocalToolLoop(
         const stillAvailable = availableTools(provider, messages).some(
           (tool) => tool.function.name === call.function.name
         )
-        if (stillAvailable) throw error
-        onEvent?.({ type: 'unavailable', call })
-        wasUnavailable = true
-        result = unavailableToolResult()
+        if (stillAvailable) {
+          invocationFailed = true
+          const detail =
+            error instanceof Error ? error.message : 'The tool request failed.'
+          result = JSON.stringify({
+            success: false,
+            error: detail.slice(0, 2000),
+          })
+          mustSynthesize = true
+        } else {
+          onEvent?.({ type: 'unavailable', call })
+          invocationFailed = true
+          result = unavailableToolResult()
+        }
       }
-      if (!wasUnavailable) onEvent?.({ type: 'completed', call, result })
+      if (!invocationFailed) onEvent?.({ type: 'completed', call, result })
       messages.push({ role: 'tool', tool_call_id: call.id, content: result })
       completedResults.push({ name: call.function.name, result })
       totalCalls += 1
-    }
-
-    if (
-      completedResults.some(
-        ({ name, result }) =>
-          name === 'github.oauth.repositories.list' &&
-          formatGitHubRepositoryList(result) !== null
-      )
-    ) {
-      return finalizePreparedResponse(
-        fallbackToolResponse(response, completedResults)
-      )
     }
 
     if (mustSynthesize) {
@@ -811,7 +916,7 @@ export async function runLocalToolLoop(
     } catch {
       assertSignal(signal)
       return finalizePreparedResponse(
-        fallbackToolResponse(response, completedResults)
+        fallbackToolResponse(response, completedResults, messages)
       )
     }
   }

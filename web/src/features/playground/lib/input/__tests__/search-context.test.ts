@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   containsPublicPageUrlReference,
+  extractPublicPageUrlReferences,
   formatSearchResultsForPrompt,
   normalizePublicPageUrlInput,
 } from '../search-context'
@@ -29,6 +30,36 @@ describe('browser search context', () => {
       containsPublicPageUrlReference('Please explain deepseek.com for me.')
     ).toBe(true)
     expect(containsPublicPageUrlReference('deepseek ai models')).toBe(false)
+  })
+
+  it('returns normalized URLs so page reads can stay tied to the user request', () => {
+    expect(
+      extractPublicPageUrlReferences(
+        'Read https://docs.example.com/guide#intro and https://docs.example.com/guide#faq.'
+      )
+    ).toEqual(['https://docs.example.com/guide'])
+  })
+
+  it('strips common CJK sentence punctuation from a pasted URL', () => {
+    expect(
+      extractPublicPageUrlReferences('请读取 https://docs.example.com/guide。')
+    ).toEqual(['https://docs.example.com/guide'])
+  })
+
+  it('stops a URL at CJK punctuation before the rest of a sentence', () => {
+    expect(
+      extractPublicPageUrlReferences(
+        '请阅读 https://docs.example.com/guide，说明页面用途并给出来源。'
+      )
+    ).toEqual(['https://docs.example.com/guide'])
+  })
+
+  it('preserves query commas before a CJK sentence boundary', () => {
+    expect(
+      extractPublicPageUrlReferences(
+        '请阅读 https://docs.example.com/search?q=rust,wasm，说明结果。'
+      )
+    ).toEqual(['https://docs.example.com/search?q=rust,wasm'])
   })
 
   it('formats search results as bounded source context for the model', () => {

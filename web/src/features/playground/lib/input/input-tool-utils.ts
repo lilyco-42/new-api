@@ -26,6 +26,10 @@ import {
 } from 'lucide-react'
 
 import type { ContentPart } from '../../types'
+import {
+  analyzeBinaryDataUrl,
+  formatBinaryAnalysisForModel,
+} from '@/lib/client-binary/analyze-binary'
 import { MAX_PDF_PAGES, extractPdfText } from './extract-pdf-text'
 
 type AttachmentAction = {
@@ -49,6 +53,12 @@ export const PROMPT_INPUT_ATTACH_FILES_EVENT =
   'lain42:prompt-input-attach-files'
 
 export const MAX_ATTACHMENT_FILE_SIZE_BYTES = 8 * 1024 * 1024
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException('Aborted', 'AbortError')
+  }
+}
 
 export function attachFilesToCurrentPromptInput(files: File[]) {
   if (typeof window === 'undefined' || files.length === 0) return
@@ -115,14 +125,23 @@ function isPdfAttachment(file: FileUIPart): boolean {
 
 /** Convert PromptInput files into OpenAI-compatible request content parts. */
 export async function filePartsToContentParts(
-  files: FileUIPart[]
+  files: FileUIPart[],
+  signal?: AbortSignal
 ): Promise<ContentPart[]> {
   const parts: ContentPart[] = []
   let remainingTextChars = MAX_ATTACHMENT_TEXT_CHARS
 
   for (const file of files) {
-    const filename = file.filename || 'attachment'
-    const mediaType = file.mediaType || 'application/octet-stream'
+    throwIfAborted(signal)
+    const filename = (file.filename || 'attachment')
+      .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+      .slice(0, 200)
+    const receivedMediaType = file.mediaType || 'application/octet-stream'
+    const mediaType = /^[\w!#$&^_.+-]+\/[\w!#$&^_.+-]+$/u.test(
+      receivedMediaType
+    )
+      ? receivedMediaType
+      : 'application/octet-stream'
     const url = file.url || ''
 
     if (mediaType.startsWith('image/') && url.startsWith('data:image/')) {
@@ -143,7 +162,7 @@ export async function filePartsToContentParts(
       }
 
       try {
-        const pdf = await extractPdfText(url, remainingTextChars)
+        const pdf = await extractPdfText(url, remainingTextChars, signal)
         let status = ''
         if (!pdf.text.trim()) {
           status =
@@ -159,6 +178,7 @@ export async function filePartsToContentParts(
           remainingTextChars - pdf.text.length - status.length
         )
       } catch {
+        if (signal?.aborted) throwIfAborted(signal)
         throw new Error(
           'Unable to read this PDF. Check that it is not encrypted or damaged.'
         )
@@ -168,6 +188,7 @@ export async function filePartsToContentParts(
 
     if (isTextAttachment(file)) {
       const text = decodeDataUrl(url)
+      throwIfAborted(signal)
       if (text !== null) {
         const boundedText = text.slice(0, remainingTextChars)
         const truncated = boundedText.length < text.length
@@ -184,10 +205,36 @@ export async function filePartsToContentParts(
       }
     }
 
+    if (remainingTextChars <= 0) {
+      parts.push({
+        type: 'text',
+        text: `[Attached file: ${filename} (${mediaType})]\n[Local analysis omitted because the attachment text limit was reached.]`,
+      })
+      continue
+    }
+
+    let binaryAnalysis: string
+    try {
+      binaryAnalysis = formatBinaryAnalysisForModel(
+        await analyzeBinaryDataUrl(url, signal)
+      )
+    } catch {
+      if (signal?.aborted) throwIfAborted(signal)
+      binaryAnalysis =
+        'Client-side WebAssembly analysis is unavailable. The raw file was not sent, so its contents cannot be inspected.'
+    }
+    throwIfAborted(signal)
+    const boundedAnalysis = binaryAnalysis.slice(0, remainingTextChars)
+    const truncated = boundedAnalysis.length < binaryAnalysis.length
+    const status = truncated ? '\n[Analysis summary was truncated.]' : ''
     parts.push({
       type: 'text',
-      text: `[Attached file: ${filename} (${mediaType})]`,
+      text: `[Attached binary file: ${filename} (${mediaType})]\n${boundedAnalysis}${status}\n[End attached binary file]`,
     })
+    remainingTextChars = Math.max(
+      0,
+      remainingTextChars - boundedAnalysis.length - status.length
+    )
   }
 
   return parts

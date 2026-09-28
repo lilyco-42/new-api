@@ -347,6 +347,15 @@ export function useChatHandler({
                 )
               )
             )
+          } else if (event.type === 'approval-denied') {
+            onMessageUpdate((prev) =>
+              updateLastAssistantMessage(prev, (message) =>
+                updateCurrentVersionContent(
+                  message,
+                  t('The tool was not run because you declined permission.')
+                )
+              )
+            )
           } else if (event.type === 'running') {
             onMessageUpdate((prev) =>
               updateLastAssistantMessage(prev, (message) =>
@@ -375,12 +384,20 @@ export function useChatHandler({
             )
           }
         }
+        const latestUserMessage = [...messages]
+          .reverse()
+          .find((message) => message.from === 'user')
+        const turnId = latestUserMessage
+          ? `${latestUserMessage.key}-${latestUserMessage.versions[0]?.id ?? 'current'}`
+          : undefined
         const response = localToolProvider
           ? await runLocalToolLoop(
               payload,
               localToolProvider,
               abortController.signal,
-              onToolEvent
+              onToolEvent,
+              undefined,
+              turnId
             )
           : await sendChatCompletion(payload, abortController.signal)
         if (
@@ -441,7 +458,9 @@ export function useChatHandler({
     (messages: Message[]) => {
       if (
         localToolProvider &&
-        (localToolProvider.isAvailable() || localToolProvider.preflight)
+        (localToolProvider.isAvailable() ||
+          localToolProvider.preflight ||
+          localToolProvider.completeTurn)
       ) {
         void sendNonStreamingChat(messages)
       } else if (config.stream) {

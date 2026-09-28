@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 import type { ContentPart } from '../../types'
+import { parseEmbeddedTextAttachment } from './message-attachment-preview-utils'
 
 type MessageAttachmentPreviewProps = {
   parts?: ContentPart[]
@@ -30,6 +31,7 @@ type MessageAttachmentPreviewProps = {
 type AttachmentItem =
   | { kind: 'image'; name: string; url: string }
   | { kind: 'file'; name: string }
+  | { kind: 'text'; name: string; text: string }
 
 function attachmentName(text: string, kind: 'file' | 'image'): string | null {
   const prefix = kind === 'image' ? '[Attached image: ' : '[Attached file: '
@@ -44,6 +46,12 @@ function collectAttachments(parts: ContentPart[]): AttachmentItem[] {
 
   for (const part of parts) {
     if (part.type === 'text' && typeof part.text === 'string') {
+      const textAttachment = parseEmbeddedTextAttachment(part.text)
+      if (textAttachment) {
+        result.push({ kind: 'text', ...textAttachment })
+        continue
+      }
+
       const imageName = attachmentName(part.text, 'image')
       if (imageName) {
         pendingImageName = imageName
@@ -98,6 +106,23 @@ export function MessageAttachmentPreview({
               <span className='truncate'>{attachment.name}</span>
             </figcaption>
           </figure>
+        ) : attachment.kind === 'text' ? (
+          <details
+            className='bg-muted/40 max-w-full overflow-hidden rounded-xl border'
+            key={`${attachment.kind}:${attachment.name}`}
+          >
+            <summary className='text-muted-foreground flex max-w-80 cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs'>
+              <FileText
+                className='text-primary size-3.5 shrink-0'
+                aria-hidden='true'
+              />
+              <span className='truncate'>{attachment.name}</span>
+              <span className='shrink-0'>{t('Preview')}</span>
+            </summary>
+            <pre className='border-t px-3 py-2 text-xs whitespace-pre-wrap break-words max-h-72 overflow-auto'>
+              {attachment.text}
+            </pre>
+          </details>
         ) : (
           <div
             className={cn(

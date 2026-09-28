@@ -21,6 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
+import { rust } from '@codemirror/lang-rust'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
 import {
@@ -33,6 +34,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  Code2Icon,
   CopyIcon,
   DownloadIcon,
 } from 'lucide-react'
@@ -50,6 +52,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BundledLanguage } from 'shiki'
+import { SiRust } from 'react-icons/si'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -127,6 +130,7 @@ const LANGUAGE_ALIASES: Record<string, BundledLanguage> = {
   csharp: 'c#',
   golang: 'go',
   js: 'javascript',
+  rs: 'rust',
   shell: 'bash',
   shellscript: 'bash',
   ts: 'typescript',
@@ -237,6 +241,10 @@ function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
 
   if (requestedLanguage === 'typescript' || requestedLanguage === 'tsx') {
     return javascript({ jsx: requestedLanguage === 'tsx', typescript: true })
+  }
+
+  if (requestedLanguage === 'rust') {
+    return rust()
   }
 
   return []
@@ -488,7 +496,14 @@ export const CodeBlock = ({
   const previewLines = maxCollapsedLines ?? collapsedLines
   const canCollapse = enableCollapse && lineCount > previewLines
   const isCodeCollapsed = canCollapse && isCollapsed
-  const displayTitle = title ?? displayLanguage
+  const useRustLanguageLabel =
+    displayLanguage === 'rust' &&
+    (title == null ||
+      (typeof title === 'string' &&
+        ['rust', 'rs'].includes(title.trim().toLowerCase())))
+  const displayTitle = useRustLanguageLabel
+    ? 'Rust'
+    : (title ?? displayLanguage)
   const bodyMaxHeight = getCodeBlockMaxHeight(
     isCodeCollapsed,
     previewLines,
@@ -577,7 +592,20 @@ export const CodeBlock = ({
           </>
         }
         showToolbar={showToolbar}
-        title={displayTitle}
+        title={
+          <span className='inline-flex min-w-0 items-center gap-1.5'>
+            {displayLanguage === 'rust' ? (
+              <SiRust aria-hidden='true' className='size-3.5 shrink-0' />
+            ) : (
+              <Code2Icon aria-hidden='true' className='size-3.5 shrink-0' />
+            )}
+            <span
+              className={cn('truncate', useRustLanguageLabel && 'normal-case')}
+            >
+              {displayTitle}
+            </span>
+          </span>
+        }
         {...props}
       >
         <CodeMirrorCodeView

@@ -30,6 +30,7 @@ import {
   reconcileSystemPrompt,
   type MessageStateUpdater,
 } from '../lib'
+import { isAgentChatStorageNamespace } from '../lib/storage/storage-scope'
 import type {
   Message,
   PlaygroundConfig,
@@ -99,10 +100,10 @@ export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
       messagesSaveTimerRef.current = window.setTimeout(() => {
         messagesSaveTimerRef.current = null
         saveMessages(latestMessagesRef.current, storageNamespace)
+        if (isAgentChatStorageNamespace(storageNamespace)) {
+          window.dispatchEvent(new Event('lain42:agent-chat-updated'))
+        }
       }, MESSAGE_SAVE_DEBOUNCE_MS)
-      if (storageNamespace.startsWith('agent-')) {
-        window.dispatchEvent(new Event('lain42:agent-chat-updated'))
-      }
     },
     [storageNamespace]
   )

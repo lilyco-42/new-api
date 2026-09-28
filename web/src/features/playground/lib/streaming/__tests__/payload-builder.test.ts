@@ -85,6 +85,65 @@ describe('buildChatCompletionPayload', () => {
     ])
   })
 
+  it('starts a standalone greeting without carrying over a stale topic', () => {
+    const messages = [
+      message('old-user', 'user', 'DeepSeek 是什么？'),
+      message('old-assistant', 'assistant', 'DeepSeek 是一个编程代理。'),
+      message('current-user', 'user', '你好'),
+    ]
+
+    const payload = buildChatCompletionPayload(
+      messages,
+      DEFAULT_CONFIG,
+      DEFAULT_PARAMETER_ENABLED,
+      true
+    )
+
+    expect(payload.messages).toEqual([{ role: 'user', content: '你好' }])
+  })
+
+  it('keeps the prior turn when the user corrects an off-topic answer', () => {
+    const messages = [
+      message('prior-user', 'user', 'DeepSeek 是什么？'),
+      message('prior-assistant', 'assistant', 'DeepSeek 是一个编程代理。'),
+      message('current-user', 'user', '刚才不是只问了个问好'),
+    ]
+
+    const payload = buildChatCompletionPayload(
+      messages,
+      DEFAULT_CONFIG,
+      DEFAULT_PARAMETER_ENABLED,
+      true
+    )
+
+    expect(payload.messages).toEqual([
+      { role: 'user', content: 'DeepSeek 是什么？' },
+      { role: 'assistant', content: 'DeepSeek 是一个编程代理。' },
+      { role: 'user', content: '刚才不是只问了个问好' },
+    ])
+  })
+
+  it('keeps the prior turn when the user complains that the answer was off topic', () => {
+    const messages = [
+      message('prior-user', 'user', 'DeepSeek 是什么？'),
+      message('prior-assistant', 'assistant', 'DeepSeek 是一个编程代理。'),
+      message('current-user', 'user', '你在干嘛？我问你话呢'),
+    ]
+
+    const payload = buildChatCompletionPayload(
+      messages,
+      DEFAULT_CONFIG,
+      DEFAULT_PARAMETER_ENABLED,
+      true
+    )
+
+    expect(payload.messages).toEqual([
+      { role: 'user', content: 'DeepSeek 是什么？' },
+      { role: 'assistant', content: 'DeepSeek 是一个编程代理。' },
+      { role: 'user', content: '你在干嘛？我问你话呢' },
+    ])
+  })
+
   it('preserves full conversational context outside Agent mode', () => {
     const messages = [
       message('system', 'system', 'general assistant'),

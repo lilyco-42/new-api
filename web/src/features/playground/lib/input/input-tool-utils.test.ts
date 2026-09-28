@@ -22,16 +22,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_PDF_PAGES, extractPdfText } from './extract-pdf-text'
 import { filePartsToContentParts } from './input-tool-utils'
 
-const { getDocument } = vi.hoisted(() => ({ getDocument: vi.fn() }))
+const { getDocument, analyzeBinaryDataUrl, formatBinaryAnalysisForModel } =
+  vi.hoisted(() => ({
+    getDocument: vi.fn(),
+    analyzeBinaryDataUrl: vi.fn(),
+    formatBinaryAnalysisForModel: vi.fn(),
+  }))
 
 vi.mock('pdfjs-dist', () => ({
   getDocument,
   GlobalWorkerOptions: { workerPort: null },
 }))
 
+vi.mock('@/lib/client-binary/analyze-binary', () => ({
+  analyzeBinaryDataUrl,
+  formatBinaryAnalysisForModel,
+}))
+
 describe('filePartsToContentParts', () => {
   beforeEach(() => {
     getDocument.mockReset()
+    analyzeBinaryDataUrl.mockReset().mockResolvedValue({ format: 'ZIP archive' })
+    formatBinaryAnalysisForModel
+      .mockReset()
+      .mockReturnValue('Format: ZIP archive. Raw binary bytes were not sent.')
   })
 
   it('turns text files into bounded prompt text', async () => {
@@ -156,6 +170,25 @@ describe('filePartsToContentParts', () => {
     )
   })
 
+  it('cancels client-side attachment parsing before reading any files', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      filePartsToContentParts(
+        [
+          {
+            type: 'file',
+            filename: 'notes.txt',
+            mediaType: 'text/plain',
+            url: 'data:text/plain;base64,aGVsbG8=',
+          } as FileUIPart,
+        ],
+        controller.signal
+      )
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('caps PDF extraction by both page count and text length', async () => {
     const page = {
       cleanup: vi.fn(),
@@ -185,21 +218,43 @@ describe('filePartsToContentParts', () => {
     expect(loadingTask.destroy).toHaveBeenCalledOnce()
   })
 
-  it('describes unsupported binary files without sending binary data', async () => {
-    expect(
-      await filePartsToContentParts([
-        {
-          type: 'file',
-          filename: 'archive.zip',
-          mediaType: 'application/zip',
-          url: 'data:application/zip;base64,AAAA',
-        } as FileUIPart,
-      ])
-    ).toEqual([
+  it('sends only the local binary analysis summary, never its data URL', async () => {
+    const url = 'data:application/zip;base64,UEsDBA=='
+    const [part] = await filePartsToContentParts([
       {
-        type: 'text',
-        text: '[Attached file: archive.zip (application/zip)]',
-      },
+        type: 'file',
+        filename: 'archive.zip',
+        mediaType: 'application/zip',
+        url,
+      } as FileUIPart,
     ])
+
+    expect(analyzeBinaryDataUrl).toHaveBeenCalledWith(url, undefined)
+    expect(part).toEqual({
+      type: 'text',
+      text: '[Attached binary file: archive.zip (application/zip)]\nFormat: ZIP archive. Raw binary bytes were not sent.\n[End attached binary file]',
+    })
+    expect(JSON.stringify(part)).not.toContain(url)
+  })
+
+  it('keeps a failed local binary analysis explicit without sending file bytes', async () => {
+    analyzeBinaryDataUrl.mockRejectedValue(new Error('WASM unavailable'))
+
+    const [part] = await filePartsToContentParts([
+      {
+        type: 'file',
+        filename: 'archive.zip',
+        mediaType: 'application/zip',
+        url: 'data:application/zip;base64,UEsDBA==',
+      } as FileUIPart,
+    ])
+
+    expect(part).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining(
+        'Client-side WebAssembly analysis is unavailable.'
+      ),
+    })
+    expect(JSON.stringify(part)).not.toContain('UEsDBA==')
   })
 })

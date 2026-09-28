@@ -201,6 +201,9 @@ func (e *NewAPIError) ToOpenAIError() OpenAIError {
 			Code:    e.errorCode,
 		}
 	}
+	if e.Err != nil {
+		result.Message = e.Error()
+	}
 	if e.errorCode != ErrorCodeCountTokenFailed {
 		result.Message = kitutil.MaskSensitiveInfo(result.Message)
 	}
@@ -229,6 +232,9 @@ func (e *NewAPIError) ToClaudeError() ClaudeError {
 			Message: e.Error(),
 			Type:    string(e.errorType),
 		}
+	}
+	if e.Err != nil {
+		result.Message = e.Error()
 	}
 	if e.errorCode != ErrorCodeCountTokenFailed {
 		result.Message = kitutil.MaskSensitiveInfo(result.Message)

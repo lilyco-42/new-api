@@ -72,6 +72,49 @@ function provider(invoke: LocalToolProvider['invoke']): LocalToolProvider {
 }
 
 describe('local structured tool loop', () => {
+  test('uses the hosted conversation runtime after preparing browser context', async () => {
+    const contextMessage = {
+      role: 'system' as const,
+      name: 'lain42_browser_search_context',
+      content: 'Source: https://example.com\nThe result says 42.',
+    }
+    const hostedResponse = response({ role: 'assistant', content: 'The answer is 42.' })
+    const completeTurn = vi.fn(async (input: Parameters<NonNullable<LocalToolProvider['completeTurn']>>[0]) => {
+      expect(input.payload.messages).toContainEqual(contextMessage)
+      expect(input.turnId).toBe('message-123')
+      return hostedResponse
+    })
+    const request = vi.fn(async () => {
+      throw new Error('The legacy model route must not run after DSH responds.')
+    })
+    const hostedProvider: LocalToolProvider = {
+      tools: [],
+      isAvailable: () => false,
+      prepareContext: () => [contextMessage],
+      completeTurn,
+      invoke: async () => '',
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [
+          { role: 'system', content: 'Use browser evidence.' },
+          { role: 'user', content: 'What does the page say?' },
+        ],
+      },
+      hostedProvider,
+      new AbortController().signal,
+      undefined,
+      request,
+      'message-123'
+    )
+
+    expect(result).toBe(hostedResponse)
+    expect(completeTurn).toHaveBeenCalledOnce()
+    expect(request).not.toHaveBeenCalled()
+  })
+
   test('returns a provider preflight answer without calling the model or tools', async () => {
     const localAnswer = response({
       role: 'assistant',
@@ -249,7 +292,7 @@ describe('local structured tool loop', () => {
     )
   })
 
-  test('formats OAuth repository results without a model follow-up', async () => {
+  test('grounds OAuth repository lists in returned data after the model answers', async () => {
     const repositoryTool = {
       type: 'function' as const,
       function: {
@@ -257,7 +300,9 @@ describe('local structured tool loop', () => {
         parameters: { type: 'object' },
       },
     }
-    const request = vi.fn(async (_payload: ChatCompletionRequest) => {
+    const requests: ChatCompletionRequest[] = []
+    const request = vi.fn(async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
       if (request.mock.calls.length === 1) {
         return response({
           role: 'assistant',
@@ -274,24 +319,43 @@ describe('local structured tool loop', () => {
           ],
         })
       }
-      throw new Error('openai_error')
-    })
-    const invoke = vi.fn(async () =>
-      JSON.stringify({
-        items: [
-          {
-            full_name: 'lilyco-42/rembg-ui',
-            html_url: 'https://github.com/lilyco-42/rembg-ui',
-            private: false,
-            stargazers_count: 15,
-          },
-        ],
+      return response({
+        role: 'assistant',
+        content: '你的仓库包括 my-first-repo 和 learn-python。',
       })
+    })
+    const repositories = [
+      {
+        full_name: 'lilyco-42/rembg-ui',
+        html_url: 'https://github.com/lilyco-42/rembg-ui',
+        private: false,
+        stargazers_count: 15,
+        description: 'A local background removal workflow.',
+      },
+      ...Array.from({ length: 5 }, (_, index) => {
+        const repositoryNumber = index + 2
+        return {
+          full_name: `lilyco-42/repo-${repositoryNumber}`,
+          html_url: `https://github.com/lilyco-42/repo-${repositoryNumber}`,
+          private: false,
+          stargazers_count: 0,
+          description: `Description ${repositoryNumber}.`,
+        }
+      }),
+    ]
+    const invoke = vi.fn(async () =>
+      JSON.stringify({ items: repositories })
     )
     const result = await runLocalToolLoop(
       {
         ...initialPayload,
-        messages: [{ role: 'user', content: '查看我的 GitHub 仓库' }],
+        messages: [
+          {
+            role: 'user',
+            content:
+              '查看我的 GitHub 仓库，列出前 5 个仓库名和描述。请使用网站 GitHub OAuth，不要依赖本机 gh CLI 或 Radxa。',
+          },
+        ],
       },
       {
         tools: [repositoryTool],
@@ -304,14 +368,80 @@ describe('local structured tool loop', () => {
     )
 
     expect(result.choices[0]?.message.content).toContain(
-      '已通过连接的 GitHub OAuth 获取到 1 个仓库'
+      'lilyco-42/rembg-ui'
     )
     expect(result.choices[0]?.message.content).toContain(
-      '[lilyco-42/rembg-ui](https://github.com/lilyco-42/rembg-ui)'
+      'A local background removal workflow.'
     )
-    expect(result.choices[0]?.message.content).not.toContain('openai_error')
+    expect(result.choices[0]?.message.content).toContain('lilyco-42/repo-5')
+    expect(result.choices[0]?.message.content).not.toContain('lilyco-42/repo-6')
+    expect(result.choices[0]?.message.content).not.toContain('my-first-repo')
+    expect(result.choices[0]?.message.content).not.toContain('learn-python')
+    expect(result.choices[0]?.message.content).toContain(
+      'GitHub OAuth 的本次接口结果'
+    )
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'repo-list',
+      content: expect.stringContaining('lilyco-42/rembg-ui'),
+    })
     expect(invoke).toHaveBeenCalledOnce()
-    expect(request).toHaveBeenCalledOnce()
+    expect(request).toHaveBeenCalledTimes(2)
+  })
+
+  test('turns provider failures into model-visible tool results', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'failed-search',
+              type: 'function',
+              function: {
+                name: 'web.search',
+                arguments: '{"query":"deepseek"}',
+              },
+            },
+          ],
+        })
+      }
+      return response({
+        role: 'assistant',
+        content: '搜索服务暂时不可用：HTTP 503。',
+      })
+    }
+    const failingProvider: LocalToolProvider = {
+      tools: [webTool],
+      isAvailable: () => true,
+      invoke: async () => {
+        throw new Error('Search service returned HTTP 503.')
+      },
+    }
+
+    const result = await runLocalToolLoop(
+      {
+        ...initialPayload,
+        messages: [{ role: 'user', content: '搜索 deepseek' }],
+      },
+      failingProvider,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.tool_choice).toBe('none')
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'failed-search',
+      content: expect.stringContaining('HTTP 503'),
+    })
+    expect(result.choices[0]?.message.content).toContain('HTTP 503')
   })
 
   test('blocks a tool call that does not match the latest user request', async () => {
@@ -425,9 +555,8 @@ describe('local structured tool loop', () => {
     expect(requests[2]?.messages[1]).toMatchObject({ role: 'user' })
   })
 
-  test('does not ask approval or fetch again for the same public URL', async () => {
+  test('sends requested page content back to the model', async () => {
     const requests: ChatCompletionRequest[] = []
-    const approvals = vi.fn(async () => true)
     const invoke = vi.fn(async () =>
       JSON.stringify({ title: 'ast-grep', text: 'An AST-based code tool.' })
     )
@@ -484,7 +613,6 @@ describe('local structured tool loop', () => {
       {
         tools: [webFetchTool],
         isAvailable: () => true,
-        requiresApproval: approvals,
         invoke,
       },
       new AbortController().signal,
@@ -493,9 +621,18 @@ describe('local structured tool loop', () => {
     )
 
     expect(result.choices[0]?.message.content).toContain('ast-grep')
-    expect(approvals).toHaveBeenCalledOnce()
     expect(invoke).toHaveBeenCalledOnce()
     expect(requests).toHaveLength(3)
+    expect(
+      requests[1]?.messages.find(
+        (message) =>
+          message.role === 'tool' && message.tool_call_id === 'fetch-1'
+      )
+    ).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'fetch-1',
+      content: expect.stringContaining('An AST-based code tool.'),
+    })
     expect(requests[2]?.tools).toEqual([])
     expect(requests[2]?.tool_choice).toBe('none')
     expect(requests[2]?.messages.at(-1)).toMatchObject({
@@ -743,7 +880,7 @@ describe('local structured tool loop', () => {
     expect(requests.at(-1)?.tool_choice).toBe('none')
   })
 
-  test('returns bounded raw tool output if the model keeps requesting tools', async () => {
+  test('does not expose raw tool output if the model keeps requesting tools', async () => {
     const invoke = vi.fn(async () => '{"items":[{"title":"Rust blog"}]}')
     let callId = 0
     const request = async () => {
@@ -777,8 +914,8 @@ describe('local structured tool loop', () => {
     )
 
     expect(invoke).toHaveBeenCalledOnce()
-    expect(result.choices[0]?.message.content).toContain('tool_results')
-    expect(result.choices[0]?.message.content).toContain('Rust blog')
+    expect(result.choices[0]?.message.content).toContain('result is incomplete')
+    expect(result.choices[0]?.message.content).not.toContain('Rust blog')
     expect(result.choices[0]?.finish_reason).toBe('stop')
   })
 
@@ -940,8 +1077,10 @@ describe('local structured tool loop', () => {
     ).rejects.toMatchObject({ name: 'AbortError' })
   })
 
-  test('requires approval before invoking a guarded tool', async () => {
+  test('does not abort the conversation when the user declines a guarded tool', async () => {
     let invoked = false
+    const requests: ChatCompletionRequest[] = []
+    const events: string[] = []
     const guarded: LocalToolProvider = {
       tools: [tool],
       isAvailable: () => true,
@@ -951,31 +1090,50 @@ describe('local structured tool loop', () => {
         return 'should not run'
       },
     }
-    const request = async () =>
-      response({
-        role: 'assistant',
-        content: null,
-        tool_calls: [
-          {
-            id: 'call-approval',
-            type: 'function',
-            function: {
-              name: 'github.issues.list',
-              arguments: '{"repo":"lilyco-42/new-api"}',
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call-approval',
+              type: 'function',
+              function: {
+                name: 'github.issues.list',
+                arguments: '{"repo":"lilyco-42/new-api"}',
+              },
             },
-          },
-        ],
+          ],
+        })
+      }
+      return response({
+        role: 'assistant',
+        content: 'I did not run the tool because permission was declined.',
       })
+    }
 
-    await expect(
-      runLocalToolLoop(
-        initialPayload,
-        guarded,
-        new AbortController().signal,
-        undefined,
-        request
-      )
-    ).rejects.toThrow('was not approved')
+    const result = await runLocalToolLoop(
+      initialPayload,
+      guarded,
+      new AbortController().signal,
+      (event) => events.push(event.type),
+      request
+    )
+
     expect(invoked).toBe(false)
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.tools).toEqual([])
+    expect(requests[1]?.tool_choice).toBe('none')
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'call-approval',
+      content: expect.stringContaining('declined permission'),
+    })
+    expect(events).toContain('approval-denied')
+    expect(result.choices[0]?.message.content).toContain(
+      'permission was declined'
+    )
   })
 })

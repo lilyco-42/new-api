@@ -18,10 +18,23 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { MAX_ATTACHMENT_FILE_SIZE_BYTES } from '@/features/playground/lib/input/input-tool-utils'
+import {
+  analyzeBinaryFile,
+  formatBinaryAnalysisForModel,
+} from '@/lib/client-binary/analyze-binary'
 
 export const MAX_WORKSPACE_FILES = 10
 export const MAX_WORKSPACE_FILE_SIZE = MAX_ATTACHMENT_FILE_SIZE_BYTES
 export const MAX_WORKSPACE_TEXT_PREVIEW_BYTES = 120_000
+
+const WORKSPACE_TEXT_FILE_TYPES = new Set([
+  'application/json',
+  'application/ld+json',
+  'application/toml',
+  'application/xml',
+  'application/yaml',
+  'text/yaml',
+])
 
 export type WorkspaceFileSelection = {
   accepted: File[]
@@ -52,6 +65,7 @@ export async function readWorkspaceTextPreview(
 ): Promise<string | undefined> {
   const textLike =
     file.type.startsWith('text/') ||
+    WORKSPACE_TEXT_FILE_TYPES.has(file.type.toLowerCase()) ||
     /\.(c|cc|cpp|css|csv|go|h|hpp|html?|java|js|json|md|py|rs|sql|toml|ts|tsx|txt|vue|xml|ya?ml)$/i.test(
       file.name
     )
@@ -60,4 +74,28 @@ export async function readWorkspaceTextPreview(
   const text = await file.slice(0, MAX_WORKSPACE_TEXT_PREVIEW_BYTES).text()
   if (file.size <= MAX_WORKSPACE_TEXT_PREVIEW_BYTES) return text
   return `${text}\n\n[Text preview limited to the first 120 KB.]`
+}
+
+export async function readWorkspaceBinaryPreview(
+  file: Pick<File, 'name' | 'size' | 'type' | 'slice'>
+): Promise<string | undefined> {
+  const lowerName = file.name.toLowerCase()
+  if (
+    file.type.startsWith('image/') ||
+    file.type.toLowerCase() === 'application/pdf' ||
+    lowerName.endsWith('.pdf') ||
+    file.type.startsWith('text/') ||
+    WORKSPACE_TEXT_FILE_TYPES.has(file.type.toLowerCase()) ||
+    /\.(c|cc|cpp|css|csv|go|h|hpp|html?|java|js|json|md|py|rs|sql|toml|ts|tsx|txt|vue|xml|ya?ml)$/i.test(
+      file.name
+    )
+  ) {
+    return undefined
+  }
+
+  try {
+    return formatBinaryAnalysisForModel(await analyzeBinaryFile(file))
+  } catch {
+    return 'Client-side WebAssembly analysis is unavailable. The raw file was not uploaded.'
+  }
 }
