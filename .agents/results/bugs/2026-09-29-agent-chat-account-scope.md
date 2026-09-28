@@ -20,8 +20,10 @@ High for shared browser profiles: saved conversation previews and search results
 ## Verification
 
 - `git diff --check`: passed.
+- Focused Oxlint check on the changed TypeScript files: passed.
 - Unit regression tests cover distinct account namespaces, excluding another account's keys, and hiding legacy account-free keys.
-- Build and test execution: pending GitHub Actions; no local build or test was run.
+- GitHub Actions run `36473224344` passed frontend typecheck/tests and backend vet/build/tests for implementation commit `0e490f9`.
+- No local build or test was run.
 - Shared-browser two-account runtime test: not yet run.
 
 ## Residual limits
