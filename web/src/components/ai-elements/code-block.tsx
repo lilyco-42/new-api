@@ -21,6 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
+import { rust } from '@codemirror/lang-rust'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
 import {
@@ -33,6 +34,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  Code2Icon,
   CopyIcon,
   DownloadIcon,
 } from 'lucide-react'
@@ -49,6 +51,7 @@ import {
   useState,
 } from 'react'
 import { useTranslation } from 'react-i18next'
+import { SiRust } from 'react-icons/si'
 import type { BundledLanguage } from 'shiki'
 
 import { Button } from '@/components/ui/button'
@@ -127,6 +130,7 @@ const LANGUAGE_ALIASES: Record<string, BundledLanguage> = {
   csharp: 'c#',
   golang: 'go',
   js: 'javascript',
+  rs: 'rust',
   shell: 'bash',
   shellscript: 'bash',
   ts: 'typescript',
@@ -221,7 +225,9 @@ function getRequestedCodeLanguage(language?: string) {
   return LANGUAGE_ALIASES[normalized] ?? normalized
 }
 
-function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
+export function getCodeMirrorLanguageExtension(
+  language: BundledLanguage | string
+): Extension {
   const requestedLanguage = getRequestedCodeLanguage(language)
   if (
     requestedLanguage === 'markdown' ||
@@ -239,7 +245,36 @@ function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
     return javascript({ jsx: requestedLanguage === 'tsx', typescript: true })
   }
 
+  if (requestedLanguage === 'rust') {
+    return rust()
+  }
+
   return []
+}
+
+function CodeBlockTitle({
+  language,
+  title,
+}: {
+  language: string
+  title: ReactNode
+}) {
+  return (
+    <span
+      className='inline-flex min-w-0 items-center gap-1.5'
+      data-code-language={language}
+    >
+      {language === 'rust' ? (
+        <SiRust
+          aria-hidden='true'
+          className='size-3.5 shrink-0 text-[#DEA584]'
+        />
+      ) : (
+        <Code2Icon aria-hidden='true' className='size-3.5 shrink-0' />
+      )}
+      <span className='truncate'>{title}</span>
+    </span>
+  )
 }
 
 function getCodeLineCount(code: string) {
@@ -577,7 +612,9 @@ export const CodeBlock = ({
           </>
         }
         showToolbar={showToolbar}
-        title={displayTitle}
+        title={
+          <CodeBlockTitle language={displayLanguage} title={displayTitle} />
+        }
         {...props}
       >
         <CodeMirrorCodeView
