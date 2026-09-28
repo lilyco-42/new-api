@@ -499,7 +499,7 @@ describe('webAgentToolProvider', () => {
             finish_reason: 'stop',
           },
         ],
-      })
+      }))
       const messages: ChatCompletionMessage[] = [
         { role: 'user', content: 'DeepSeek 是什么？' },
         { role: 'assistant', content: 'DeepSeek 是一个编程代理。' },
