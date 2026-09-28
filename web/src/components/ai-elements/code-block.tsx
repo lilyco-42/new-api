@@ -225,7 +225,9 @@ function getRequestedCodeLanguage(language?: string) {
   return LANGUAGE_ALIASES[normalized] ?? normalized
 }
 
-function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
+export function getCodeMirrorLanguageExtension(
+  language: BundledLanguage | string
+): Extension {
   const requestedLanguage = getRequestedCodeLanguage(language)
   if (
     requestedLanguage === 'markdown' ||

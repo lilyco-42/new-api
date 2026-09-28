@@ -1,3 +1,6 @@
+import { defaultHighlightStyle, ensureSyntaxTree } from '@codemirror/language'
+import { EditorState } from '@codemirror/state'
+import { highlightTree } from '@lezer/highlight'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,17 +19,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, test } from 'vitest'
 
-import { CodeBlock } from '../code-block'
+import { CodeBlock, getCodeMirrorLanguageExtension } from '../code-block'
 
 afterEach(() => {
   cleanup()
 })
 
 describe('CodeBlock display', () => {
-  test('normalizes Rust fences and highlights code beside the Rust icon', async () => {
+  test('normalizes Rust fences and shows the Rust icon and language label', () => {
     const { container, getByRole } = render(
       <CodeBlock
         code='fn main() { let answer: i32 = 42; }'
@@ -39,9 +42,27 @@ describe('CodeBlock display', () => {
     const languageLabel = container.querySelector('[data-code-language="rust"]')
     expect(languageLabel).toHaveTextContent('rust')
     expect(languageLabel?.querySelector('svg')).toBeInTheDocument()
+  })
 
-    await waitFor(() => {
-      expect(container.querySelector('.tok-keyword')).toHaveTextContent('fn')
+  test('highlights Rust keywords for the rs code-fence alias', () => {
+    const code = 'fn main() { let answer: i32 = 42; }'
+    const state = EditorState.create({
+      doc: code,
+      extensions: [getCodeMirrorLanguageExtension('rs')],
     })
+    const syntax = ensureSyntaxTree(state, state.doc.length, 1000)
+    expect(syntax).not.toBeNull()
+    if (!syntax) {
+      throw new Error('Rust syntax parsing did not finish.')
+    }
+
+    let keywordClasses: string | undefined
+    highlightTree(syntax, defaultHighlightStyle, (from, to, classes) => {
+      if (code.slice(from, to) === 'fn') {
+        keywordClasses = classes
+      }
+    })
+
+    expect(keywordClasses).toContain('tok-keyword')
   })
 })
