@@ -11,10 +11,16 @@ folder contains the browser runtime behind those tools.
   stops after bounded response and text sizes. Page reads require explicit
   confirmation because extracted text is included in the selected model's
   conversation.
-- `web.search` calls public GitHub, Hugging Face, and OpenAlex APIs directly
-  from the browser. Auto routing uses GitHub/Hugging Face for general technical
-  discovery and includes OpenAlex only when the query explicitly asks for
-  papers or research; callers can select one index or all supported indexes.
+- `web.search` calls public GitHub, Hugging Face, Wikidata, and OpenAlex APIs
+  directly from the browser. Auto routing uses GitHub/Hugging Face for general
+  technical discovery, Wikidata for entity background, and OpenAlex only when
+  the query explicitly asks for papers or research; callers can select one
+  index or all supported indexes. Wikidata is a secondary structured source;
+  prefer primary documentation for current product behavior or specifications.
+  Entity lookup uses the public Action API with anonymous cross-origin access;
+  it sends no credentials and links each result to its Wikidata item. The
+  Action API is documented in [Wikidata data access](https://www.wikidata.org/wiki/Wikidata:Data_access),
+  and Wikidata structured data is released under [CC0](https://www.wikidata.org/wiki/Wikidata:Licensing).
   OpenAlex results also need lexical overlap with the query before they are
   shown. RustCC, CodeReset, GHFind, blogs, and forums are links only, not search
   adapters. Each source normalizes results to title, URL, snippet, and source,

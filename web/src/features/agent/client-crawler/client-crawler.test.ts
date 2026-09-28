@@ -250,6 +250,57 @@ describe('client-side WASM crawler', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('searches Wikidata from the browser for entity background and returns descriptions', async () => {
+    fetchMock.mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input))
+        expect(url.origin).toBe('https://wikidata.org')
+        expect(url.pathname).toBe('/w/api.php')
+        expect(url.searchParams.get('origin')).toBe('*')
+        expect(url.searchParams.get('action')).toBe('wbsearchentities')
+        expect(url.searchParams.get('search')).toBe('DeepSeek')
+        expect(url.searchParams.get('type')).toBe('item')
+        expect(init?.credentials).toBe('omit')
+        return Response.json({
+          search: [
+            {
+              id: 'Q123456',
+              label: 'DeepSeek',
+              description: 'Chinese artificial intelligence company',
+            },
+            {
+              id: 'javascript:alert(1)',
+              label: 'Untrusted URL',
+              description: 'Must not be emitted as a source link.',
+            },
+            {
+              id: 'Q654321',
+              label: 'Missing description',
+            },
+          ],
+        })
+      }
+    )
+
+    const result = await searchClientSources(
+      'DeepSeek',
+      5,
+      new AbortController().signal,
+      'wikidata'
+    )
+
+    expect(result.sources).toEqual(['Wikidata'])
+    expect(result.items).toEqual([
+      {
+        title: 'DeepSeek',
+        url: 'https://www.wikidata.org/wiki/Q123456',
+        snippet: 'Chinese artificial intelligence company',
+        source: 'Wikidata',
+      },
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('does not substitute indexed results for general website searches', async () => {
     const result = await searchClientSources(
       'Search the RustCC blog for async cancellation',

@@ -150,7 +150,7 @@ describe('webAgentToolProvider', () => {
     ).toBe('auto')
   })
 
-  it('grounds DeepSeek definition in its verified official model search source', async () => {
+  it('passes Wikidata entity descriptions to the model and cites the source', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
@@ -158,16 +158,16 @@ describe('webAgentToolProvider', () => {
     }
     vi.mocked(searchClientSources).mockResolvedValue({
       execution: 'browser-wasm',
-      query: 'DeepSeek 是什么？',
+      query: 'DeepSeek',
       fetched_at: '2026-09-26T00:00:00.000Z',
-      sources: ['Hugging Face'],
+      sources: ['Wikidata'],
       warnings: [],
       items: [
         {
-          title: 'DeepSeek model collection',
-          url: 'https://huggingface.co/deepseek-ai',
-          snippet: 'Official DeepSeek model releases.',
-          source: 'Hugging Face',
+          title: 'DeepSeek',
+          url: 'https://www.wikidata.org/wiki/Q123456',
+          snippet: 'Chinese artificial intelligence company',
+          source: 'Wikidata',
         },
       ],
     })
@@ -181,7 +181,7 @@ describe('webAgentToolProvider', () => {
           index: 0,
           message: {
             role: 'assistant' as const,
-            content: 'DeepSeek 是一个知识图谱检索工具。',
+            content: 'DeepSeek 是一家开发开放权重模型的人工智能公司。',
           },
           finish_reason: 'stop',
         },
@@ -204,23 +204,22 @@ describe('webAgentToolProvider', () => {
       'DeepSeek',
       5,
       expect.any(AbortSignal),
-      'auto'
+      'wikidata'
     )
-    expect(searchContext?.content).toContain('Official DeepSeek model releases.')
-    expect(searchContext?.content).toContain('https://huggingface.co/deepseek-ai')
+    expect(searchContext?.content).toContain(
+      'Chinese artificial intelligence company'
+    )
+    expect(searchContext?.content).toContain(
+      'https://www.wikidata.org/wiki/Q123456'
+    )
     expect(sent?.messages.at(-1)).toEqual(payload.messages[0])
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
     expect(response.choices[0]?.message.content).toContain(
-      'DeepSeek 是一家人工智能公司，也开发 DeepSeek 系列模型'
-    )
-    expect(response.choices[0]?.message.content).toContain('它不是搜索工具。')
-    expect(response.choices[0]?.message.content).not.toContain('知识图谱检索工具')
-    expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek 官方网站](<https://www.deepseek.com/>)'
+      'DeepSeek 是一家开发开放权重模型的人工智能公司。'
     )
     expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek 官方 Hugging Face 模型组织](<https://huggingface.co/deepseek-ai/models>)'
+      '[DeepSeek](<https://www.wikidata.org/wiki/Q123456>) · Wikidata'
     )
   })
 
@@ -594,6 +593,23 @@ describe('webAgentToolProvider', () => {
     )
   })
 
+  it('preserves an explicit Wikidata search scope', async () => {
+    await webAgentToolProvider.invoke(
+      toolCall('web.search', {
+        query: 'DeepSeek',
+        scope: 'wikidata',
+      }),
+      new AbortController().signal
+    )
+
+    expect(searchClientSources).toHaveBeenCalledWith(
+      'DeepSeek',
+      5,
+      expect.any(AbortSignal),
+      'wikidata'
+    )
+  })
+
   it('rejects unsupported search scopes', async () => {
     await expect(
       webAgentToolProvider.invoke(
@@ -601,7 +617,7 @@ describe('webAgentToolProvider', () => {
         new AbortController().signal
       )
     ).rejects.toThrow(
-      'Search scope must be auto, github, huggingface, papers, or all.'
+      'Search scope must be auto, github, huggingface, wikidata, papers, or all.'
     )
   })
 
@@ -616,6 +632,78 @@ describe('webAgentToolProvider', () => {
       expect.any(AbortSignal)
     )
     expect(api.get).not.toHaveBeenCalled()
+  })
+
+  it('passes an explicitly requested browser page to the model before answering', async () => {
+    const url = 'https://docs.example.com/guide'
+    const payload: ChatCompletionRequest = {
+      model: 'test-model',
+      messages: [
+        { role: 'user', content: `请读取这个网页并总结：${url}` },
+      ],
+      stream: false,
+    }
+    const confirm = vi.fn().mockReturnValue(true)
+    vi.stubGlobal('window', { confirm })
+    vi.mocked(fetchClientPage).mockResolvedValueOnce({
+      title: 'Guide',
+      url,
+      text: 'The guide explains how to configure the project.',
+      fetched_at: '2026-09-29T10:00:00.000Z',
+      links: [],
+    })
+    const requests: ChatCompletionRequest[] = []
+    const request = vi.fn(async (input: ChatCompletionRequest) => {
+      requests.push(input)
+      return {
+        id: `page-read-${requests.length}`,
+        object: 'chat.completion' as const,
+        created: 1,
+        model: input.model,
+        choices: [
+          {
+            index: 0,
+            message:
+              requests.length === 1
+                ? {
+                    role: 'assistant' as const,
+                    content: null,
+                    tool_calls: [toolCall('web.fetch', { url })],
+                  }
+                : {
+                    role: 'assistant' as const,
+                    content: `The page explains project setup. Source: ${url}`,
+                  },
+            finish_reason:
+              requests.length === 1 ? ('tool_calls' as const) : ('stop' as const),
+          },
+        ],
+      }
+    })
+
+    const response = await runLocalToolLoop(
+      payload,
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(fetchClientPage).toHaveBeenCalledWith(
+      url,
+      expect.any(AbortSignal)
+    )
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      content: expect.stringContaining(
+        'The guide explains how to configure the project.'
+      ),
+    })
+    expect(response.choices[0]?.message.content).toContain(
+      `Source: ${url}`
+    )
   })
 
   it('returns a readable tool result when the browser cannot fetch a page', async () => {
