@@ -5610,7 +5610,7 @@
     "Read URL with Agent": "Agent で URL を読む",
     "Add results to message": "結果をメッセージに追加",
     "Search results added to the message.": "検索結果をメッセージに追加しました。",
-    "Paste a public HTTPS URL into chat to read it. Results in the search popover go to the model only after you add them to the message.": "Agent にページを読ませるには、公開 HTTPS URL をチャットに貼り付けてください。検索ポップオーバーの結果は、メッセージに追加した後にモデルへ送信されます。",
+    "Ask the Agent to search or paste a public HTTPS URL in chat; browser-read content is shared with the model automatically. The search popover is manual: add results to the message to share them.": "チャットで Agent に検索を依頼するか、公開 HTTPS URL を貼り付けてください。ブラウザーで読み取った内容はモデルに自動で共有されます。検索ポップオーバーは手動操作で、結果を共有するにはメッセージに追加します。",
     "Attach selected file": "Attach to message",
     "Maximum attachment size is 8 MB.": "Maximum attachment size is 8 MB.",
     "File attached to the next message.": "File attached to the next message.",

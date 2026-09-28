@@ -97,7 +97,7 @@ export function ResearchSourcesCard() {
         </CardDescription>
         <CardDescription className='text-xs leading-5'>
           {t(
-            'Paste a public HTTPS URL into chat to read it. Results in the search popover go to the model only after you add them to the message.'
+            'Ask the Agent to search or paste a public HTTPS URL in chat; browser-read content is shared with the model automatically. The search popover is manual: add results to the message to share them.'
           )}
         </CardDescription>
       </CardHeader>

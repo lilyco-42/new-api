@@ -5610,7 +5610,7 @@
     "Read URL with Agent": "Đọc URL bằng Agent",
     "Add results to message": "Thêm kết quả vào tin nhắn",
     "Search results added to the message.": "Đã thêm kết quả tìm kiếm vào tin nhắn.",
-    "Paste a public HTTPS URL into chat to read it. Results in the search popover go to the model only after you add them to the message.": "Dán URL HTTPS công khai vào khung chat để Agent đọc trang. Kết quả trong cửa sổ tìm kiếm chỉ được gửi cho mô hình sau khi bạn thêm chúng vào tin nhắn.",
+    "Ask the Agent to search or paste a public HTTPS URL in chat; browser-read content is shared with the model automatically. The search popover is manual: add results to the message to share them.": "Yêu cầu Agent tìm kiếm hoặc dán URL HTTPS công khai vào khung chat; nội dung trình duyệt đọc được sẽ tự động gửi cho mô hình. Cửa sổ tìm kiếm là thao tác thủ công: thêm kết quả vào tin nhắn để chia sẻ.",
     "Attach selected file": "Attach to message",
     "Maximum attachment size is 8 MB.": "Maximum attachment size is 8 MB.",
     "File attached to the next message.": "File attached to the next message.",

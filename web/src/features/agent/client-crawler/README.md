@@ -7,10 +7,13 @@ folder contains the browser runtime behind those tools.
 - `client-crawler.ts` performs bounded HTTPS reads with `credentials: omit`,
   refuses redirects, then sends the response bytes through `crawler_core.wasm`
   for text extraction.
+- A public HTTPS URL in the latest chat message is read on the user's browser
+  before model inference. The single-page text and source metadata are included
+  in that model request; a read failure is shown instead of an ungrounded summary.
 - `web.crawl` follows only same-origin links, reads at most five pages, and
-  stops after bounded response and text sizes. Page reads require explicit
-  confirmation because extracted text is included in the selected model's
-  conversation.
+  stops after bounded response and text sizes. Multi-page crawl requests require
+  explicit confirmation because extracted text is included in the selected
+  model's conversation.
 - `web.search` calls public GitHub, Hugging Face, and OpenAlex APIs directly
   from the browser. Auto routing uses GitHub/Hugging Face for general technical
   discovery and includes OpenAlex only when the query explicitly asks for

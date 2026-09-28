@@ -5610,7 +5610,7 @@
     "Read URL with Agent": "Lire l’URL avec l’Agent",
     "Add results to message": "Ajouter les résultats au message",
     "Search results added to the message.": "Les résultats de recherche ont été ajoutés au message.",
-    "Paste a public HTTPS URL into chat to read it. Results in the search popover go to the model only after you add them to the message.": "Collez une URL HTTPS publique dans le chat pour lire la page. Les résultats de la fenêtre de recherche ne sont envoyés au modèle qu’après leur ajout au message.",
+    "Ask the Agent to search or paste a public HTTPS URL in chat; browser-read content is shared with the model automatically. The search popover is manual: add results to the message to share them.": "Demandez à l’Agent de lancer une recherche ou collez une URL HTTPS publique dans le chat ; le contenu lu par le navigateur est automatiquement transmis au modèle. La fenêtre de recherche est manuelle : ajoutez les résultats au message pour les partager.",
     "Attach selected file": "Attach to message",
     "Maximum attachment size is 8 MB.": "Maximum attachment size is 8 MB.",
     "File attached to the next message.": "File attached to the next message.",

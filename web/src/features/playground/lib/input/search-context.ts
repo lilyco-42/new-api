@@ -22,18 +22,23 @@ export type BrowserSearchResult = {
   snippet?: string
 }
 
-/** Find explicit public-page URLs in chat text, including a bare domain. */
-export function containsPublicPageUrlReference(value: string): boolean {
+/** Return the first public-page URL in chat text, including a bare domain. */
+export function firstPublicPageUrlReference(value: string): string | null {
   const candidates = value.match(
     /https:\/\/[^\s<>"'`]+|(?:^|\s)(?:www\.)?(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z]{2,}(?::\d{1,5})?(?:\/[^\s<>"'`]*)?/giu
   )
-  return (
-    candidates?.some((candidate) =>
-      normalizePublicPageUrlInput(
-        candidate.trim().replace(/^[^a-z\d]+|[.,;!?)}\]]+$/giu, '')
-      )
-    ) ?? false
-  )
+  for (const candidate of candidates ?? []) {
+    const normalized = normalizePublicPageUrlInput(
+      candidate.trim().replaceAll(/^[^a-z\d]+|[.,;!?)}\]]+$/giu, '')
+    )
+    if (normalized) return normalized
+  }
+  return null
+}
+
+/** Find explicit public-page URLs in chat text, including a bare domain. */
+export function containsPublicPageUrlReference(value: string): boolean {
+  return firstPublicPageUrlReference(value) !== null
 }
 
 /**
