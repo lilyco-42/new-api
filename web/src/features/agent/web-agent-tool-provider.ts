@@ -435,6 +435,30 @@ function localPreflightResponse(
   }
 }
 
+function hasPriorAssistantReply(messages: ChatCompletionMessage[]): boolean {
+  let latestUserIndex = -1
+  messages.forEach((message, index) => {
+    if (message.role === 'user') latestUserIndex = index
+  })
+  if (latestUserIndex < 0) return false
+
+  return messages.slice(0, latestUserIndex).some((message) => {
+    if (
+      message.role !== 'assistant' ||
+      message.tool_calls?.length
+    ) {
+      return false
+    }
+    if (typeof message.content === 'string') return message.content.trim().length > 0
+    return (
+      Array.isArray(message.content) &&
+      message.content.some(
+        (part) => part.type === 'text' && Boolean(part.text?.trim())
+      )
+    )
+  })
+}
+
 function formatGitHubRepositories(raw: string): string {
   let parsed: unknown
   try {
@@ -794,7 +818,8 @@ export const webAgentToolProvider: LocalToolProvider = {
     const punctuationOnlyText = text.replace(/^(?:\\?>\s*)+/u, '').trim()
     if (
       punctuationOnlyText.length > 0 &&
-      /^[?？!！.,，。…~～\s]+$/u.test(punctuationOnlyText)
+      /^[?？!！.,，。…~～\s]+$/u.test(punctuationOnlyText) &&
+      !hasPriorAssistantReply(messages)
     ) {
       return localPreflightResponse(
         'local-ambiguous-message',

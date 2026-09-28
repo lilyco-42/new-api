@@ -469,7 +469,7 @@ describe('webAgentToolProvider', () => {
   })
 
   it.each(['?', '??', '>??', '> ??', '\\>??', '\\> ??'])(
-    'asks for clarification on punctuation-only input %s instead of repeating the previous answer',
+    'lets the model interpret punctuation-only follow-up %s with prior context',
     (input) => {
       const response = webAgentToolProvider.preflight?.([
         { role: 'user', content: 'DeepSeek 是什么？' },
@@ -477,26 +477,39 @@ describe('webAgentToolProvider', () => {
         { role: 'user', content: input },
       ])
 
-      expect(response?.choices[0]?.message.content).toContain('标点')
-      expect(response?.choices[0]?.message.content).not.toContain('旧话题')
+      expect(response).toBeNull()
     }
   )
 
   it.each(['??', '\\>??'])(
-    'keeps punctuation-only turn %s out of model inference',
+    'keeps the previous answer in context for punctuation-only turn %s',
     async (input) => {
-      const request = vi.fn(async () => {
-        throw new Error('Punctuation-only input must not reach model inference.')
+      const request = vi.fn(async (payload: ChatCompletionRequest) => ({
+        id: 'punctuation-follow-up',
+        object: 'chat.completion' as const,
+        created: 1,
+        model: payload.model,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant' as const,
+              content: '刚才的回答把公司和搜索工具混淆了，我来纠正。',
+            },
+            finish_reason: 'stop',
+          },
+        ],
       })
+      const messages: ChatCompletionMessage[] = [
+        { role: 'user', content: 'DeepSeek 是什么？' },
+        { role: 'assistant', content: 'DeepSeek 是一个编程代理。' },
+        { role: 'user', content: input },
+      ]
 
       const response = await runLocalToolLoop(
         {
           model: 'test-model',
-          messages: [
-            { role: 'user', content: 'DeepSeek 是什么？' },
-            { role: 'assistant', content: '旧话题回复' },
-            { role: 'user', content: input },
-          ],
+          messages,
           stream: false,
         },
         webAgentToolProvider,
@@ -505,9 +518,23 @@ describe('webAgentToolProvider', () => {
         request
       )
 
-      expect(response.choices[0]?.message.content).toContain('标点')
-      expect(response.choices[0]?.message.content).not.toContain('旧话题')
-      expect(request).not.toHaveBeenCalled()
+      const sent = request.mock.calls[0]?.[0]
+      expect(request).toHaveBeenCalledOnce()
+      expect(sent?.messages).toEqual(messages)
+      expect(sent?.tools).toEqual([])
+      expect(sent?.tool_choice).toBe('none')
+      expect(response.choices[0]?.message.content).toContain('来纠正')
+    }
+  )
+
+  it(
+    'asks for clarification when punctuation-only input has no prior assistant reply',
+    () => {
+      const response = webAgentToolProvider.preflight?.([
+        { role: 'user', content: '??' },
+      ])
+
+      expect(response?.choices[0]?.message.content).toContain('标点')
     }
   )
 

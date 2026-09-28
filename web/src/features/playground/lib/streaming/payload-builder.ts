@@ -41,9 +41,23 @@ function getMessageText(message: Message): string {
   return [version.content, attachmentText].filter(Boolean).join('\n').trim()
 }
 
+function isPunctuationOnlyFollowUp(message: Message): boolean {
+  const text = getMessageText(message).toLocaleLowerCase().replace(/\s+/gu, ' ')
+  const punctuationOnlyText = text.replace(/^(?:\\?>\s*)+/u, '').trim()
+  return (
+    punctuationOnlyText.length > 0 &&
+    /^[?？!！.,，。…~～\s]+$/u.test(punctuationOnlyText)
+  )
+}
+
 function isFollowUpRequest(message: Message): boolean {
   const text = getMessageText(message).toLocaleLowerCase().replace(/\s+/gu, ' ')
   if (!text) return true
+
+  // Punctuation-only replies such as "?" or "??" are usually reactions to
+  // the preceding assistant answer. Keep that turn available so Agent mode
+  // can interpret the reply instead of treating it as a brand-new prompt.
+  if (isPunctuationOnlyFollowUp(message)) return true
 
   if (
     /^(?:what is|who is|define|explain|search|find|look up|tell me about|introduce|what does .+ mean|what are|how to\b|how do i\b|why\b|如何|怎么|为什么|什么是|.+是什么|.+是谁|解释一下|介绍一下|搜索|查找|查看|列出|帮我(?:查|找|搜索|查看)|请(?:查|找|搜索|查看))/iu.test(
@@ -78,7 +92,10 @@ function excludeFailedTurns(messages: Message[]): Message[] {
   return messages.filter((_, index) => !excludedIndices.has(index))
 }
 
-function selectRelevantConversationContext(messages: Message[]): Message[] {
+function selectRelevantConversationContext(
+  messages: Message[],
+  originalMessages: Message[]
+): Message[] {
   const systemMessages = messages.filter(
     (message) => message.from === MESSAGE_ROLES.SYSTEM
   )
@@ -98,6 +115,20 @@ function selectRelevantConversationContext(messages: Message[]): Message[] {
   const latestUserMessage = conversationMessages[latestUserIndex]
   if (!isFollowUpRequest(latestUserMessage)) {
     return [...systemMessages, latestUserMessage]
+  }
+
+  if (isPunctuationOnlyFollowUp(latestUserMessage)) {
+    let originalLatestUserIndex = -1
+    originalMessages.forEach((message, index) => {
+      if (message.from === MESSAGE_ROLES.USER) originalLatestUserIndex = index
+    })
+    const precedingAssistant = originalMessages
+      .slice(0, originalLatestUserIndex)
+      .reverse()
+      .find((message) => message.from === MESSAGE_ROLES.ASSISTANT)
+    if (precedingAssistant?.status === MESSAGE_STATUS.ERROR) {
+      return [...systemMessages, latestUserMessage]
+    }
   }
 
   return [
@@ -120,7 +151,7 @@ export function buildChatCompletionPayload(
   // Filter and format valid messages
   const contextMessages = excludeFailedTurns(messages)
   const processedMessages = (isolateAgentTurnContext
-    ? selectRelevantConversationContext(contextMessages)
+    ? selectRelevantConversationContext(contextMessages, messages)
     : contextMessages)
     .filter(isValidMessage)
     .map(formatMessageForAPI)
