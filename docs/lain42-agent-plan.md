@@ -11,7 +11,7 @@
 - 最小验证顺序：先在 GitHub Actions 做可选特性构建与实际二进制/空闲/任务峰值内存测量；再做 ACP approval fail-closed、双用户会话隔离、断线/取消测试；Windows/Linux/macOS 与 ARM64 产物均过 CI 后，才考虑桌面/companion 试用。所有本地构建和测试仍禁止；不操作用户的私人 Radxa，不在这些门槛通过前部署或声称集成完成。
 - 发行门槛：ZeroStack 使用 GPL-3.0-only；若将改动后的二进制随 Lain42 客户端分发，发布前必须确认对应源码、许可证和通知的交付方式。来源：[ZeroStack license](https://github.com/gi-dellav/zerostack/blob/main/LICENSE)。
 
-## 1.3 DSH 与 New API 的账号级服务边界（2026-09-29，PR CI 通过；未部署）
+## 1.3 DSH 与 New API 的账号级服务边界（2026-09-29，New API Actions 通过；配套 DSH CI 待通过；未部署）
 
 - `feat/agent-dsh-control-plane` 正在补 New API 后端一侧：登录用户创建随机不透明 DSH session；New API 校验 session 所有权后才把文本轮次转发到管理员配置的私有 DSH；DSH 的模型调用和只读工具调用分别走独立 HMAC、短时间窗与数据库一次性 nonce。
 - DSH 的模型请求根据 session 反查 New API 账号，并复用 `Playground`、`Distribute` 和现有额度结算路径；GitHub 工具只使用同一账号加密保存的 Agent OAuth 凭据。网页聊天本身不要求配对桌面或 A7A。
@@ -20,13 +20,14 @@
 - `/agent` 普通文本和本地解析的 Office/PDF 文本已进入 DSH。当前 PR 还扩展了图片 v2 契约：最多 4 张 PNG/JPEG/WebP/GIF、解码合计 8 MiB，并把模型中继上限同步到 12 MiB；图片经 DSH 附件服务验证、规范化后才到模型。桥接仍返回完整答案而不流式传输。GitHub Actions、跨数据库迁移、生产 DSH 连通、实际模型计费和双账号端到端仍待验收；待审 PR 不代表线上已配置、已部署或已完成闭环。
 - 按项目约束，Go 构建与测试只由 GitHub Actions 执行；不在开发机本地编译或运行测试。CI 通过前不合并、不部署，也不宣称交付完成。
 
-## 1.4 `/agent` 接入 DSH 托管对话（2026-09-30，PR CI 通过；未部署）
+## 1.4 `/agent` 接入 DSH 托管对话（2026-09-30，New API Actions 通过；配套 DSH CI 待通过；未部署）
 
 - 浏览器 Agent 现在为登录账号和会话创建独立的 New API DSH session，并把普通聊天轮次交给 DSH；网站原有的账号模型、配额与用量中继保持入口。New API 未配置 DSH 时，界面回退到现有聊天链路，因此未完成部署配置之前仍可使用原有能力。
 - 通用、代码、研究、内容四种网页预设分别映射到 DSH 服务端固定的安全 preset。系统提示要求优先回答最新问题；标点输入请求澄清；若聊天中已附浏览器读取的证据，不再重复抓取。明确要求搜索受支持索引及“DeepSeek 是什么”等具名 AI 实体定义时，客户端通过当前设备网络查询 GitHub、Hugging Face 或 OpenAlex，再把来源片段放入 DSH 当前轮；不属于这些索引的一般网页搜索使用网站配置的搜索提供方，只发送查询词，不转发账户凭据或 Cookie。模型结合资料回答并引用来源；普通聊天和明确拒绝搜索的消息不会触发搜索。“查看我的 GitHub 仓库”是确定性账号读取：客户端在进入 DSH 前通过当前网站账号的 GitHub OAuth 获取仓库并直接返回，避免模型把网站 OAuth 状态误判成本机 `gh` CLI 未登录；显式本机 CLI 请求仍走用户设备授权路径。浏览器只在用户提供 URL 并确认后尝试客户端读取；若目标站拒绝跨域读取，原始 URL 仍交给 DSH 网页读取工具处理。
 - 浏览器会先在客户端提取 PDF、DOCX 与 XLSX 文本，再随提问发给 DSH。DOCX 仅提取正文段落；XLSX 提取工作表名称、单元格文本和文件中已保存的公式结果，不计算公式或应用单元格显示格式（日期/货币可能显示为原始值）。所有 DOCX/XLSX 附件共享最多 2,000 个提取字符，并标为不可信资料；ZIP 解析限制单个 XML 部件 1 MiB、选取部件合计 4 MiB、归档条目 2,048 个。原始 DOCX/XLSX 字节不会上传。图像按 DSH 桥接 v2 的上限传递：最多 4 张、PNG/JPEG/WebP/GIF、解码后合计最多 8 MiB；New API 与 DSH 都验证边界，DSH 附件服务再检查实际格式并规范化。超过图像或说明文本上限、或格式不支持时会明确提示，不改走旧模型通道。输入文本仍最多 24 KiB；当前桥接仍不支持流式响应。
 - DSH session/request ID 按账号和聊天命名空间隔离；请求 ID 会在失败重试期间保留，以利用 DSH session controller 的重复 request ID 去重。显式 CLI 工具请求仍走既有用户设备审批/桥接路径，普通聊天不依赖配对设备。
-- New API PR #25 的搜索实现提交 `b9ef945791595aa39c50bc8c5f2e94fea5da9720` 与 DSH 固定证据标记兼容提交 `78319ae966aeb5f2471cf9c0afbc7f0a5ffb8eaf` 分别通过 GitHub Actions runs [36602885894](https://github.com/lilyco-42/new-api/actions/runs/36602885894) 和 [36604018410](https://github.com/lilyco-42/new-api/actions/runs/36604018410)，涵盖后端 vet/build/tests 与前端 typecheck/tests。回归覆盖一般网页搜索通过配置提供方查询、来源注入 DSH 当前轮、保持 DSH `[Lain42 browser-fetched evidence]` 约定，以及服务故障/零结果时不生成无来源答案。此前明确浏览器索引、OAuth 仓库直读与具名 AI 定义的验证见 runs [36599023362](https://github.com/lilyco-42/new-api/actions/runs/36599023362)、[36594694306](https://github.com/lilyco-42/new-api/actions/runs/36594694306) 和 [36595589149](https://github.com/lilyco-42/new-api/actions/runs/36595589149)。DSH PR #1 当前 head `a7c9f81680668ffa1516a20782a6ce48683fd586` 的完整 CI [36584435724](https://github.com/lilyco-42/deepseek-harness/actions/runs/36584435724) 通过，包括 Windows Node 24 coverage。真实供应商 E2E 因没有测试凭据而跳过；fork 的独立 Issue lifecycle 检查因缺少上游 GitHub App 凭据失败，weighted approval 仍待审阅，DSH PR 保持草稿。
+- New API PR #25 当前已验证代码 head `2de6b3d` 的后端 vet/build/tests 和前端 typecheck/tests 由 GitHub Actions run [36642203976](https://github.com/lilyco-42/new-api/actions/runs/36642203976) 通过；这个 run 包含上面列出的搜索、OAuth、附件、账号归属与模型中继测试。PR 仍为草稿，生产配置、真实模型/搜索供应商、计费和双账号线上端到端均未验证。
+- DSH PR #1 当前 head `48c941b7289511afbaebe16cbfb7a3b43117275c` 的完整 CI run [36644644723](https://github.com/lilyco-42/deepseek-harness/actions/runs/36644644723) 正在验证。前一完整 CI [36640531732](https://github.com/lilyco-42/deepseek-harness/actions/runs/36640531732) 中 Linux coverage、静态检查、snapshots/artifacts 及其余已完成门禁通过；Windows Node 24 coverage 在无 stderr 的 Windows ACL FullControl 子进程探针处 60 秒超时（`spawnSync` 返回 `status: null`）。这证明测试子进程挂起，但根因未知，不能当作 ACL 安全缺陷的证据。新 head 给该探针增加了逐步输出和完整 timeout 诊断，仍待新 Actions 结果。Issue policy run [36644644221](https://github.com/lilyco-42/deepseek-harness/actions/runs/36644644221) 与 weighted approval run [36644640987](https://github.com/lilyco-42/deepseek-harness/actions/runs/36644640987) 通过；无供应商凭据，因此真实 DeepSeek E2E run [36644644239](https://github.com/lilyco-42/deepseek-harness/actions/runs/36644644239) 跳过。没有本地构建/测试、生产部署或合并。
 - 没有在本机构建或运行测试。用户提供记录中的浏览器/操作系统、当前线上 Agent 版本、精确复现步骤和复现频率均为 unknown。生产 DSH 配置与连通、真实模型和搜索供应商表现、计费、URL CORS、附件边界及双账号线上端到端仍未验证；PR 未合并、未部署，不代表生产站已完成集成。
 
 ## 1.0 桥接重连结果隔离（2026-09-24）
