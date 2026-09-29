@@ -29,6 +29,7 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { getAgentAccountId } from '../agent-account-scope'
 import {
   Card,
   CardContent,
@@ -98,6 +99,7 @@ export function DeveloperToolkitCard({
     try {
       const result = invoke
         ? await invoke('tool_status', {
+            user_id: getAgentAccountId(),
             tool_ids: DEVELOPER_TOOLS.filter(
               (tool) => tool.protocol === 'cli' || tool.protocol === 'builtin'
             ).map((tool) => tool.id),

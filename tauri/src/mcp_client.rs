@@ -64,10 +64,11 @@ const MAX_CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 
 type McpClient = RunningService<RoleClient, ClientConfig>;
+type McpSessionKey = (i64, String);
 
 pub struct McpState {
-    sessions: Mutex<BTreeMap<String, Arc<Mutex<McpSession>>>>,
-    connecting: Mutex<BTreeSet<String>>,
+    sessions: Mutex<BTreeMap<McpSessionKey, Arc<Mutex<McpSession>>>>,
+    connecting: Mutex<BTreeSet<McpSessionKey>>,
 }
 
 impl Default for McpState {
@@ -79,8 +80,15 @@ impl Default for McpState {
     }
 }
 
-async fn release_connecting(state: &McpState, server_id: &str) {
-    state.connecting.lock().await.remove(server_id);
+fn scoped_server_key(user_id: i64, server_id: &str) -> Result<McpSessionKey, String> {
+    if user_id <= 0 {
+        return Err("A signed-in account is required for MCP connections.".to_string());
+    }
+    Ok((user_id, valid_server_id(server_id)?))
+}
+
+async fn release_connecting(state: &McpState, key: &McpSessionKey) {
+    state.connecting.lock().await.remove(key);
 }
 
 struct McpSession {
@@ -90,6 +98,7 @@ struct McpSession {
 
 #[derive(Debug, Deserialize)]
 pub struct McpConnectRequest {
+    pub user_id: i64,
     pub server_id: String,
     pub name: String,
     pub transport: String,
@@ -105,6 +114,7 @@ pub struct McpConnectRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct McpCallRequest {
+    pub user_id: i64,
     pub server_id: String,
     pub tool_name: String,
     pub arguments: Value,
@@ -481,7 +491,8 @@ pub async fn mcp_connect(
     state: State<'_, McpState>,
     request: McpConnectRequest,
 ) -> Result<McpConnectResponse, String> {
-    let server_id = valid_server_id(&request.server_id)?;
+    let key = scoped_server_key(request.user_id, &request.server_id)?;
+    let server_id = key.1.clone();
     let name = valid_identifier(&request.name, MAX_SERVER_NAME_BYTES, "MCP server name")?;
     if !matches!(request.transport.as_str(), "stdio" | "streamable_http") {
         return Err("MCP transport must be stdio or streamable_http.".to_string());
@@ -489,20 +500,34 @@ pub async fn mcp_connect(
     {
         let sessions = state.sessions.lock().await;
         let mut connecting = state.connecting.lock().await;
-        if connecting.contains(&server_id) {
+        if connecting.contains(&key) {
             return Err("MCP server is already connecting.".to_string());
         }
+        let account_id = key.0;
         reserve_connection(
             sessions.len(),
             connecting.len(),
-            sessions.contains_key(&server_id),
+            sessions.contains_key(&key),
         )?;
-        connecting.insert(server_id.clone());
+        let session_count = sessions
+            .keys()
+            .filter(|key| key.0 == account_id)
+            .count();
+        let pending_count = connecting
+            .iter()
+            .filter(|key| key.0 == account_id)
+            .count();
+        reserve_connection(
+            session_count,
+            pending_count,
+            sessions.contains_key(&key),
+        )?;
+        connecting.insert(key.clone());
     }
     let mut client = match connect_client(&request).await {
         Ok(client) => client,
         Err(error) => {
-            release_connecting(&state, &server_id).await;
+            release_connecting(&state, &key).await;
             return Err(error);
         }
     };
@@ -515,12 +540,12 @@ pub async fn mcp_connect(
         Ok(Ok(tools)) => tools,
         Ok(Err(error)) => {
             let _ = client.close_with_timeout(CLOSE_TIMEOUT).await;
-            release_connecting(&state, &server_id).await;
+            release_connecting(&state, &key).await;
             return Err(error);
         }
         Err(_) => {
             let _ = client.close_with_timeout(CLOSE_TIMEOUT).await;
-            release_connecting(&state, &server_id).await;
+            release_connecting(&state, &key).await;
             return Err("MCP tools/list timed out.".to_string());
         }
     };
@@ -532,15 +557,15 @@ pub async fn mcp_connect(
     };
     if let Err(error) = ensure_catalog_bounds(std::slice::from_ref(&descriptor)) {
         let _ = client.close_with_timeout(CLOSE_TIMEOUT).await;
-        release_connecting(&state, &server_id).await;
+        release_connecting(&state, &key).await;
         return Err(error);
     }
     let previous = {
         let mut sessions = state.sessions.lock().await;
         let mut connecting = state.connecting.lock().await;
-        connecting.remove(&server_id);
+        connecting.remove(&key);
         sessions.insert(
-            server_id,
+            key,
             Arc::new(Mutex::new(McpSession {
                 client,
                 descriptor: descriptor.clone(),
@@ -555,10 +580,17 @@ pub async fn mcp_connect(
 }
 
 #[tauri::command]
-pub async fn mcp_list(state: State<'_, McpState>) -> Result<McpListResponse, String> {
+pub async fn mcp_list(user_id: i64, state: State<'_, McpState>) -> Result<McpListResponse, String> {
+    if user_id <= 0 {
+        return Err("A signed-in account is required for MCP connections.".to_string());
+    }
     let sessions = {
         let sessions = state.sessions.lock().await;
-        sessions.values().cloned().collect::<Vec<_>>()
+        sessions
+            .iter()
+            .filter(|entry| entry.0.0 == user_id)
+            .map(|entry| entry.1.clone())
+            .collect::<Vec<_>>()
     };
     let mut descriptors = Vec::new();
     for session in sessions {
@@ -585,7 +617,8 @@ pub async fn mcp_call(
     state: State<'_, McpState>,
     request: McpCallRequest,
 ) -> Result<Value, String> {
-    let server_id = valid_server_id(&request.server_id)?;
+    let key = scoped_server_key(request.user_id, &request.server_id)?;
+    let server_id = key.1.clone();
     let tool_name = valid_identifier(&request.tool_name, MAX_TOOL_NAME_BYTES, "MCP tool name")?;
     let arguments = request
         .arguments
@@ -611,7 +644,7 @@ pub async fn mcp_call(
         .sessions
         .lock()
         .await
-        .get(&server_id)
+        .get(&key)
         .cloned()
         .ok_or_else(|| "MCP server is not connected.".to_string())?;
     let session = session.lock().await;
@@ -635,7 +668,7 @@ pub async fn mcp_call(
         Err(_) => {
             session.client.cancellation_token().cancel();
             drop(session);
-            state.sessions.lock().await.remove(&server_id);
+            state.sessions.lock().await.remove(&key);
             return Err("MCP tools/call timed out; the session was disconnected.".to_string());
         }
     };
@@ -654,13 +687,17 @@ pub async fn mcp_call(
 }
 
 #[tauri::command]
-pub async fn mcp_disconnect(state: State<'_, McpState>, server_id: String) -> Result<(), String> {
-    let server_id = valid_server_id(&server_id)?;
+pub async fn mcp_disconnect(
+    state: State<'_, McpState>,
+    user_id: i64,
+    server_id: String,
+) -> Result<(), String> {
+    let key = scoped_server_key(user_id, &server_id)?;
     let session = state
         .sessions
         .lock()
         .await
-        .remove(&server_id)
+        .remove(&key)
         .ok_or_else(|| "MCP server is not connected.".to_string())?;
     let mut session = session.lock().await;
     session
@@ -674,6 +711,15 @@ pub async fn mcp_disconnect(state: State<'_, McpState>, server_id: String) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_sessions_are_isolated_by_signed_in_account() {
+        let first = scoped_server_key(7, "shared-server").unwrap();
+        let second = scoped_server_key(9, "shared-server").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(first, (7, "shared-server".to_string()));
+        assert!(scoped_server_key(0, "shared-server").is_err());
+    }
 
     fn official_everything_entry() -> String {
         std::env::var("LAIN42_MCP_EVERYTHING_ENTRY")
@@ -718,6 +764,7 @@ mod tests {
     #[ignore = "Run in GitHub Actions with the official MCP server fixture installed"]
     async fn official_everything_stdio_interoperability() {
         let request = McpConnectRequest {
+            user_id: 1,
             server_id: "official-everything".to_string(),
             name: "Official Everything".to_string(),
             transport: "stdio".to_string(),
@@ -805,6 +852,7 @@ mod tests {
     #[test]
     fn rejects_shell_shaped_stdio_inputs() {
         let request = McpConnectRequest {
+            user_id: 1,
             server_id: "local".to_string(),
             name: "Local".to_string(),
             transport: "stdio".to_string(),
@@ -819,6 +867,7 @@ mod tests {
     #[test]
     fn accepts_only_safe_https_urls() {
         let mut request = McpConnectRequest {
+            user_id: 1,
             server_id: "remote".to_string(),
             name: "Remote".to_string(),
             transport: "streamable_http".to_string(),
