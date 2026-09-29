@@ -275,7 +275,7 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		if query == "" || len([]rune(query)) > maxAgentSearchQuery {
 			return nil, "invalid_arguments", "Search query must contain 1–200 characters."
 		}
-		limit := boundAgentDSHToolLimit(args.Limit, 5, maxAgentDSHToolSearchMaxItems)
+		limit := boundAgentDSHToolLimit(args.Limit, 5, agentDSHToolSearchMaxItems)
 		provider := "bing"
 		var items []agentWebSearchItem
 		var err error
