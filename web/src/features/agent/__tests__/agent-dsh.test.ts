@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ChatCompletionMessage,
   ChatCompletionRequest,
+  ChatCompletionResponse,
   Message,
 } from '@/features/playground/types'
 import { api } from '@/lib/api'
@@ -16,8 +17,23 @@ vi.mock('../web-agent-tool-provider', () => ({
     tools: [],
     requiresApproval: vi.fn(async () => true),
     invoke: vi.fn(async () => JSON.stringify({ error: 'CORS blocked the page read' })),
-    prepareContext: vi.fn(async () => {
-      throw new Error('Hosted research must use DSH model tools, not browser preflight.')
+    prepareContext: vi.fn(async () => []),
+    finalizeResponse: vi.fn((response: ChatCompletionResponse) => {
+      const firstChoice = response.choices?.[0]
+      if (!firstChoice) return response
+      return {
+        ...response,
+        choices: [
+          {
+            ...firstChoice,
+            message: {
+              ...firstChoice.message,
+              content: 'DeepSeek is an AI company and model family. Sources: https://huggingface.co/deepseek-ai',
+            },
+          },
+          ...response.choices.slice(1),
+        ],
+      }
     }),
   },
 }))
@@ -63,6 +79,7 @@ describe('Lain42 DSH conversation adapter', () => {
     vi.mocked(api.get).mockReset()
     vi.mocked(api.post).mockReset()
     vi.mocked(webAgentToolProvider.prepareContext!).mockClear()
+    vi.mocked(webAgentToolProvider.finalizeResponse!).mockClear()
     vi.mocked(webAgentToolProvider.requiresApproval!).mockReset().mockResolvedValue(true)
     vi.mocked(webAgentToolProvider.invoke!).mockReset()
     vi.stubGlobal('crypto', {
@@ -156,6 +173,56 @@ describe('Lain42 DSH conversation adapter', () => {
     )
     expect(result?.choices[0]?.message.content).toBe(
       'The DSH model used its account-scoped search tool.'
+    )
+  })
+
+  it('passes browser search evidence into DSH and finalizes named AI definitions', async () => {
+    const storage = storageFixture()
+    const evidence: ChatCompletionMessage = {
+      role: 'system',
+      name: 'lain42_browser_search_context',
+      content: 'Official DeepSeek model releases. URL: https://huggingface.co/deepseek-ai',
+    }
+    vi.mocked(webAgentToolProvider.prepareContext!).mockResolvedValueOnce([evidence])
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
+      .mockResolvedValueOnce(success({
+        session_id: SESSION_ID,
+        request_id: REQUEST_ID,
+        answer: 'DeepSeek is a search tool.',
+      }) as never)
+
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-chat-10',
+      mode: 'general',
+      storage,
+    })
+    providers.push(provider)
+    const query = 'deepseek'
+    const result = await provider.send(
+      request(query),
+      message('deepseek-definition', query),
+      new AbortController().signal
+    )
+
+    expect(webAgentToolProvider.prepareContext).toHaveBeenCalledOnce()
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/agent/dsh/turns',
+      expect.objectContaining({
+        text: expect.stringContaining('[Lain42 browser-fetched evidence from public-source search'),
+      }),
+      expect.any(Object)
+    )
+    expect(webAgentToolProvider.finalizeResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ choices: [expect.objectContaining({
+        message: expect.objectContaining({ content: 'DeepSeek is a search tool.' }),
+      })] }),
+      expect.any(Array),
+      [evidence]
+    )
+    expect(result?.choices[0]?.message.content).toBe(
+      'DeepSeek is an AI company and model family. Sources: https://huggingface.co/deepseek-ai'
     )
   })
 
