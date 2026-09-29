@@ -7,10 +7,7 @@ import type {
 } from '@/features/playground/types'
 import { api } from '@/lib/api'
 
-import {
-  requestsKnownAIEntityDefinition,
-  shouldRunLocalAgentTool,
-} from './agent-tool-routing'
+import { shouldRunLocalAgentTool } from './agent-tool-routing'
 import { prepareBrowserContext } from './agent-dsh-browser-context'
 import { webAgentToolProvider } from './web-agent-tool-provider'
 import {
@@ -195,13 +192,13 @@ export function createAgentDSHConversation(options: {
       )
     }
 
-    // Keep DSH as the conversation owner, but carry the browser-side source
-    // evidence and deterministic verification used for ambiguous AI entities
-    // into its turn. Without this, the hosted route can hallucinate basic
-    // provider definitions that the local tool-loop route already grounds.
-    const preparedContext = requestsKnownAIEntityDefinition(latestText)
-      ? await webAgentToolProvider.prepareContext?.(payload.messages, signal) ?? []
-      : []
+    // Run the browser-side provider's intent gate before hosted inference. It
+    // is a no-op for ordinary chat and explicit opt-outs, but performs searches
+    // requested by the user on this device and includes their evidence in the
+    // DSH turn. This keeps browser search from depending on hosted tool routing
+    // or an unapproved server-side web.search call.
+    const preparedContext =
+      await webAgentToolProvider.prepareContext?.(payload.messages, signal) ?? []
     if (signal.aborted) throw new DOMException('The request was canceled.', 'AbortError')
 
     const storedSessionId = read(sessionStorageKey)

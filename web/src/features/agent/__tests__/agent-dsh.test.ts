@@ -181,8 +181,17 @@ describe('Lain42 DSH conversation adapter', () => {
     expect(api.post).not.toHaveBeenCalled()
   })
 
-  it('lets DSH decide whether a web search is needed instead of running a browser preflight', async () => {
+  it('adds explicitly requested browser search evidence to the hosted DSH turn', async () => {
     const storage = storageFixture()
+    const evidence: ChatCompletionMessage = {
+      role: 'system',
+      name: 'lain42_browser_search_context',
+      content: 'Public GitHub result: https://github.com/ast-grep/ast-grep',
+    }
+    vi.mocked(webAgentToolProvider.prepareContext!).mockResolvedValueOnce([evidence])
+    vi.mocked(webAgentToolProvider.finalizeResponse!).mockImplementationOnce(
+      (response) => response
+    )
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
     vi.mocked(api.post)
       .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
@@ -198,18 +207,25 @@ describe('Lain42 DSH conversation adapter', () => {
       storage,
     })
     providers.push(provider)
-    const query = 'Search the web for current Rust AI tooling and cite sources.'
+    const query = '请用网页搜索在浏览器端查找 GitHub 上 ast-grep 的官方仓库，给我仓库名和来源链接。不要搜索我的个人仓库，也不要用本机 gh 或 Radxa。'
     const result = await provider.send(
       request(query),
       message('research-search', query),
       new AbortController().signal
     )
 
-    expect(webAgentToolProvider.prepareContext).not.toHaveBeenCalled()
+    expect(webAgentToolProvider.prepareContext).toHaveBeenCalledOnce()
     expect(api.post).toHaveBeenLastCalledWith(
       '/api/agent/dsh/turns',
       expect.objectContaining({
         mode: 'research',
+        text: expect.stringContaining('[Lain42 browser-fetched evidence from public-source search'),
+      }),
+      expect.any(Object)
+    )
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/agent/dsh/turns',
+      expect.objectContaining({
         text: expect.stringContaining(`Current user request:\n${query}`),
       }),
       expect.any(Object)
