@@ -17,6 +17,9 @@ import { localAgentToolProvider } from './agent-tool-provider'
 import { formatMcpApprovalArguments } from './mcp-tool-provider'
 
 const REQUEST_TIMEOUT_MS = 45_000
+const HANDSHAKE_TIMEOUT_MS = 10_000
+const INITIAL_RECONNECT_DELAY_MS = 1_000
+const MAX_RECONNECT_DELAY_MS = 30_000
 export const AGENT_BRIDGE_PROTOCOL_VERSION = 1 as const
 const AGENT_BRIDGE_CAPABILITIES = [
   'github.read',
@@ -134,7 +137,13 @@ function responseData<T>(value: unknown): T {
 export class AgentBridgeClient {
   private socket: WebSocket | null = null
   private connecting: Promise<void> | null = null
+  private cancelConnecting: ((error: Error) => void) | null = null
   private heartbeat: number | null = null
+  private handshakeTimeout: number | null = null
+  private reconnectTimer: number | null = null
+  private reconnectAttempts = 0
+  private active = false
+  private generation = 0
   private readonly pending = new Map<
     string,
     {
@@ -177,14 +186,18 @@ export class AgentBridgeClient {
   async connect(): Promise<void> {
     if (this.socket?.readyState === WebSocket.OPEN) return
     if (this.connecting) return this.connecting
-    if (!bridgeUrl(this.role) || this.deviceId <= 0) {
+    const url = bridgeUrl(this.role)
+    if (!url || this.deviceId <= 0) {
       this.setStatus('unavailable')
       throw new Error('The agent bridge is unavailable in this environment.')
     }
+    this.active = true
+    const generation = this.generation
 
     let browserAccessToken: string | undefined
     if (this.role === 'browser') {
       const headers = await getFreshAuthHeaders()
+      if (!this.active || generation !== this.generation) return
       browserAccessToken = headers.Authorization?.replace(/^Bearer\s+/i, '')
       if (!browserAccessToken) {
         this.setStatus('error')
@@ -193,18 +206,31 @@ export class AgentBridgeClient {
     }
 
     this.setStatus('connecting')
-    this.connecting = new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(bridgeUrl(this.role))
+    let cancelConnecting = (_error: Error) => {}
+    const connection = new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket(url)
       this.socket = socket
       let settled = false
+      const isCurrentSocket = () =>
+        this.active && generation === this.generation && this.socket === socket
       const fail = (error: Error) => {
         if (!settled) {
           settled = true
-          this.setStatus('error')
+          if (this.active && generation === this.generation) {
+            this.setStatus('error')
+          }
           reject(error)
         }
       }
+      cancelConnecting = fail
+      this.cancelConnecting = fail
       socket.onopen = () => {
+        if (!isCurrentSocket()) return
+        this.handshakeTimeout = window.setTimeout(() => {
+          this.handshakeTimeout = null
+          fail(new Error('The agent bridge handshake timed out.'))
+          if (isCurrentSocket()) socket.close()
+        }, HANDSHAKE_TIMEOUT_MS)
         socket.send(
           JSON.stringify({
             type: 'hello',
@@ -219,6 +245,7 @@ export class AgentBridgeClient {
         )
       }
       socket.onmessage = (event) => {
+        if (!isCurrentSocket()) return
         let envelope: unknown
         try {
           envelope = JSON.parse(String(event.data))
@@ -246,6 +273,11 @@ export class AgentBridgeClient {
           }
           if (!settled) {
             settled = true
+            if (this.handshakeTimeout !== null) {
+              window.clearTimeout(this.handshakeTimeout)
+              this.handshakeTimeout = null
+            }
+            this.reconnectAttempts = 0
             this.setStatus(
               this.role === 'browser' && envelope.desktop_connected === false
                 ? 'offline'
@@ -292,10 +324,17 @@ export class AgentBridgeClient {
           }
         }
       }
-      socket.onerror = () =>
+      socket.onerror = () => {
         fail(new Error('The agent bridge connection failed.'))
+        if (isCurrentSocket()) socket.close()
+      }
       socket.onclose = () => {
+        if (!isCurrentSocket()) return
         this.socket = null
+        if (this.handshakeTimeout !== null) {
+          window.clearTimeout(this.handshakeTimeout)
+          this.handshakeTimeout = null
+        }
         if (this.heartbeat !== null) {
           window.clearInterval(this.heartbeat)
           this.heartbeat = null
@@ -308,11 +347,40 @@ export class AgentBridgeClient {
         }
         this.pending.clear()
         fail(error)
+        this.scheduleReconnect(generation)
       }
-    }).finally(() => {
-      this.connecting = null
     })
-    return this.connecting
+    const connecting = connection.finally(() => {
+      if (this.connecting === connecting) this.connecting = null
+      if (this.cancelConnecting === cancelConnecting) {
+        this.cancelConnecting = null
+      }
+    })
+    this.connecting = connecting
+    return connecting
+  }
+
+  private scheduleReconnect(generation: number): void {
+    if (
+      !this.active ||
+      generation !== this.generation ||
+      this.reconnectTimer !== null
+    ) {
+      return
+    }
+    const exponent = Math.min(this.reconnectAttempts, 5)
+    const delay = Math.min(
+      MAX_RECONNECT_DELAY_MS,
+      INITIAL_RECONNECT_DELAY_MS * 2 ** exponent
+    )
+    this.reconnectAttempts += 1
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null
+      if (!this.active || generation !== this.generation) return
+      void this.connect().catch(() => {
+        // A closed socket schedules the next attempt from its close handler.
+      })
+    }, delay)
   }
 
   async request(
@@ -375,12 +443,32 @@ export class AgentBridgeClient {
   }
 
   close(): void {
-    this.socket?.close()
+    this.active = false
+    this.generation += 1
+    this.cancelConnecting?.(new Error('The agent bridge was closed.'))
+    this.cancelConnecting = null
+    this.connecting = null
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    if (this.handshakeTimeout !== null) {
+      window.clearTimeout(this.handshakeTimeout)
+      this.handshakeTimeout = null
+    }
+    const socket = this.socket
     this.socket = null
+    socket?.close()
     if (this.heartbeat !== null) {
       window.clearInterval(this.heartbeat)
       this.heartbeat = null
     }
+    const error = new Error('The agent bridge was closed.')
+    for (const pending of this.pending.values()) {
+      window.clearTimeout(pending.timer)
+      pending.reject(error)
+    }
+    this.pending.clear()
     this.setStatus('offline')
   }
 }
@@ -535,7 +623,6 @@ export async function startDesktopAgentBridge(
 
   const client = new AgentBridgeClient('desktop', deviceId, credential)
   const removeListener = onStatus ? client.onStatus(onStatus) : () => {}
-  await client.connect()
   const removeEnvelope = client.onEnvelope(async (envelope) => {
     if (envelope.type !== 'tool_request') return
     const operation = envelope.operation
@@ -604,6 +691,9 @@ export async function startDesktopAgentBridge(
         error: error instanceof Error ? error.message : 'Desktop tool failed.',
       })
     }
+  })
+  void client.connect().catch(() => {
+    // The client retries transient connection failures while this bridge is active.
   })
   return () => {
     removeListener()
