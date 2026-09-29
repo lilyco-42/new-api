@@ -103,7 +103,7 @@ export function ResearchSourcesCard() {
         </CardDescription>
         <CardDescription className='text-xs leading-5'>
           {t(
-            'Chat search results are sent to the model for an answer. The separate search popover requires you to add results to the message.'
+            'Ask the Agent to search or paste a public HTTPS URL in chat; browser-read content is shared with the model automatically. The search popover is manual: add results to the message to share them.'
           )}
         </CardDescription>
       </CardHeader>

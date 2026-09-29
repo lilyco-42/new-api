@@ -5612,7 +5612,7 @@
     "Read URL with Agent": "Прочитать URL с агентом",
     "Add results to message": "Добавить результаты в сообщение",
     "Search results added to the message.": "Результаты поиска добавлены в сообщение.",
-    "Chat search results are sent to the model for an answer. The separate search popover requires you to add results to the message.": "Результаты поиска из чата отправляются модели для подготовки ответа. В отдельном окне поиска результаты нужно добавить в сообщение вручную.",
+    "Ask the Agent to search or paste a public HTTPS URL in chat; browser-read content is shared with the model automatically. The search popover is manual: add results to the message to share them.": "Попросите агента выполнить поиск или вставьте общедоступный HTTPS-адрес в чат; содержимое, прочитанное браузером, автоматически передается модели. Окно поиска работает вручную: добавьте результаты в сообщение, чтобы передать их модели.",
     "Attach selected file": "Attach to message",
     "Maximum attachment size is 8 MB.": "Maximum attachment size is 8 MB.",
     "File attached to the next message.": "File attached to the next message.",

@@ -5612,7 +5612,7 @@
     "Read URL with Agent": "让 Agent 读取网页",
     "Add results to message": "添加结果到消息",
     "Search results added to the message.": "搜索结果已添加到消息。",
-    "Chat search results are sent to the model for an answer. The separate search popover requires you to add results to the message.": "在聊天中搜索时，检索结果会发送给模型生成回答。独立搜索弹窗的结果需要先点击“添加结果到消息”。",
+    "Ask the Agent to search or paste a public HTTPS URL in chat; browser-read content is shared with the model automatically. The search popover is manual: add results to the message to share them.": "在聊天中让 Agent 搜索，或粘贴公开 HTTPS 链接；浏览器读取的内容会自动提供给模型。搜索弹窗是手动模式：点击“添加结果到消息”后才会分享给模型。",
     "Attach selected file": "附加到消息",
     "Maximum attachment size is 8 MB.": "单个附件最大为 8 MB。",
     "File attached to the next message.": "文件已附加到下一条消息。",

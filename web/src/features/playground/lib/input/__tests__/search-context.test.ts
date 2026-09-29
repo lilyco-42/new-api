@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   containsPublicPageUrlReference,
+  firstPublicPageUrlReference,
   formatSearchResultsForPrompt,
   normalizePublicPageUrlInput,
 } from '../search-context'
@@ -28,7 +29,20 @@ describe('browser search context', () => {
     expect(
       containsPublicPageUrlReference('Please explain deepseek.com for me.')
     ).toBe(true)
+    expect(
+      firstPublicPageUrlReference(
+        'Please explain https://deepseek.com/research?tab=1.'
+      )
+    ).toBe('https://deepseek.com/research?tab=1')
     expect(containsPublicPageUrlReference('deepseek ai models')).toBe(false)
+  })
+
+  it('skips non-HTTPS candidates and returns the first safe page URL', () => {
+    expect(
+      firstPublicPageUrlReference(
+        'http://example.com then read https://docs.example.com/guide'
+      )
+    ).toBe('https://docs.example.com/guide')
   })
 
   it('formats search results as bounded source context for the model', () => {
