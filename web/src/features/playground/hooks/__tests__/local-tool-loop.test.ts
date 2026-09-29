@@ -167,6 +167,61 @@ describe('local structured tool loop', () => {
     expect(events).toEqual(['requested', 'running', 'completed'])
   })
 
+  test('does not publish a tool result or continue after cancellation', async () => {
+    const controller = new AbortController()
+    const requests: ChatCompletionRequest[] = []
+    const events: string[] = []
+    let resolveTool!: (result: string) => void
+    let markToolStarted!: () => void
+    const pendingToolResult = new Promise<string>((resolve) => {
+      resolveTool = resolve
+    })
+    const toolStarted = new Promise<void>((resolve) => {
+      markToolStarted = resolve
+    })
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length > 1) {
+        throw new Error(
+          'A cancelled tool loop must not request the model again.'
+        )
+      }
+      return response({
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'call-pending-tool',
+            type: 'function',
+            function: {
+              name: 'github.issues.list',
+              arguments: '{"repo":"lilyco-42/new-api"}',
+            },
+          },
+        ],
+      })
+    }
+    const pendingProvider = provider(() => {
+      markToolStarted()
+      return pendingToolResult
+    })
+    const run = runLocalToolLoop(
+      initialPayload,
+      pendingProvider,
+      controller.signal,
+      (event) => events.push(event.type),
+      request
+    )
+
+    await toolStarted
+    controller.abort()
+    resolveTool('late private issue data')
+
+    await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+    expect(requests).toHaveLength(1)
+    expect(events).toEqual(['requested', 'running'])
+  })
+
   test('forces a required browser search once, then returns to automatic tool choice', async () => {
     const requests: ChatCompletionRequest[] = []
     const request = async (payload: ChatCompletionRequest) => {
