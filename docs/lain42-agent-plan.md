@@ -11,6 +11,15 @@
 - 最小验证顺序：先在 GitHub Actions 做可选特性构建与实际二进制/空闲/任务峰值内存测量；再做 ACP approval fail-closed、双用户会话隔离、断线/取消测试；Windows/Linux/macOS 与 ARM64 产物均过 CI 后，才考虑桌面/companion 试用。所有本地构建和测试仍禁止；不操作用户的私人 Radxa，不在这些门槛通过前部署或声称集成完成。
 - 发行门槛：ZeroStack 使用 GPL-3.0-only；若将改动后的二进制随 Lain42 客户端分发，发布前必须确认对应源码、许可证和通知的交付方式。来源：[ZeroStack license](https://github.com/gi-dellav/zerostack/blob/main/LICENSE)。
 
+## 1.3 DSH 与 New API 的账号级服务边界（2026-09-29，CI 验证前）
+
+- `feat/agent-dsh-control-plane` 正在补 New API 后端一侧：登录用户创建随机不透明 DSH session；New API 校验 session 所有权后才把文本轮次转发到管理员配置的私有 DSH；DSH 的模型调用和只读工具调用分别走独立 HMAC、短时间窗与数据库一次性 nonce。
+- DSH 的模型请求根据 session 反查 New API 账号，并复用 `Playground`、`Distribute` 和现有额度结算路径；GitHub 工具只使用同一账号加密保存的 Agent OAuth 凭据。网页聊天本身不要求配对桌面或 A7A。
+- DSH/New API 两端须独立配置至少 32 字节随机密钥：`LAIN42_DSH_BRIDGE_SECRET` 用于文本轮次与工具中继，`LAIN42_AGENT_MODEL_RELAY_SECRET` 用于模型中继；New API 管理配置 `LAIN42_DSH_BASE_URL`，仅允许 HTTPS（本机回环开发地址例外）。状态接口只回报配置是否完整，不返回地址或密钥。搜索可继续使用 `AGENT_WEB_SEARCH_URL`；未配置时沿用 New API 的现有 Bing RSS 搜索。
+- 当前后端工具中继仅实现公开网页搜索、公开 URL 读取、GitHub 仓库列表/搜索、Issue 与 PR 只读。DSH 侧另外声明的 GitHub Actions 工具仍返回明确的 `tool_not_available`，不伪装成功。
+- 本阶段**尚未接到 `/agent` 的浏览器聊天界面**，DSH 私有 turn 协议也暂不携带附件或流式事件；GitHub Actions、跨数据库真实迁移、生产 DSH 连通、实际模型计费和双账号端到端均待 CI/后续验收。当前代码只是待审 PR 分支，不代表线上已配置、已部署或已完成闭环。
+- 按项目约束，Go 构建与测试只由 GitHub Actions 执行；不在开发机本地编译或运行测试。CI 通过前不合并、不部署，也不宣称交付完成。
+
 ## 1.0 桥接重连结果隔离（2026-09-24）
 
 - 待处理工具请求现在绑定到发起它的桌面 WebSocket 连接和账号。设备重连后，旧连接的迟到结果不能消费新连接的请求；旧连接断开只中断自己的请求，不会注销替代连接。

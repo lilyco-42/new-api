@@ -347,6 +347,7 @@ func migrateDB() error {
 		&AgentDevice{},
 		&AgentRunEvent{},
 		&AgentGitHubCredential{},
+		&AgentDSHSession{},
 	)
 	if err != nil {
 		return err
@@ -413,6 +414,7 @@ func migrateDBFast() error {
 		{&AgentDevice{}, "AgentDevice"},
 		{&AgentRunEvent{}, "AgentRunEvent"},
 		{&AgentGitHubCredential{}, "AgentGitHubCredential"},
+		{&AgentDSHSession{}, "AgentDSHSession"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
