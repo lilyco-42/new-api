@@ -53,7 +53,7 @@ function explicitlyDeclinesPageRead(text: string): boolean {
   )
 }
 
-function explicitlyRequestsBrowserWebSearch(text: string): boolean {
+export function explicitlyRequestsBrowserWebSearch(text: string): boolean {
   return /(?:浏览器(?:端|中)?(?:的)?(?:网页)?搜索|网页搜索(?:功能)?|用网页搜索|search (?:the )?web|web search)/iu.test(
     text
   )

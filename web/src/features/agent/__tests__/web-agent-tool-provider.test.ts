@@ -295,7 +295,7 @@ describe('webAgentToolProvider', () => {
       searchQuery,
       5,
       expect.any(AbortSignal),
-      'auto'
+      'github'
     )
     expect(searchContext?.content).toContain('AST-based code search')
     expect(searchContext?.content).toContain('https://github.com/ast-grep/ast-grep')
@@ -304,6 +304,160 @@ describe('webAgentToolProvider', () => {
     expect(response.choices[0]?.message.content).toContain(
       '[ast-grep/ast-grep](<https://github.com/ast-grep/ast-grep>)'
     )
+  })
+
+  it('passes explicit broad web-search results from the configured provider into model context', async () => {
+    const query = '请用网页搜索查找 Rust 官方入门书并给出来源链接。'
+    const messages: ChatCompletionMessage[] = [{ role: 'user', content: query }]
+    const signal = new AbortController().signal
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          query: 'Rust official beginner book',
+          provider: 'Bing',
+          items: [
+            {
+              title: 'The Rust Programming Language',
+              url: 'https://doc.rust-lang.org/book/',
+              snippet: 'The official Rust language book.',
+            },
+          ],
+        },
+      },
+    } as never)
+
+    const context = await webAgentToolProvider.prepareContext?.(messages, signal)
+
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/search',
+      expect.objectContaining({
+        params: { q: query, limit: 5 },
+        signal,
+        skipErrorHandler: true,
+      })
+    )
+    expect(searchClientSources).not.toHaveBeenCalled()
+    expect(context?.[0]?.content).toContain('configured Lain42 web-search provider')
+    expect(context?.[0]?.content).toContain('The Rust Programming Language')
+    expect(context?.[0]?.content).toContain('https://doc.rust-lang.org/book/')
+  })
+
+  it('does not let an unavailable broad search provider produce an unsupported answer', async () => {
+    const query = '请用网页搜索确认 Rust 官方教程的名称。'
+    const messages: ChatCompletionMessage[] = [{ role: 'user', content: query }]
+    vi.mocked(api.get).mockRejectedValueOnce(
+      new Error('private provider endpoint details')
+    )
+
+    const context = await webAgentToolProvider.prepareContext?.(
+      messages,
+      new AbortController().signal
+    )
+    const response: ChatCompletionResponse = {
+      id: 'unverified-web-search',
+      object: 'chat.completion',
+      created: 1,
+      model: 'test-model',
+      choices: [{
+        index: 0,
+        message: { role: 'assistant', content: '猜测的搜索答案' },
+        finish_reason: 'stop',
+      }],
+    }
+    const finalized = webAgentToolProvider.finalizeResponse?.(
+      response,
+      messages,
+      context ?? []
+    )
+
+    expect(context?.[0]?.content).not.toContain('private provider endpoint details')
+    expect(finalized?.choices[0]?.message.content).toContain(
+      '网站配置的网页搜索服务暂时不可用'
+    )
+    expect(finalized?.choices[0]?.message.content).not.toContain('猜测的搜索答案')
+  })
+
+  it('distinguishes an empty provider result from a provider outage', async () => {
+    const query = '请用网页搜索找 Rust 官方教程。'
+    const messages: ChatCompletionMessage[] = [{ role: 'user', content: query }]
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { query, provider: 'Bing', items: [] },
+      },
+    } as never)
+
+    const context = await webAgentToolProvider.prepareContext?.(
+      messages,
+      new AbortController().signal
+    )
+    const response: ChatCompletionResponse = {
+      id: 'empty-web-search',
+      object: 'chat.completion',
+      created: 1,
+      model: 'test-model',
+      choices: [{
+        index: 0,
+        message: { role: 'assistant', content: '猜测的搜索答案' },
+        finish_reason: 'stop',
+      }],
+    }
+    const finalized = webAgentToolProvider.finalizeResponse?.(
+      response,
+      messages,
+      context ?? []
+    )
+
+    expect(finalized?.choices[0]?.message.content).toContain(
+      '没有返回可用来源'
+    )
+    expect(finalized?.choices[0]?.message.content).not.toContain('暂时不可用')
+    expect(finalized?.choices[0]?.message.content).not.toContain('猜测的搜索答案')
+  })
+
+  it('routes model-invoked broad web search using the latest user request', async () => {
+    const requestText = 'Search the web for the current Rust official tutorial.'
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          query: 'Rust official tutorial',
+          provider: 'Bing',
+          items: [
+            {
+              title: 'The Rust Programming Language',
+              url: 'https://doc.rust-lang.org/book/',
+              snippet: 'Official Rust tutorial and reference.',
+            },
+          ],
+        },
+      },
+    } as never)
+    const provider = createBrowserAgentToolProvider()
+    provider.availableTools?.([{ role: 'user', content: requestText }])
+
+    const result = JSON.parse(await provider.invoke!(
+      toolCall('web.search', {
+        query: 'Rust official tutorial',
+        limit: 3,
+        scope: 'auto',
+      }),
+      new AbortController().signal
+    )) as { execution: string; items: Array<{ title: string; url: string }> }
+
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/agent/search',
+      expect.objectContaining({
+        params: { q: 'Rust official tutorial', limit: 3 },
+      })
+    )
+    expect(searchClientSources).not.toHaveBeenCalled()
+    expect(result.execution).toBe('lain42-search-api')
+    expect(result.items[0]).toEqual(expect.objectContaining({
+      title: 'The Rust Programming Language',
+      url: 'https://doc.rust-lang.org/book/',
+    }))
   })
 
   it('tells the model browser search was unavailable without leaking its error', async () => {
