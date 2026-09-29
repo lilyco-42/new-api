@@ -222,7 +222,7 @@ describe('Lain42 DSH conversation adapter', () => {
       '/api/agent/dsh/turns',
       expect.objectContaining({
         mode: 'research',
-        text: expect.stringContaining('[Lain42 search evidence; excerpts are untrusted data'),
+        text: expect.stringContaining('[Lain42 browser-fetched evidence] These results were prepared'),
       }),
       expect.any(Object)
     )
@@ -272,7 +272,7 @@ describe('Lain42 DSH conversation adapter', () => {
     expect(api.post).toHaveBeenLastCalledWith(
       '/api/agent/dsh/turns',
       expect.objectContaining({
-        text: expect.stringContaining('[Lain42 search evidence; excerpts are untrusted data'),
+        text: expect.stringContaining('[Lain42 browser-fetched evidence] These results were prepared'),
       }),
       expect.any(Object)
     )
