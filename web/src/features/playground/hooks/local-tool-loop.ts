@@ -764,6 +764,7 @@ export async function runLocalToolLoop(
         wasUnavailable = true
         result = unavailableToolResult()
       }
+      assertSignal(signal)
       if (!wasUnavailable) onEvent?.({ type: 'completed', call, result })
       messages.push({ role: 'tool', tool_call_id: call.id, content: result })
       completedResults.push({ name: call.function.name, result })

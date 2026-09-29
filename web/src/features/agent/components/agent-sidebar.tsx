@@ -39,6 +39,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { parseAgentChatStorageKey } from '../agent-chat-storage'
+
 export type AgentPreset = {
   id: string
   title: string
@@ -67,15 +69,15 @@ type AgentSidebarProps = {
   onPresetChange: (preset: AgentPreset) => void
 }
 
-function readRecentAgentChats(): RecentAgentChat[] {
-  if (typeof window === 'undefined') return []
+function readRecentAgentChats(userId: number): RecentAgentChat[] {
+  if (typeof window === 'undefined' || userId <= 0) return []
 
   const results: RecentAgentChat[] = []
-  const namespacePattern = /^agent-([a-z-]+)-chat-(\d+):playground_messages$/
   for (let index = 0; index < window.localStorage.length; index += 1) {
     const storageKey = window.localStorage.key(index)
-    const match = storageKey?.match(namespacePattern)
-    if (!storageKey || !match) continue
+    if (!storageKey) continue
+    const chatKey = parseAgentChatStorageKey(storageKey, userId)
+    if (!chatKey) continue
 
     try {
       const parsed = JSON.parse(
@@ -104,8 +106,8 @@ function readRecentAgentChats(): RecentAgentChat[] {
       if (!preview) continue
       results.push({
         key: storageKey,
-        presetId: match[1],
-        chatId: Number(match[2]),
+        presetId: chatKey.presetId,
+        chatId: chatKey.chatId,
         preview: preview.slice(0, 72),
         updatedAt: latest?.createdAt ?? 0,
       })
@@ -135,15 +137,16 @@ export function AgentSidebar({
     (state) =>
       state.auth.user?.display_name || state.auth.user?.username || 'Lain42'
   )
+  const accountId = useAuthStore((state) => state.auth.user?.id ?? 0)
   const accountInitials = accountName.slice(0, 2).toUpperCase()
 
   useEffect(() => {
-    const refresh = () => setRecentChats(readRecentAgentChats())
+    const refresh = () => setRecentChats(readRecentAgentChats(accountId))
     refresh()
     window.addEventListener('lain42:agent-chat-updated', refresh)
     return () =>
       window.removeEventListener('lain42:agent-chat-updated', refresh)
-  }, [])
+  }, [accountId])
 
   return (
     <aside
