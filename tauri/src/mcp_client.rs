@@ -35,8 +35,10 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::{net::lookup_host, sync::Mutex, time::timeout};
+
+use crate::{verify_account_session, VerifiedAccountSessions};
 
 #[path = "bounded_mcp_stdio.rs"]
 mod bounded_mcp_stdio;
@@ -96,9 +98,10 @@ struct McpSession {
     descriptor: McpServerDescriptor,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct McpConnectRequest {
     pub user_id: i64,
+    pub access_token: String,
     pub server_id: String,
     pub name: String,
     pub transport: String,
@@ -112,9 +115,10 @@ pub struct McpConnectRequest {
     pub bearer_token: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct McpCallRequest {
     pub user_id: i64,
+    pub access_token: String,
     pub server_id: String,
     pub tool_name: String,
     pub arguments: Value,
@@ -488,10 +492,19 @@ async fn list_bounded_tools(
 
 #[tauri::command]
 pub async fn mcp_connect(
+    app: AppHandle,
     state: State<'_, McpState>,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     request: McpConnectRequest,
 ) -> Result<McpConnectResponse, String> {
-    let key = scoped_server_key(request.user_id, &request.server_id)?;
+    let user_id = verify_account_session(
+        &app,
+        &verified_sessions,
+        request.user_id,
+        &request.access_token,
+    )
+    .await?;
+    let key = scoped_server_key(user_id, &request.server_id)?;
     let server_id = key.1.clone();
     let name = valid_identifier(&request.name, MAX_SERVER_NAME_BYTES, "MCP server name")?;
     if !matches!(request.transport.as_str(), "stdio" | "streamable_http") {
@@ -509,19 +522,9 @@ pub async fn mcp_connect(
             connecting.len(),
             sessions.contains_key(&key),
         )?;
-        let session_count = sessions
-            .keys()
-            .filter(|key| key.0 == account_id)
-            .count();
-        let pending_count = connecting
-            .iter()
-            .filter(|key| key.0 == account_id)
-            .count();
-        reserve_connection(
-            session_count,
-            pending_count,
-            sessions.contains_key(&key),
-        )?;
+        let session_count = sessions.keys().filter(|key| key.0 == account_id).count();
+        let pending_count = connecting.iter().filter(|key| key.0 == account_id).count();
+        reserve_connection(session_count, pending_count, sessions.contains_key(&key))?;
         connecting.insert(key.clone());
     }
     let mut client = match connect_client(&request).await {
@@ -580,15 +583,19 @@ pub async fn mcp_connect(
 }
 
 #[tauri::command]
-pub async fn mcp_list(user_id: i64, state: State<'_, McpState>) -> Result<McpListResponse, String> {
-    if user_id <= 0 {
-        return Err("A signed-in account is required for MCP connections.".to_string());
-    }
+pub async fn mcp_list(
+    app: AppHandle,
+    state: State<'_, McpState>,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
+    user_id: i64,
+    access_token: String,
+) -> Result<McpListResponse, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     let sessions = {
         let sessions = state.sessions.lock().await;
         sessions
             .iter()
-            .filter(|entry| entry.0.0 == user_id)
+            .filter(|entry| entry.0 .0 == user_id)
             .map(|entry| entry.1.clone())
             .collect::<Vec<_>>()
     };
@@ -614,10 +621,19 @@ pub async fn mcp_list(user_id: i64, state: State<'_, McpState>) -> Result<McpLis
 
 #[tauri::command]
 pub async fn mcp_call(
+    app: AppHandle,
     state: State<'_, McpState>,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     request: McpCallRequest,
 ) -> Result<Value, String> {
-    let key = scoped_server_key(request.user_id, &request.server_id)?;
+    let user_id = verify_account_session(
+        &app,
+        &verified_sessions,
+        request.user_id,
+        &request.access_token,
+    )
+    .await?;
+    let key = scoped_server_key(user_id, &request.server_id)?;
     let server_id = key.1.clone();
     let tool_name = valid_identifier(&request.tool_name, MAX_TOOL_NAME_BYTES, "MCP tool name")?;
     let arguments = request
@@ -688,10 +704,14 @@ pub async fn mcp_call(
 
 #[tauri::command]
 pub async fn mcp_disconnect(
+    app: AppHandle,
     state: State<'_, McpState>,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
+    access_token: String,
     server_id: String,
 ) -> Result<(), String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     let key = scoped_server_key(user_id, &server_id)?;
     let session = state
         .sessions
@@ -765,6 +785,7 @@ mod tests {
     async fn official_everything_stdio_interoperability() {
         let request = McpConnectRequest {
             user_id: 1,
+            access_token: "test-account-token".to_string(),
             server_id: "official-everything".to_string(),
             name: "Official Everything".to_string(),
             transport: "stdio".to_string(),
@@ -853,6 +874,7 @@ mod tests {
     fn rejects_shell_shaped_stdio_inputs() {
         let request = McpConnectRequest {
             user_id: 1,
+            access_token: "test-account-token".to_string(),
             server_id: "local".to_string(),
             name: "Local".to_string(),
             transport: "stdio".to_string(),
@@ -868,6 +890,7 @@ mod tests {
     fn accepts_only_safe_https_urls() {
         let mut request = McpConnectRequest {
             user_id: 1,
+            access_token: "test-account-token".to_string(),
             server_id: "remote".to_string(),
             name: "Remote".to_string(),
             transport: "streamable_http".to_string(),

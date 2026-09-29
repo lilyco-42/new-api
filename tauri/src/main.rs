@@ -5,9 +5,11 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     sync::Mutex,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{webview::WebviewWindowBuilder, AppHandle, Manager, State, WebviewUrl};
 use url::Url;
 
@@ -21,6 +23,107 @@ use tool_runtime::{
 };
 
 const DEFAULT_AGENT_URL: &str = "https://api.lain42.top/agent";
+const ACCOUNT_SESSION_CACHE_TTL: Duration = Duration::from_secs(30);
+const MAX_VERIFIED_ACCOUNT_SESSIONS: usize = 128;
+const MAX_ACCOUNT_VERIFICATION_RESPONSE_BYTES: u64 = 64 * 1024;
+
+#[derive(Default)]
+pub struct VerifiedAccountSessions(Mutex<HashMap<(i64, [u8; 32]), Instant>>);
+
+fn account_session_cache_key(user_id: i64, access_token: &str) -> (i64, [u8; 32]) {
+    (user_id, Sha256::digest(access_token.as_bytes()).into())
+}
+
+fn response_account_id(response: &serde_json::Value) -> Option<i64> {
+    response.pointer("/data/id")?.as_i64().filter(|id| *id > 0)
+}
+
+fn validate_response_account(response: &serde_json::Value, user_id: i64) -> Result<(), String> {
+    if response.get("success").and_then(serde_json::Value::as_bool) == Some(true)
+        && response_account_id(response) == Some(user_id)
+    {
+        Ok(())
+    } else {
+        Err("The signed-in account does not match this desktop profile.".to_string())
+    }
+}
+
+pub(super) async fn verify_account_session(
+    app: &AppHandle,
+    state: &State<'_, VerifiedAccountSessions>,
+    user_id: i64,
+    access_token: &str,
+) -> Result<i64, String> {
+    let user_id = validate_account_id(user_id)?;
+    if !(16..=4096).contains(&access_token.len()) || access_token.chars().any(char::is_control) {
+        return Err("A valid signed-in session is required for desktop tools.".to_string());
+    }
+
+    let cache_key = account_session_cache_key(user_id, access_token);
+    let now = Instant::now();
+    {
+        let mut cache = state
+            .0
+            .lock()
+            .map_err(|_| "Account session state is unavailable.".to_string())?;
+        cache.retain(|_, expires_at| *expires_at > now);
+        if cache.contains_key(&cache_key) {
+            return Ok(user_id);
+        }
+    }
+
+    let self_url = agent_url()
+        .join("/api/user/self")
+        .map_err(|_| "Unable to resolve the account verification endpoint.".to_string())?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "Unable to prepare account verification.".to_string())?;
+    let response = client
+        .get(self_url)
+        .bearer_auth(access_token)
+        .header("Cache-Control", "no-store")
+        .send()
+        .await
+        .map_err(|_| "Unable to verify the signed-in account with New API.".to_string())?;
+    if !response.status().is_success() {
+        return Err("The signed-in account could not be verified. Sign in again.".to_string());
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_ACCOUNT_VERIFICATION_RESPONSE_BYTES)
+    {
+        return Err("New API returned an invalid account verification response.".to_string());
+    }
+    let response = response
+        .bytes()
+        .await
+        .map_err(|_| "New API returned an invalid account verification response.".to_string())?;
+    if response.len() as u64 > MAX_ACCOUNT_VERIFICATION_RESPONSE_BYTES {
+        return Err("New API returned an invalid account verification response.".to_string());
+    }
+    let response = serde_json::from_slice::<serde_json::Value>(&response)
+        .map_err(|_| "New API returned an invalid account verification response.".to_string())?;
+    validate_response_account(&response, user_id)?;
+
+    let mut cache = state
+        .0
+        .lock()
+        .map_err(|_| "Account session state is unavailable.".to_string())?;
+    cache.retain(|_, expires_at| *expires_at > Instant::now());
+    if cache.len() >= MAX_VERIFIED_ACCOUNT_SESSIONS {
+        if let Some(oldest_key) = cache
+            .iter()
+            .min_by(|(_, left), (_, right)| left.cmp(right))
+            .map(|(key, _)| *key)
+        {
+            cache.remove(&oldest_key);
+        }
+    }
+    cache.insert(cache_key, Instant::now() + ACCOUNT_SESSION_CACHE_TTL);
+    Ok(user_id)
+}
 
 #[derive(Default)]
 struct AgentDeviceState(Mutex<HashMap<i64, AgentDeviceSession>>);
@@ -56,11 +159,14 @@ struct GhAuthStatus {
 }
 
 #[tauri::command]
-fn tool_status(
+async fn tool_status(
     app: AppHandle,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
+    access_token: String,
     tool_ids: Option<Vec<String>>,
 ) -> Result<Vec<DeveloperToolStatus>, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     let ids = tool_ids.unwrap_or_else(|| {
         CLI_TOOL_REGISTRY
             .iter()
@@ -68,60 +174,81 @@ fn tool_status(
             .collect()
     });
     let credentials = profile_credentials(&app, user_id)?;
-    Ok(ids.into_iter()
-        .filter_map(|id| {
-            if id == "workspace-files" {
-                Some(workspace_status())
-            } else {
-                cli_tool_spec(&id)
-                    .ok()
-                    .map(|spec| detect_cli_tool(spec.id, credentials.as_ref()))
-            }
-        })
-        .collect())
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(ids
+            .into_iter()
+            .filter_map(|id| {
+                if id == "workspace-files" {
+                    Some(workspace_status())
+                } else {
+                    cli_tool_spec(&id)
+                        .ok()
+                        .map(|spec| detect_cli_tool(spec.id, Some(&credentials)))
+                }
+            })
+            .collect())
+    })
+    .await
+    .map_err(|_| "Developer tool detection failed.".to_string())?
 }
 
 #[tauri::command]
-fn cli_exec(
+async fn cli_exec(
     app: AppHandle,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
+    access_token: String,
     request: CliExecRequest,
 ) -> Result<CliExecResult, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     let credentials = profile_credentials(&app, user_id)?;
     let request = OperationRequest {
         operation: request.operation,
         params: request.params,
         timeout_ms: request.timeout_ms,
     };
-    execute_operation(&request, credentials.as_ref(), &CancellationToken::new())
+    tauri::async_runtime::spawn_blocking(move || {
+        execute_operation(&request, Some(&credentials), &CancellationToken::new())
+    })
+    .await
+    .map_err(|_| "The local CLI worker failed.".to_string())?
 }
 
 #[tauri::command]
-fn agent_device_credential_get(
+async fn agent_device_credential_get(
     app: AppHandle,
     state: State<'_, AgentDeviceState>,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
-) -> Option<String> {
-    current_agent_device_session(&app, &state, user_id).map(|value| value.credential)
+    access_token: String,
+) -> Result<Option<String>, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    Ok(current_agent_device_session(&app, &state, user_id).map(|value| value.credential))
 }
 
 #[tauri::command]
-fn agent_device_id_get(
+async fn agent_device_id_get(
     app: AppHandle,
     state: State<'_, AgentDeviceState>,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
-) -> Option<i64> {
-    current_agent_device_session(&app, &state, user_id).map(|value| value.device_id)
+    access_token: String,
+) -> Result<Option<i64>, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    Ok(current_agent_device_session(&app, &state, user_id).map(|value| value.device_id))
 }
 
 #[tauri::command(rename_all = "camelCase")]
-fn agent_device_credential_set(
+async fn agent_device_credential_set(
     app: AppHandle,
     state: State<'_, AgentDeviceState>,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     credential: String,
     device_id: i64,
     user_id: i64,
+    access_token: String,
 ) -> Result<(), String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     let credential = credential.trim().to_string();
     if !(32..=256).contains(&credential.len()) || device_id <= 0 {
         return Err("Invalid agent device credential.".to_string());
@@ -143,12 +270,14 @@ fn agent_device_credential_set(
 }
 
 #[tauri::command]
-fn agent_device_credential_clear(
+async fn agent_device_credential_clear(
     app: AppHandle,
     state: State<'_, AgentDeviceState>,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
+    access_token: String,
 ) -> Result<(), String> {
-    let user_id = validate_account_id(user_id)?;
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     let profile_id = desktop_profile_id();
     remove_agent_device_session(&app, &profile_id, user_id)?;
     let mut current = state
@@ -433,7 +562,13 @@ fn gh_operation(
 }
 
 #[tauri::command]
-fn gh_auth_status(app: AppHandle, user_id: i64) -> Result<GhAuthStatus, String> {
+async fn gh_auth_status(
+    app: AppHandle,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
+    user_id: i64,
+    access_token: String,
+) -> Result<GhAuthStatus, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     let profile_id = format!("user-{}", validate_account_id(user_id)?);
     let config_dir = gh_config_dir(&app, user_id)?;
     let config = config_dir.display().to_string();
@@ -445,12 +580,17 @@ fn gh_auth_status(app: AppHandle, user_id: i64) -> Result<GhAuthStatus, String> 
         "GH_CONFIG_DIR=\"{}\" gh auth login",
         config.replace('"', "")
     );
-    let output = gh_operation(
-        &app,
-        user_id,
-        "github.auth.status",
-        serde_json::json!({}),
-    )?;
+    let operation_app = app.clone();
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        gh_operation(
+            &operation_app,
+            user_id,
+            "github.auth.status",
+            serde_json::json!({}),
+        )
+    })
+    .await
+    .map_err(|_| "GitHub CLI status check failed.".to_string())??;
 
     let text = output.stdout.as_str();
     let error_text = output.stderr.as_str();
@@ -482,23 +622,32 @@ fn gh_auth_status(app: AppHandle, user_id: i64) -> Result<GhAuthStatus, String> 
 }
 
 #[tauri::command]
-fn gh_search_repositories(
+async fn gh_search_repositories(
     app: AppHandle,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
+    access_token: String,
     query: String,
     limit: u8,
 ) -> Result<serde_json::Value, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     let query = query.trim();
     if query.is_empty() || query.len() > 200 {
         return Err("Search text must contain 1–200 characters.".to_string());
     }
     let limit = validate_limit(limit)?;
-    let output = gh_operation(
-        &app,
-        user_id,
-        "github.repositories.search",
-        serde_json::json!({"query": query, "limit": limit}),
-    )?;
+    let operation_app = app.clone();
+    let params = serde_json::json!({"query": query, "limit": limit});
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        gh_operation(
+            &operation_app,
+            user_id,
+            "github.repositories.search",
+            params,
+        )
+    })
+    .await
+    .map_err(|_| "GitHub repository search failed.".to_string())??;
     if !matches!(output.status, tool_runtime::ExecutionStatus::Succeeded) {
         return Err(output.stderr.trim().to_string());
     }
@@ -507,20 +656,24 @@ fn gh_search_repositories(
 }
 
 #[tauri::command]
-fn gh_list_issues(
+async fn gh_list_issues(
     app: AppHandle,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
+    access_token: String,
     repo: String,
     limit: u8,
 ) -> Result<serde_json::Value, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     validate_repo(repo.trim())?;
     validate_limit(limit)?;
-    let output = gh_operation(
-        &app,
-        user_id,
-        "github.issues.list",
-        serde_json::json!({"repo": repo.trim(), "state": "open", "limit": limit, "sort": "updated"}),
-    )?;
+    let operation_app = app.clone();
+    let params = serde_json::json!({"repo": repo.trim(), "state": "open", "limit": limit, "sort": "updated"});
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        gh_operation(&operation_app, user_id, "github.issues.list", params)
+    })
+    .await
+    .map_err(|_| "GitHub issue lookup failed.".to_string())??;
     if !matches!(output.status, tool_runtime::ExecutionStatus::Succeeded) {
         return Err(output.stderr.trim().to_string());
     }
@@ -529,20 +682,24 @@ fn gh_list_issues(
 }
 
 #[tauri::command]
-fn gh_list_pull_requests(
+async fn gh_list_pull_requests(
     app: AppHandle,
+    verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
+    access_token: String,
     repo: String,
     limit: u8,
 ) -> Result<serde_json::Value, String> {
+    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
     validate_repo(repo.trim())?;
     validate_limit(limit)?;
-    let output = gh_operation(
-        &app,
-        user_id,
-        "github.pull_requests.list",
-        serde_json::json!({"repo": repo.trim(), "state": "open", "limit": limit, "sort": "updated"}),
-    )?;
+    let operation_app = app.clone();
+    let params = serde_json::json!({"repo": repo.trim(), "state": "open", "limit": limit, "sort": "updated"});
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        gh_operation(&operation_app, user_id, "github.pull_requests.list", params)
+    })
+    .await
+    .map_err(|_| "GitHub pull request lookup failed.".to_string())??;
     if !matches!(output.status, tool_runtime::ExecutionStatus::Succeeded) {
         return Err(output.stderr.trim().to_string());
     }
@@ -553,6 +710,7 @@ fn gh_list_pull_requests(
 fn main() {
     tauri::Builder::default()
         .manage(AgentDeviceState::default())
+        .manage(VerifiedAccountSessions::default())
         .manage(mcp_client::McpState::default())
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -593,7 +751,12 @@ fn main() {
 mod tests {
     use super::*;
 
-    fn session(profile_id: &str, account_id: i64, credential: &str, device_id: i64) -> AgentDeviceSession {
+    fn session(
+        profile_id: &str,
+        account_id: i64,
+        credential: &str,
+        device_id: i64,
+    ) -> AgentDeviceSession {
         AgentDeviceSession {
             profile_id: profile_id.to_string(),
             account_id,
@@ -646,5 +809,39 @@ mod tests {
             assert!(validate_account_id(account_id).is_err());
             assert!(account_data_directory(Path::new("app-data"), "desktop", account_id).is_err());
         }
+    }
+
+    #[test]
+    fn account_verification_requires_the_matching_authenticated_user() {
+        assert!(validate_response_account(
+            &serde_json::json!({"success": true, "data": {"id": 7}}),
+            7
+        )
+        .is_ok());
+        assert!(validate_response_account(
+            &serde_json::json!({"success": true, "data": {"id": 9}}),
+            7
+        )
+        .is_err());
+        assert!(validate_response_account(
+            &serde_json::json!({"success": false, "data": {"id": 7}}),
+            7
+        )
+        .is_err());
+        assert!(validate_response_account(&serde_json::json!({"data": {}}), 7).is_err());
+    }
+
+    #[test]
+    fn verified_session_cache_is_scoped_to_account_and_token() {
+        let account_token = account_session_cache_key(7, "account-session-token-7");
+
+        assert_ne!(
+            account_token,
+            account_session_cache_key(9, "account-session-token-7")
+        );
+        assert_ne!(
+            account_token,
+            account_session_cache_key(7, "rotated-account-session-token-7")
+        );
     }
 }

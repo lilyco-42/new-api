@@ -23,7 +23,7 @@ import type {
   LocalToolProvider,
 } from '@/features/playground/types'
 
-import { getAgentAccountId } from './agent-account-scope'
+import { getAgentAccountContext } from './agent-account-scope'
 import { shouldRunLocalAgentTool } from './agent-tool-routing'
 
 type TauriInvoke = (
@@ -523,7 +523,7 @@ export const localAgentToolProvider: LocalToolProvider = {
       call.function.name,
       call.function.arguments
     )
-    const userId = getAgentAccountId()
+    const { userId, accessToken } = await getAgentAccountContext()
     if (call.function.name === FILES_PREVIEW_TOOL.function.name) {
       const confirmation =
         typeof window !== 'undefined' && typeof window.confirm === 'function'
@@ -540,6 +540,7 @@ export const localAgentToolProvider: LocalToolProvider = {
         invoke,
         {
           user_id: userId,
+          access_token: accessToken,
           request: {
             operation: call.function.name,
             params,
