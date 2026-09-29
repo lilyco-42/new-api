@@ -154,6 +154,7 @@ export function renderCodeBlock(node: CodeBlockNode, key: string): ReactNode {
       maxExpandedLines={44}
       showLineNumbers
       showToolbar
+      title={language}
     >
       <CodeBlockCopyButton />
     </CodeBlock>
