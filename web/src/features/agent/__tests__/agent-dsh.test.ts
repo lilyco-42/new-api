@@ -138,7 +138,7 @@ describe('Lain42 DSH conversation adapter', () => {
     )
     expect(result?.choices[0]?.message.content).toBe('Here is the verified answer.')
     expect(webAgentToolProvider.prepareContext).toHaveBeenCalledOnce()
-    expect(JSON.stringify(api.post.mock.calls.at(-1)?.[1])).not.toContain(
+    expect(JSON.stringify(vi.mocked(api.post).mock.calls.at(-1)?.[1])).not.toContain(
       'Browser-prepared context:'
     )
   })
