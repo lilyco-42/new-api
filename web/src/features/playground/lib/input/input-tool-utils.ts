@@ -79,6 +79,8 @@ const TEXT_ATTACHMENT_TYPES = new Set([
 ])
 
 const MAX_ATTACHMENT_TEXT_CHARS = 120_000
+const UNREADABLE_ATTACHMENT_ERROR =
+  'This attachment could not be read, so it was not sent. Attach an image, a searchable PDF, or a text/code file.'
 
 function decodeDataUrl(url: string): string | null {
   const match = url.match(/^data:[^,]*,([\s\S]*)$/i)
@@ -90,7 +92,7 @@ function decodeDataUrl(url: string): string | null {
     if (/;base64/i.test(metadata)) {
       const binary = atob(encoded)
       const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
-      return new TextDecoder().decode(bytes)
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
     }
     return decodeURIComponent(encoded)
   } catch {
@@ -184,10 +186,7 @@ export async function filePartsToContentParts(
       }
     }
 
-    parts.push({
-      type: 'text',
-      text: `[Attached file: ${filename} (${mediaType})]`,
-    })
+    throw new Error(UNREADABLE_ATTACHMENT_ERROR)
   }
 
   return parts

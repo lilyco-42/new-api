@@ -5080,6 +5080,7 @@
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "Không thể chuẩn bị liên kết chat. Vui lòng đảm bảo bạn có khóa API được kích hoạt.",
     "Unable to read clipboard": "Không thể đọc bảng tạm",
     "Unable to read this PDF. Check that it is not encrypted or damaged.": "Không thể đọc PDF này. Hãy kiểm tra tệp không bị mã hóa hoặc hỏng.",
+    "This attachment could not be read, so it was not sent. Attach an image, a searchable PDF, or a text/code file.": "Không thể đọc tệp đính kèm nên tệp không được gửi cho mô hình. Hãy đính kèm ảnh, PDF có thể chọn văn bản hoặc tệp văn bản/mã nguồn.",
     "Unauthorized": "Chưa xác thực",
     "Unauthorized Access": "Truy cập trái phép",
     "Unbind": "Hủy liên kết",

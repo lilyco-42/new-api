@@ -5080,6 +5080,7 @@
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "无法准备聊天链接。请确保您有一个已启用的 API 密钥。",
     "Unable to read clipboard": "无法读取剪贴板",
     "Unable to read this PDF. Check that it is not encrypted or damaged.": "无法读取此 PDF。请确认文件未加密或损坏。",
+    "This attachment could not be read, so it was not sent. Attach an image, a searchable PDF, or a text/code file.": "无法读取此附件，因此没有发送给模型。请使用图片、含可选中文本的 PDF、文本或代码文件。",
     "Unauthorized": "未授权",
     "Unauthorized Access": "未经授权的访问",
     "Unbind": "解绑",

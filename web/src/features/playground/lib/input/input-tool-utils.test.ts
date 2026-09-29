@@ -185,9 +185,9 @@ describe('filePartsToContentParts', () => {
     expect(loadingTask.destroy).toHaveBeenCalledOnce()
   })
 
-  it('describes unsupported binary files without sending binary data', async () => {
-    expect(
-      await filePartsToContentParts([
+  it('rejects unreadable binary files instead of sending only their names', async () => {
+    await expect(
+      filePartsToContentParts([
         {
           type: 'file',
           filename: 'archive.zip',
@@ -195,11 +195,23 @@ describe('filePartsToContentParts', () => {
           url: 'data:application/zip;base64,AAAA',
         } as FileUIPart,
       ])
-    ).toEqual([
-      {
-        type: 'text',
-        text: '[Attached file: archive.zip (application/zip)]',
-      },
-    ])
+    ).rejects.toThrow(
+      'This attachment could not be read, so it was not sent.'
+    )
+  })
+
+  it('rejects invalid UTF-8 text instead of sending only a filename', async () => {
+    await expect(
+      filePartsToContentParts([
+        {
+          type: 'file',
+          filename: 'notes.txt',
+          mediaType: 'text/plain',
+          url: 'data:text/plain;base64,/w==',
+        } as FileUIPart,
+      ])
+    ).rejects.toThrow(
+      'This attachment could not be read, so it was not sent.'
+    )
   })
 })
