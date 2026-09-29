@@ -5724,6 +5724,7 @@
     "Official remote MCP for public GitHub repository wikis; no token required.": "Official remote MCP for public GitHub repository wikis; no token required.",
     "DeepWiki is already connected.": "DeepWiki is already connected.",
     "DeepWiki MCP connected.": "DeepWiki MCP connected.",
-    "DeepWiki connection failed.": "DeepWiki connection failed."
+    "DeepWiki connection failed.": "DeepWiki connection failed.",
+    "New requests are temporarily paused because server resource usage exceeded a safety threshold. Please try again later or contact the site administrator.": "New requests are temporarily paused because server resource usage exceeded a safety threshold. Please try again later or contact the site administrator."
   }
 }

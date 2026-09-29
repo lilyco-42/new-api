@@ -39,6 +39,24 @@ describe('parseRequestErrorDetails', () => {
 })
 
 describe('getActionableRequestErrorKey', () => {
+  it('explains server resource safety pauses using the structured error code', () => {
+    const expected =
+      'New requests are temporarily paused because server resource usage exceeded a safety threshold. Please try again later or contact the site administrator.'
+
+    for (const errorCode of [
+      'system_disk_overloaded',
+      'system_memory_overloaded',
+      'system_cpu_overloaded',
+    ]) {
+      expect(
+        getActionableRequestErrorKey(
+          'system resource overloaded (current: 96.2%, threshold: 95%)',
+          errorCode
+        )
+      ).toBe(expected)
+    }
+  })
+
   it('maps rate limits and transient gateway failures to recovery guidance', () => {
     expect(
       getActionableRequestErrorKey('Request failed with status code 429')
