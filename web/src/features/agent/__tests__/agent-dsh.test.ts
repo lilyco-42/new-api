@@ -143,6 +143,50 @@ describe('Lain42 DSH conversation adapter', () => {
     )
   })
 
+  it('forwards locally extracted Office text as part of the DSH user turn', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
+      .mockResolvedValueOnce(success({
+        session_id: SESSION_ID,
+        request_id: REQUEST_ID,
+        answer: 'The spreadsheet shows revenue of 4,200.',
+      }) as never)
+
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-chat-12',
+      mode: 'general',
+      storage: storageFixture(),
+    })
+    providers.push(provider)
+    const prompt = request([
+      { type: 'text', text: 'Summarize this spreadsheet.' },
+      {
+        type: 'text',
+        text: '[Attached XLSX: sales.xlsx]\n[Untrusted document text]\nWorksheet: Sales\nRow 1: A1=Revenue | B1=4200',
+      },
+    ])
+
+    const result = await provider.send(
+      prompt,
+      message('office-attachment', 'Summarize this spreadsheet.'),
+      new AbortController().signal
+    )
+
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/agent/dsh/turns',
+      expect.objectContaining({
+        text: expect.stringContaining(
+          'Worksheet: Sales\nRow 1: A1=Revenue | B1=4200'
+        ),
+      }),
+      expect.any(Object)
+    )
+    expect(result?.choices[0]?.message.content).toBe(
+      'The spreadsheet shows revenue of 4,200.'
+    )
+  })
+
   it('resolves connected GitHub repository listing through OAuth before DSH', async () => {
     const oauthResponse: ChatCompletionResponse = {
       id: 'browser-github-oauth-repositories',
