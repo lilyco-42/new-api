@@ -39,6 +39,8 @@ func SetApiRouter(router *gin.Engine) {
 			platformAgentRoute := agentRoute.Group("")
 			platformAgentRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
 			{
+				platformAgentRoute.POST("/dsh/sessions", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("agent-dsh-session"), controller.CreateAgentDSHSession)
+				platformAgentRoute.POST("/dsh/turns", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("agent-dsh-turn"), controller.AgentDSHTurn)
 				platformAgentRoute.POST("/pairings", middleware.SessionCookieOriginGuard(), controller.CreateAgentPairing)
 				platformAgentRoute.POST("/pairings/:id/confirm", middleware.SessionCookieOriginGuard(), controller.ConfirmAgentPairing)
 				platformAgentRoute.GET("/devices", controller.ListAgentDevices)
@@ -79,6 +81,7 @@ func SetApiRouter(router *gin.Engine) {
 			browserAgentStatusRoute := agentRoute.Group("")
 			browserAgentStatusRoute.Use(middleware.UserAuth(), middleware.DisableCache())
 			browserAgentStatusRoute.GET("/github/status", controller.AgentGitHubStatus)
+			browserAgentStatusRoute.GET("/dsh/status", controller.AgentDSHStatus)
 			// Search, web fetch, and GitHub reads are bounded per authenticated user. They
 			// are frequent, read-only Agent tools and should not consume the
 			// shared IP-wide critical-request budget used by login and billing.
@@ -93,6 +96,11 @@ func SetApiRouter(router *gin.Engine) {
 			browserAgentMutationRoute := agentRoute.Group("")
 			browserAgentMutationRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache())
 			browserAgentMutationRoute.DELETE("/github/authorization", middleware.SessionCookieOriginGuard(), controller.AgentGitHubDisconnect)
+			// DSH is a private server-to-server runtime. Resolve its owning New API
+			// account from the signed session before applying per-user rate limits.
+			dshToolRelayRoute := agentRoute.Group("")
+			dshToolRelayRoute.Use(middleware.AgentDSHToolAuth(), middleware.SearchRateLimit(), middleware.DisableCache())
+			dshToolRelayRoute.POST("/bridge/v1/tool", controller.AgentDSHToolRelay)
 		}
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
