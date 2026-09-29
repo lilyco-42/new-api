@@ -20,14 +20,14 @@
 - 在 1.3 后端切片中，`/agent` 浏览器聊天尚未接入，DSH turn 也不携带附件或流式事件；后续 1.4 切片接入了普通文本对话，但附件与流式能力仍未覆盖。GitHub Actions、跨数据库迁移、生产 DSH 连通、实际模型计费和双账号端到端仍待 CI/后续验收。当前代码只是待审 PR 分支，不代表线上已配置、已部署或已完成闭环。
 - 按项目约束，Go 构建与测试只由 GitHub Actions 执行；不在开发机本地编译或运行测试。CI 通过前不合并、不部署，也不宣称交付完成。
 
-## 1.4 `/agent` 接入 DSH 托管对话（2026-09-29，PR CI 通过；未部署）
+## 1.4 `/agent` 接入 DSH 托管对话（2026-09-30，PR CI 通过；未部署）
 
 - 浏览器 Agent 现在为登录账号和会话创建独立的 New API DSH session，并把普通聊天轮次交给 DSH；网站原有的账号模型、配额与用量中继保持入口。New API 未配置 DSH 时，界面回退到现有聊天链路，因此未完成部署配置之前仍可使用原有能力。
-- 通用、代码、研究、内容四种网页预设分别映射到 DSH 服务端固定的安全 preset。系统提示要求优先回答最新问题；标点输入请求澄清；若聊天中已附浏览器读取的证据，不再重复抓取。一般网页搜索和 GitHub 查询由 DSH 模型按需调用网站账号级只读工具。对“DeepSeek 是什么”等具名 AI 实体定义，客户端先查公开索引，把来源片段交给 DSH，并用已有来源校验器防止无依据的错误分类。浏览器只在用户提供 URL 并确认后尝试客户端读取；若目标站拒绝跨域读取，原始 URL 仍交给 DSH 网页读取工具处理。
+- 通用、代码、研究、内容四种网页预设分别映射到 DSH 服务端固定的安全 preset。系统提示要求优先回答最新问题；标点输入请求澄清；若聊天中已附浏览器读取的证据，不再重复抓取。一般网页搜索和 GitHub 查询由 DSH 模型按需调用网站账号级只读工具。“查看我的 GitHub 仓库”是确定性账号读取：客户端在进入 DSH 前通过当前网站账号的 GitHub OAuth 获取仓库并直接返回，避免模型把网站 OAuth 状态误判成本机 `gh` CLI 未登录；显式本机 CLI 请求仍走用户设备授权路径。对“DeepSeek 是什么”等具名 AI 实体定义，客户端先查公开索引，把来源片段交给 DSH，并用已有来源校验器防止无依据的错误分类。浏览器只在用户提供 URL 并确认后尝试客户端读取；若目标站拒绝跨域读取，原始 URL 仍交给 DSH 网页读取工具处理。
 - 当前 DSH 轮次携带纯文本；前端已提取的文本文件和 PDF 文本可随提问进入 DSH，单轮上限 24 KiB。图像以及超过上限的内容沿用原有 OpenAI 兼容聊天链路；DSH bridge 暂无二进制附件与流式事件，因此不能把所有附件都算作 DSH 已支持。
 - DSH session/request ID 按账号和聊天命名空间隔离；请求 ID 会在失败重试期间保留，以利用 DSH session controller 的重复 request ID 去重。显式 CLI 工具请求仍走既有用户设备审批/桥接路径，普通聊天不依赖配对设备。
-- New API PR #25 当前 head `2345727aa8d276f174b3f0acc59853ccc5907a44` 的 GitHub Actions run [36592610526](https://github.com/lilyco-42/new-api/actions/runs/36592610526) 已通过后端 vet/build/tests 与前端 typecheck/tests；DSH PR #1 当前 head `a7c9f81680668ffa1516a20782a6ce48683fd586` 的完整 CI [36584435724](https://github.com/lilyco-42/deepseek-harness/actions/runs/36584435724) 通过，包括 Windows Node 24 coverage。真实供应商 E2E 因没有测试凭据而跳过，fork 的独立 Issue lifecycle 检查因缺少上游 GitHub App 凭据失败，DSH PR 保持草稿并等待审阅。
-- 没有在本机构建或运行测试。生产 DSH 配置与连通、真实模型和搜索供应商表现、计费、URL CORS、附件边界及双账号线上端到端仍未验证；PR 未合并、未部署，不代表生产站已完成集成。
+- New API PR #25 当前 head `2af3827a80a29c6cc6e1ec8267055cdb54a9d656` 的 GitHub Actions run [36594694306](https://github.com/lilyco-42/new-api/actions/runs/36594694306) 已通过后端 vet/build/tests 与前端 typecheck/tests，包含具名 AI 定义来源传递与 OAuth 仓库直读的适配器回归；DSH PR #1 当前 head `a7c9f81680668ffa1516a20782a6ce48683fd586` 的完整 CI [36584435724](https://github.com/lilyco-42/deepseek-harness/actions/runs/36584435724) 通过，包括 Windows Node 24 coverage。真实供应商 E2E 因没有测试凭据而跳过；fork 的独立 Issue lifecycle 检查因缺少上游 GitHub App 凭据失败，weighted approval 仍待审阅，DSH PR 保持草稿。
+- 没有在本机构建或运行测试。用户提供记录中的浏览器/操作系统、当前线上 Agent 版本、精确复现步骤和复现频率均为 unknown。生产 DSH 配置与连通、真实模型和搜索供应商表现、计费、URL CORS、附件边界及双账号线上端到端仍未验证；PR 未合并、未部署，不代表生产站已完成集成。
 
 ## 1.0 桥接重连结果隔离（2026-09-24）
 
