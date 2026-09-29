@@ -463,6 +463,7 @@ export const STATIC_I18N_KEYS = [
   'Error establishing connection',
   'Connection closed',
   'Generation was interrupted',
+  'New requests are temporarily paused because server resource usage exceeded a safety threshold. Please try again later or contact the site administrator.',
   'Note',
   'Tip',
   'Important',

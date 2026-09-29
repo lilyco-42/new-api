@@ -5724,6 +5724,7 @@
     "Official remote MCP for public GitHub repository wikis; no token required.": "官方远程 MCP，可读取公开 GitHub 仓库知识库；无需令牌。",
     "DeepWiki is already connected.": "DeepWiki 已连接。",
     "DeepWiki MCP connected.": "DeepWiki MCP 已连接。",
-    "DeepWiki connection failed.": "DeepWiki 连接失败。"
+    "DeepWiki connection failed.": "DeepWiki 连接失败。",
+    "New requests are temporarily paused because server resource usage exceeded a safety threshold. Please try again later or contact the site administrator.": "服务器资源使用量已超过安全阈值，暂时无法处理新请求。请稍后再试，或联系网站管理员。"
   }
 }

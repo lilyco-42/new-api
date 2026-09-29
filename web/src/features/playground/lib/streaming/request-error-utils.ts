@@ -50,7 +50,18 @@ export function parseRequestErrorDetails(error: unknown): RequestErrorDetails {
   }
 }
 
-export function getActionableRequestErrorKey(message: string): string | null {
+export function getActionableRequestErrorKey(
+  message: string,
+  errorCode?: string
+): string | null {
+  if (
+    errorCode === 'system_disk_overloaded' ||
+    errorCode === 'system_memory_overloaded' ||
+    errorCode === 'system_cpu_overloaded'
+  ) {
+    return 'New requests are temporarily paused because server resource usage exceeded a safety threshold. Please try again later or contact the site administrator.'
+  }
+
   if (
     /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
       message
