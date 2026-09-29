@@ -1015,42 +1015,59 @@ describe('local structured tool loop', () => {
     ).rejects.toMatchObject({ name: 'AbortError' })
   })
 
-  test('requires approval before invoking a guarded tool', async () => {
-    let invoked = false
+  test('continues with a clear explanation when a guarded tool is declined', async () => {
+    const requests: ChatCompletionRequest[] = []
+    const invoked = vi.fn(async () => 'must not run')
     const guarded: LocalToolProvider = {
       tools: [tool],
       isAvailable: () => true,
       requiresApproval: () => false,
-      invoke: async () => {
-        invoked = true
-        return 'should not run'
-      },
+      invoke: invoked,
     }
-    const request = async () =>
-      response({
-        role: 'assistant',
-        content: null,
-        tool_calls: [
-          {
-            id: 'call-approval',
-            type: 'function',
-            function: {
-              name: 'github.issues.list',
-              arguments: '{"repo":"lilyco-42/new-api"}',
+    const request = async (payload: ChatCompletionRequest) => {
+      requests.push(payload)
+      if (requests.length === 1) {
+        return response({
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call-approval',
+              type: 'function',
+              function: {
+                name: 'github.issues.list',
+                arguments: '{"repo":"lilyco-42/new-api"}',
+              },
             },
-          },
-        ],
+          ],
+        })
+      }
+      return response({
+        role: 'assistant',
+        content:
+          'I did not read the issues because you declined access. You can approve a retry if you still want me to check them.',
       })
+    }
 
-    await expect(
-      runLocalToolLoop(
-        initialPayload,
-        guarded,
-        new AbortController().signal,
-        undefined,
-        request
-      )
-    ).rejects.toThrow('was not approved')
-    expect(invoked).toBe(false)
+    const result = await runLocalToolLoop(
+      initialPayload,
+      guarded,
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(result.choices[0]?.message.content).toContain(
+      'you declined access'
+    )
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.tools).toEqual([])
+    expect(requests[1]?.tool_choice).toBe('none')
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'call-approval',
+      content: expect.stringContaining('approval_denied'),
+    })
+    expect(invoked).not.toHaveBeenCalled()
   })
 })
