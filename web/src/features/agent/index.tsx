@@ -625,9 +625,23 @@ function WorkspacePanelHeader({
 export function AgentWorkspace() {
   const { t } = useTranslation()
   const useToolsSheet = useMediaQuery('(max-width: 1279px)')
+  const toolsMode: 'sheet' | 'panel' = useToolsSheet ? 'sheet' : 'panel'
   const [preset, setPreset] = useState<AgentPreset>(PRESETS[0])
   const [chatId, setChatId] = useState(0)
-  const [toolsOpen, setToolsOpen] = useState(false)
+  const [toolsOpenState, setToolsOpenState] = useState<{
+    mode: 'sheet' | 'panel'
+    open: boolean
+  }>()
+  const toolsOpen =
+    toolsOpenState?.mode === toolsMode ? toolsOpenState.open : !useToolsSheet
+  const setToolsOpen = (next: boolean | ((previous: boolean) => boolean)) => {
+    const currentOpen =
+      toolsOpenState?.mode === toolsMode ? toolsOpenState.open : !useToolsSheet
+    setToolsOpenState({
+      mode: toolsMode,
+      open: typeof next === 'function' ? next(currentOpen) : next,
+    })
+  }
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('tools')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -699,12 +713,10 @@ export function AgentWorkspace() {
   }
 
   useEffect(() => {
-    setToolsOpen(!useToolsSheet)
-  }, [useToolsSheet])
-
-  useEffect(() => {
     let disposed = false
     let cleanup: (() => void) | null = null
+    // Clear stale paired-device state before reconnecting to the external bridge.
+    // oxlint-disable-next-line react/set-state-in-effect
     setBridgeProvider(null)
     setRemoteMcpServers([])
     remoteMcpProvider.current = null
