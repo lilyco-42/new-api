@@ -906,6 +906,14 @@ export const webAgentToolProvider: LocalToolProvider = {
     const preparedContext: ChatCompletionMessage[] = []
     const pageUrl = firstPublicPageUrlReference(request)
     if (pageUrl) {
+      const crawlCall: ChatCompletionToolCall = {
+        id: 'browser-page-crawl-preflight',
+        type: 'function',
+        function: {
+          name: 'web.crawl',
+          arguments: JSON.stringify({ url: pageUrl }),
+        },
+      }
       const fetchCall: ChatCompletionToolCall = {
         id: 'browser-page-preflight',
         type: 'function',
@@ -914,7 +922,14 @@ export const webAgentToolProvider: LocalToolProvider = {
           arguments: JSON.stringify({ url: pageUrl }),
         },
       }
-      if (shouldRunWebAgentTool(fetchCall, messages)) {
+      const explicitlyRequestsCrawl = shouldRunWebAgentTool(
+        crawlCall,
+        messages
+      )
+      if (
+        !explicitlyRequestsCrawl &&
+        shouldRunWebAgentTool(fetchCall, messages)
+      ) {
         try {
           const page = await fetchClientPage(pageUrl, signal)
           preparedContext.push(

@@ -789,21 +789,31 @@ describe('webAgentToolProvider', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
-  it('passes an explicitly requested browser page to the model before answering', async () => {
+  it('keeps an explicitly requested multi-page crawl as an approved tool call', async () => {
     const url = 'https://docs.example.com/guide'
     const payload: ChatCompletionRequest = {
       model: 'test-model',
-      messages: [{ role: 'user', content: `请读取这个网页并总结：${url}` }],
+      messages: [
+        { role: 'user', content: `请爬取这个网页并总结配置方法：${url}` },
+      ],
       stream: false,
     }
     const confirm = vi.fn().mockReturnValue(true)
     vi.stubGlobal('window', { confirm })
-    vi.mocked(fetchClientPage).mockResolvedValueOnce({
-      title: 'Guide',
-      url,
-      text: 'The guide explains how to configure the project.',
+    vi.mocked(crawlClientSite).mockResolvedValueOnce({
+      execution: 'browser-wasm',
+      start_url: url,
+      query: 'configuration',
       fetched_at: '2026-09-29T10:00:00.000Z',
-      links: [],
+      pages: [
+        {
+          title: 'Guide',
+          url,
+          excerpt: 'The guide explains how to configure the project.',
+          matched_terms: ['configuration'],
+        },
+      ],
+      warnings: [],
     })
     const requests: ChatCompletionRequest[] = []
     const request = vi.fn(async (input: ChatCompletionRequest) => {
@@ -821,7 +831,13 @@ describe('webAgentToolProvider', () => {
                 ? {
                     role: 'assistant' as const,
                     content: null,
-                    tool_calls: [toolCall('web.fetch', { url })],
+                    tool_calls: [
+                      toolCall('web.crawl', {
+                        url,
+                        query: 'configuration',
+                        max_pages: 5,
+                      }),
+                    ],
                   }
                 : {
                     role: 'assistant' as const,
@@ -845,7 +861,13 @@ describe('webAgentToolProvider', () => {
     )
 
     expect(confirm).toHaveBeenCalledOnce()
-    expect(fetchClientPage).toHaveBeenCalledWith(url, expect.any(AbortSignal))
+    expect(fetchClientPage).not.toHaveBeenCalled()
+    expect(crawlClientSite).toHaveBeenCalledWith(
+      url,
+      'configuration',
+      5,
+      expect.any(AbortSignal)
+    )
     expect(requests).toHaveLength(2)
     expect(requests[1]?.messages.at(-1)).toMatchObject({
       role: 'tool',
