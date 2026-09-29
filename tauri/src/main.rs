@@ -53,6 +53,15 @@ pub(crate) async fn verify_account_session(
     user_id: i64,
     access_token: &str,
 ) -> Result<i64, String> {
+    verify_account_session_with_endpoint(state.inner(), user_id, access_token, agent_url()).await
+}
+
+async fn verify_account_session_with_endpoint(
+    state: &VerifiedAccountSessions,
+    user_id: i64,
+    access_token: &str,
+    endpoint: Url,
+) -> Result<i64, String> {
     let user_id = validate_account_id(user_id)?;
     if !(16..=4096).contains(&access_token.len()) || access_token.chars().any(char::is_control) {
         return Err("A valid signed-in session is required for desktop tools.".to_string());
@@ -71,7 +80,7 @@ pub(crate) async fn verify_account_session(
         }
     }
 
-    let self_url = agent_url()
+    let self_url = endpoint
         .join("/api/user/self")
         .map_err(|_| "Unable to resolve the account verification endpoint.".to_string())?;
     let client = reqwest::Client::builder()
@@ -749,6 +758,43 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+    };
+
+    fn mock_account_endpoint(body: &'static str) -> (Url, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 1024];
+            loop {
+                let bytes_read = stream.read(&mut chunk).unwrap();
+                if bytes_read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..bytes_read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8_lossy(&request).into_owned();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+            request
+        });
+        (Url::parse(&format!("http://{address}/")).unwrap(), server)
+    }
 
     fn session(
         profile_id: &str,
@@ -828,6 +874,38 @@ mod tests {
         )
         .is_err());
         assert!(validate_response_account(&serde_json::json!({"data": {}}), 7).is_err());
+    }
+
+    #[tokio::test]
+    async fn account_verification_sends_the_bearer_and_accepts_the_matching_user() {
+        let token = "account-session-token-7";
+        let (endpoint, server) = mock_account_endpoint(r#"{"success":true,"data":{"id":7}}"#);
+        let state = VerifiedAccountSessions::default();
+
+        let result = verify_account_session_with_endpoint(&state, 7, token, endpoint).await;
+        let request = server.join().unwrap();
+
+        assert_eq!(result, Ok(7));
+        assert!(request.starts_with("GET /api/user/self HTTP/1.1\r\n"));
+        assert!(request.to_ascii_lowercase().contains(&format!(
+            "authorization: bearer {}\r\n",
+            token.to_ascii_lowercase()
+        )));
+        assert_eq!(state.0.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn account_verification_rejects_a_different_authenticated_user() {
+        let (endpoint, server) = mock_account_endpoint(r#"{"success":true,"data":{"id":9}}"#);
+        let state = VerifiedAccountSessions::default();
+
+        let result =
+            verify_account_session_with_endpoint(&state, 7, "account-session-token-7", endpoint)
+                .await;
+        let _request = server.join().unwrap();
+
+        assert!(result.is_err());
+        assert!(state.0.lock().unwrap().is_empty());
     }
 
     #[test]
