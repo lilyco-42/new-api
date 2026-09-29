@@ -5080,6 +5080,7 @@
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "Не удается подготовить ссылку для чата. Убедитесь, что у вас есть активированный API-ключ.",
     "Unable to read clipboard": "Не удалось прочитать буфер обмена",
     "Unable to read this PDF. Check that it is not encrypted or damaged.": "Не удалось прочитать PDF. Убедитесь, что файл не зашифрован и не повреждён.",
+    "This attachment could not be read, so it was not sent. Attach an image, a searchable PDF, or a text/code file.": "Не удалось прочитать вложение, поэтому оно не отправлено модели. Прикрепите изображение, PDF с выделяемым текстом или текстовый файл/код.",
     "Unauthorized": "Не авторизован",
     "Unauthorized Access": "Несанкционированный доступ",
     "Unbind": "Отвязать",
