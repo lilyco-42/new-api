@@ -5080,6 +5080,8 @@
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "Не удается подготовить ссылку для чата. Убедитесь, что у вас есть активированный API-ключ.",
     "Unable to read clipboard": "Не удалось прочитать буфер обмена",
     "Unable to read this PDF. Check that it is not encrypted or damaged.": "Не удалось прочитать PDF. Убедитесь, что файл не зашифрован и не повреждён.",
+    "Unable to read this Office document. Check that it is a valid, unencrypted DOCX or XLSX file.": "Не удалось прочитать документ Office. Убедитесь, что это корректный незашифрованный файл DOCX или XLSX.",
+    "This file format is not supported for content analysis. Attach a PDF, DOCX, XLSX, or text file.": "Этот формат не поддерживается для анализа содержимого. Прикрепите PDF, DOCX, XLSX или текстовый файл.",
     "Unauthorized": "Не авторизован",
     "Unauthorized Access": "Несанкционированный доступ",
     "Unbind": "Отвязать",

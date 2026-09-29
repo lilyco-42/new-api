@@ -5080,6 +5080,8 @@
     "Unable to prepare chat link. Please ensure you have an enabled API key.": "Impossible de préparer le lien de chat. Veuillez vous assurer d'avoir une clé API activée.",
     "Unable to read clipboard": "Impossible de lire le presse-papiers",
     "Unable to read this PDF. Check that it is not encrypted or damaged.": "Impossible de lire ce PDF. Vérifiez qu'il n'est ni chiffré ni endommagé.",
+    "Unable to read this Office document. Check that it is a valid, unencrypted DOCX or XLSX file.": "Impossible de lire ce document Office. Vérifiez qu'il s'agit d'un fichier DOCX ou XLSX valide et non chiffré.",
+    "This file format is not supported for content analysis. Attach a PDF, DOCX, XLSX, or text file.": "Ce format de fichier n'est pas pris en charge pour l'analyse. Joignez un PDF, DOCX, XLSX ou fichier texte.",
     "Unauthorized": "Non autorisé",
     "Unauthorized Access": "Accès non autorisé",
     "Unbind": "Dissocier",

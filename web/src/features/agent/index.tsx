@@ -449,7 +449,7 @@ function WorkspaceFiles({
   return (
     <div className='grid min-h-[22rem] gap-3'>
       <input
-        accept='image/*,application/pdf,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
+        accept='image/*,application/pdf,.pdf,.docx,.xlsx,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.tsx,.py,.rs,.go,.java,.sql'
         className='hidden'
         multiple
         onChange={(event) => {
