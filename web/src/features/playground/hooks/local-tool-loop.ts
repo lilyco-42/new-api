@@ -745,9 +745,19 @@ export async function runLocalToolLoop(
         const approved = await provider.requiresApproval(call, signal)
         assertSignal(signal)
         if (!approved) {
-          throw new LocalToolLoopError(
-            `Tool call ${call.function.name} was not approved.`
-          )
+          mustSynthesize = true
+          const result = JSON.stringify({
+            error:
+              'approval_denied: The user declined this tool call, so it was not run. Continue with information already available and do not claim the tool ran. If the requested answer requires this tool, explain that approval is needed to try again.',
+          })
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: result,
+          })
+          completedResults.push({ name: call.function.name, result })
+          totalCalls += 1
+          continue
         }
       }
       onEvent?.({ type: 'running', call })
