@@ -48,8 +48,7 @@ fn validate_response_account(response: &serde_json::Value, user_id: i64) -> Resu
     }
 }
 
-pub(super) async fn verify_account_session(
-    app: &AppHandle,
+pub(crate) async fn verify_account_session(
     state: &State<'_, VerifiedAccountSessions>,
     user_id: i64,
     access_token: &str,
@@ -166,7 +165,7 @@ async fn tool_status(
     access_token: String,
     tool_ids: Option<Vec<String>>,
 ) -> Result<Vec<DeveloperToolStatus>, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     let ids = tool_ids.unwrap_or_else(|| {
         CLI_TOOL_REGISTRY
             .iter()
@@ -200,7 +199,7 @@ async fn cli_exec(
     access_token: String,
     request: CliExecRequest,
 ) -> Result<CliExecResult, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     let credentials = profile_credentials(&app, user_id)?;
     let request = OperationRequest {
         operation: request.operation,
@@ -222,7 +221,7 @@ async fn agent_device_credential_get(
     user_id: i64,
     access_token: String,
 ) -> Result<Option<String>, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     Ok(current_agent_device_session(&app, &state, user_id).map(|value| value.credential))
 }
 
@@ -234,7 +233,7 @@ async fn agent_device_id_get(
     user_id: i64,
     access_token: String,
 ) -> Result<Option<i64>, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     Ok(current_agent_device_session(&app, &state, user_id).map(|value| value.device_id))
 }
 
@@ -248,7 +247,7 @@ async fn agent_device_credential_set(
     user_id: i64,
     access_token: String,
 ) -> Result<(), String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     let credential = credential.trim().to_string();
     if !(32..=256).contains(&credential.len()) || device_id <= 0 {
         return Err("Invalid agent device credential.".to_string());
@@ -277,7 +276,7 @@ async fn agent_device_credential_clear(
     user_id: i64,
     access_token: String,
 ) -> Result<(), String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     let profile_id = desktop_profile_id();
     remove_agent_device_session(&app, &profile_id, user_id)?;
     let mut current = state
@@ -568,7 +567,7 @@ async fn gh_auth_status(
     user_id: i64,
     access_token: String,
 ) -> Result<GhAuthStatus, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     let profile_id = format!("user-{}", validate_account_id(user_id)?);
     let config_dir = gh_config_dir(&app, user_id)?;
     let config = config_dir.display().to_string();
@@ -630,7 +629,7 @@ async fn gh_search_repositories(
     query: String,
     limit: u8,
 ) -> Result<serde_json::Value, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     let query = query.trim();
     if query.is_empty() || query.len() > 200 {
         return Err("Search text must contain 1–200 characters.".to_string());
@@ -664,7 +663,7 @@ async fn gh_list_issues(
     repo: String,
     limit: u8,
 ) -> Result<serde_json::Value, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     validate_repo(repo.trim())?;
     validate_limit(limit)?;
     let operation_app = app.clone();
@@ -690,7 +689,7 @@ async fn gh_list_pull_requests(
     repo: String,
     limit: u8,
 ) -> Result<serde_json::Value, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     validate_repo(repo.trim())?;
     validate_limit(limit)?;
     let operation_app = app.clone();

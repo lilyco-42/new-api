@@ -35,7 +35,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, State};
+use tauri::State;
 use tokio::{net::lookup_host, sync::Mutex, time::timeout};
 
 use crate::{verify_account_session, VerifiedAccountSessions};
@@ -492,18 +492,12 @@ async fn list_bounded_tools(
 
 #[tauri::command]
 pub async fn mcp_connect(
-    app: AppHandle,
     state: State<'_, McpState>,
     verified_sessions: State<'_, VerifiedAccountSessions>,
     request: McpConnectRequest,
 ) -> Result<McpConnectResponse, String> {
-    let user_id = verify_account_session(
-        &app,
-        &verified_sessions,
-        request.user_id,
-        &request.access_token,
-    )
-    .await?;
+    let user_id =
+        verify_account_session(&verified_sessions, request.user_id, &request.access_token).await?;
     let key = scoped_server_key(user_id, &request.server_id)?;
     let server_id = key.1.clone();
     let name = valid_identifier(&request.name, MAX_SERVER_NAME_BYTES, "MCP server name")?;
@@ -584,13 +578,12 @@ pub async fn mcp_connect(
 
 #[tauri::command]
 pub async fn mcp_list(
-    app: AppHandle,
     state: State<'_, McpState>,
     verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
     access_token: String,
 ) -> Result<McpListResponse, String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     let sessions = {
         let sessions = state.sessions.lock().await;
         sessions
@@ -621,20 +614,13 @@ pub async fn mcp_list(
 
 #[tauri::command]
 pub async fn mcp_call(
-    app: AppHandle,
     state: State<'_, McpState>,
     verified_sessions: State<'_, VerifiedAccountSessions>,
     request: McpCallRequest,
 ) -> Result<Value, String> {
-    let user_id = verify_account_session(
-        &app,
-        &verified_sessions,
-        request.user_id,
-        &request.access_token,
-    )
-    .await?;
+    let user_id =
+        verify_account_session(&verified_sessions, request.user_id, &request.access_token).await?;
     let key = scoped_server_key(user_id, &request.server_id)?;
-    let server_id = key.1.clone();
     let tool_name = valid_identifier(&request.tool_name, MAX_TOOL_NAME_BYTES, "MCP tool name")?;
     let arguments = request
         .arguments
@@ -704,14 +690,13 @@ pub async fn mcp_call(
 
 #[tauri::command]
 pub async fn mcp_disconnect(
-    app: AppHandle,
     state: State<'_, McpState>,
     verified_sessions: State<'_, VerifiedAccountSessions>,
     user_id: i64,
     access_token: String,
     server_id: String,
 ) -> Result<(), String> {
-    let user_id = verify_account_session(&app, &verified_sessions, user_id, &access_token).await?;
+    let user_id = verify_account_session(&verified_sessions, user_id, &access_token).await?;
     let key = scoped_server_key(user_id, &server_id)?;
     let session = state
         .sessions
