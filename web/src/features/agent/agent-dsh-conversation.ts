@@ -147,6 +147,22 @@ export function createAgentDSHConversation(options: {
       reset()
       return null
     }
+
+    // A request to list the connected account's repositories is a deterministic
+    // OAuth read, not a local CLI action. Resolve it before DSH so a model can
+    // never confuse website OAuth with the paired device's gh login state.
+    const accountRead = await webAgentToolProvider.beforeModel?.(
+      payload.messages,
+      signal
+    )
+    if (signal.aborted) {
+      throw new DOMException('The request was canceled.', 'AbortError')
+    }
+    if (accountRead) {
+      reset()
+      return accountRead
+    }
+
     const requestFingerprint = await fingerprintText(latestText)
     const requestKey = [
       storageNamespace,

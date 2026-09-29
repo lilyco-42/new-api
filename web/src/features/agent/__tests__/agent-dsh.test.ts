@@ -17,6 +17,7 @@ vi.mock('../web-agent-tool-provider', () => ({
     tools: [],
     requiresApproval: vi.fn(async () => true),
     invoke: vi.fn(async () => JSON.stringify({ error: 'CORS blocked the page read' })),
+    beforeModel: vi.fn(async () => null),
     prepareContext: vi.fn(async () => []),
     finalizeResponse: vi.fn((response: ChatCompletionResponse) => {
       const firstChoice = response.choices?.[0]
@@ -78,6 +79,7 @@ describe('Lain42 DSH conversation adapter', () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset()
     vi.mocked(api.post).mockReset()
+    vi.mocked(webAgentToolProvider.beforeModel!).mockReset().mockResolvedValue(null)
     vi.mocked(webAgentToolProvider.prepareContext!).mockClear()
     vi.mocked(webAgentToolProvider.finalizeResponse!).mockClear()
     vi.mocked(webAgentToolProvider.requiresApproval!).mockReset().mockResolvedValue(true)
@@ -136,6 +138,47 @@ describe('Lain42 DSH conversation adapter', () => {
     )
     expect(result?.choices[0]?.message.content).toBe('Here is the verified answer.')
     expect(webAgentToolProvider.prepareContext).not.toHaveBeenCalled()
+  })
+
+  it('resolves connected GitHub repository listing through OAuth before DSH', async () => {
+    const oauthResponse: ChatCompletionResponse = {
+      id: 'browser-github-oauth-repositories',
+      object: 'chat.completion',
+      created: 0,
+      model: 'openai/gpt-5.6-sol',
+      choices: [{
+        index: 0,
+        finish_reason: 'stop',
+        message: {
+          role: 'assistant',
+          content: '通过已连接的 GitHub OAuth 找到 lilyco-42/rembg-ui。',
+        },
+      }],
+    }
+    vi.mocked(webAgentToolProvider.beforeModel!).mockResolvedValueOnce(oauthResponse)
+
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-chat-11',
+      mode: 'general',
+      storage: storageFixture(),
+    })
+    providers.push(provider)
+    const payload = request('查看我的 GitHub 仓库')
+    const signal = new AbortController().signal
+
+    const result = await provider.send(
+      payload,
+      message('github-repository-list', '查看我的 GitHub 仓库'),
+      signal
+    )
+
+    expect(webAgentToolProvider.beforeModel).toHaveBeenCalledWith(
+      payload.messages,
+      signal
+    )
+    expect(result).toBe(oauthResponse)
+    expect(api.get).not.toHaveBeenCalled()
+    expect(api.post).not.toHaveBeenCalled()
   })
 
   it('lets DSH decide whether a web search is needed instead of running a browser preflight', async () => {
