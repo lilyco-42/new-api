@@ -320,12 +320,12 @@ describe('Lain42 DSH conversation adapter', () => {
       .mockResolvedValueOnce(success({ configured: true }) as never)
     vi.mocked(api.post)
       .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
-      .mockResolvedValueOnce(success({ session_id: OTHER_SESSION_ID }) as never)
       .mockResolvedValueOnce(success({
         session_id: SESSION_ID,
         request_id: REQUEST_ID,
         answer: 'Account A answer.',
       }) as never)
+      .mockResolvedValueOnce(success({ session_id: OTHER_SESSION_ID }) as never)
       .mockResolvedValueOnce(success({
         session_id: OTHER_SESSION_ID,
         request_id: REQUEST_ID,
