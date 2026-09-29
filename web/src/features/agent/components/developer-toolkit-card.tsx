@@ -29,6 +29,7 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { getAgentAccountContext } from '../agent-account-scope'
 import {
   Card,
   CardContent,
@@ -96,13 +97,19 @@ export function DeveloperToolkitCard({
 
     setChecking(true)
     try {
-      const result = invoke
-        ? await invoke('tool_status', {
-            tool_ids: DEVELOPER_TOOLS.filter(
-              (tool) => tool.protocol === 'cli' || tool.protocol === 'builtin'
-            ).map((tool) => tool.id),
-          })
-        : await onCheckRemoteTools?.()
+      let result: unknown
+      if (invoke) {
+        const accountContext = await getAgentAccountContext()
+        result = await invoke('tool_status', {
+          user_id: accountContext.userId,
+          access_token: accountContext.accessToken,
+          tool_ids: DEVELOPER_TOOLS.filter(
+            (tool) => tool.protocol === 'cli' || tool.protocol === 'builtin'
+          ).map((tool) => tool.id),
+        })
+      } else {
+        result = await onCheckRemoteTools?.()
+      }
       setStatuses(readStatuses(result))
     } catch (error) {
       toast.error(

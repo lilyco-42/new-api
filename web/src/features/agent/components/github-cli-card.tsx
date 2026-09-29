@@ -46,6 +46,7 @@ import {
   markOAuthBindPopup,
 } from '@/features/auth/lib/oauth-callback-mode'
 import { api } from '@/lib/api'
+import { getAgentAccountContext } from '../agent-account-scope'
 
 import { parseGitHubOAuthBindCallback } from '../lib/github-oauth-bind'
 
@@ -462,7 +463,11 @@ export function GithubCliCard() {
     }
     setChecking(true)
     try {
-      const result = await invoke('gh_auth_status')
+      const accountContext = await getAgentAccountContext()
+      const result = await invoke('gh_auth_status', {
+        user_id: accountContext.userId,
+        access_token: accountContext.accessToken,
+      })
       if (isGhStatus(result)) setStatus(result)
     } catch (error) {
       toast.error(
@@ -499,7 +504,10 @@ export function GithubCliCard() {
     if (!query.trim()) return
     setSearching(true)
     try {
+      const accountContext = await getAgentAccountContext()
       const result = await invoke('gh_search_repositories', {
+        user_id: accountContext.userId,
+        access_token: accountContext.accessToken,
         query: query.trim(),
         limit: 6,
       })

@@ -21,6 +21,8 @@ import type {
   LocalToolProvider,
 } from '@/features/playground/types'
 
+import { getAgentAccountContext } from './agent-account-scope'
+
 type TauriInvoke = (
   command: string,
   args?: Record<string, unknown>
@@ -260,7 +262,11 @@ export function createMcpToolProvider(): McpToolProviderController {
     refresh: async () => {
       const invoke = getInvoke()
       if (!invoke) return []
-      const result = await invoke('mcp_list')
+      const accountContext = await getAgentAccountContext()
+      const result = await invoke('mcp_list', {
+        user_id: accountContext.userId,
+        access_token: accountContext.accessToken,
+      })
       const servers = readServers(result)
       connected.clear()
       for (const server of servers) connected.set(server.server_id, server)
@@ -275,7 +281,14 @@ export function createMcpToolProvider(): McpToolProviderController {
       if (connected.size >= MAX_SERVERS && !connected.has(request.server_id)) {
         throw new Error('The MCP server limit has been reached.')
       }
-      const result = await invoke('mcp_connect', { request })
+      const accountContext = await getAgentAccountContext()
+      const result = await invoke('mcp_connect', {
+        request: {
+          ...request,
+          user_id: accountContext.userId,
+          access_token: accountContext.accessToken,
+        },
+      })
       const server = readServers(result)[0]
       if (!server) throw new Error('The MCP server returned no valid tools.')
       connected.set(server.server_id, server)
@@ -289,7 +302,12 @@ export function createMcpToolProvider(): McpToolProviderController {
       if (!invoke) {
         throw new Error('MCP connections are available in the desktop app.')
       }
-      await invoke('mcp_disconnect', { server_id: serverId })
+      const accountContext = await getAgentAccountContext()
+      await invoke('mcp_disconnect', {
+        user_id: accountContext.userId,
+        access_token: accountContext.accessToken,
+        server_id: serverId,
+      })
       connected.delete(serverId)
       provider.tools = [...connected.values()].flatMap((item) =>
         item.tools.map(toChatTool)
@@ -318,9 +336,12 @@ export function createMcpToolProvider(): McpToolProviderController {
       if (signal.aborted) {
         throw new DOMException('The MCP call was cancelled.', 'AbortError')
       }
+      const accountContext = await getAgentAccountContext()
       const result = await raceWithAbort(
         invoke('mcp_call', {
           request: {
+            user_id: accountContext.userId,
+            access_token: accountContext.accessToken,
             server_id: parsedName.serverId,
             tool_name: parsedName.toolName,
             arguments: argumentsValue,

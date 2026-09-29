@@ -13,6 +13,7 @@ the Free Software Foundation, either version 3 of the License, or
 import { api } from '@/lib/api'
 import { getFreshAuthHeaders } from '@/lib/auth-session'
 
+import { getAgentAccountContext } from './agent-account-scope'
 import { localAgentToolProvider } from './agent-tool-provider'
 import { formatMcpApprovalArguments } from './mcp-tool-provider'
 
@@ -523,15 +524,27 @@ export function createBrowserBridgeProvider(
  * transports the request and result over the authenticated WebSocket.
  */
 export async function startDesktopAgentBridge(
+  userId: number,
   onStatus?: BridgeListener
 ): Promise<(() => void) | null> {
   const invoke = getTauriInvoke()
   if (!invoke) return null
-  const credential = await invoke('agent_device_credential_get')
+  if (!Number.isSafeInteger(userId) || userId <= 0) return null
+  const accountContext = await getAgentAccountContext()
+  if (accountContext.userId !== userId) return null
+  const credential = await invoke('agent_device_credential_get', {
+    user_id: userId,
+    access_token: accountContext.accessToken,
+  })
   if (typeof credential !== 'string' || credential.trim() === '') return null
-  const deviceIdValue = await invoke('agent_device_id_get')
+  const deviceIdValue = await invoke('agent_device_id_get', {
+    user_id: userId,
+    access_token: accountContext.accessToken,
+  })
   const deviceId = typeof deviceIdValue === 'number' ? deviceIdValue : 0
   if (deviceId <= 0) return null
+  const currentAccount = await getAgentAccountContext()
+  if (currentAccount.userId !== userId) return null
 
   const client = new AgentBridgeClient('desktop', deviceId, credential)
   const removeListener = onStatus ? client.onStatus(onStatus) : () => {}
@@ -557,7 +570,14 @@ export async function startDesktopAgentBridge(
     try {
       let structured: unknown
       if (operation === 'mcp.list') {
-        structured = await invoke('mcp_list')
+        const currentAccount = await getAgentAccountContext()
+        if (currentAccount.userId !== userId) {
+          throw new Error('The signed-in account changed. Retry the request.')
+        }
+        structured = await invoke('mcp_list', {
+          user_id: userId,
+          access_token: currentAccount.accessToken,
+        })
       } else if (operation === 'mcp.call') {
         const params = envelope.params ?? {}
         const display = formatMcpApprovalArguments(params)
@@ -570,7 +590,17 @@ export async function startDesktopAgentBridge(
         ) {
           throw new Error('MCP call was not approved on the paired desktop.')
         }
-        structured = await invoke('mcp_call', { request: params })
+        const currentAccount = await getAgentAccountContext()
+        if (currentAccount.userId !== userId) {
+          throw new Error('The signed-in account changed. Retry the request.')
+        }
+        structured = await invoke('mcp_call', {
+          request: {
+            ...params,
+            user_id: userId,
+            access_token: currentAccount.accessToken,
+          },
+        })
       } else {
         const call: ChatCompletionToolCall = {
           id: envelope.request_id,
@@ -612,13 +642,27 @@ export async function startDesktopAgentBridge(
   }
 }
 
-export async function pairCurrentDesktop(): Promise<{ deviceId: number }> {
+export async function pairCurrentDesktop(
+  userId: number
+): Promise<{ deviceId: number }> {
   const invoke = getTauriInvoke()
   if (!invoke) {
     throw new Error('Pairing is available in the Lain42 desktop app.')
   }
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    throw new Error('Sign in before pairing this desktop.')
+  }
+  const initialAccount = await getAgentAccountContext()
+  if (initialAccount.userId !== userId) {
+    throw new Error('The signed-in account changed. Start pairing again.')
+  }
   const publicKey = `tauri-${requestId()}`
-  const created = await createAgentPairing()
+  const currentDesktopDevices = (await listAgentDevices()).filter(
+    (device) => device.device_name === 'Lain42 desktop'
+  )
+  const replaceDeviceId =
+    currentDesktopDevices.length === 1 ? currentDesktopDevices[0].id : undefined
+  const created = await createAgentPairing(replaceDeviceId)
   const claimed = responseData<{
     id: number
     confirmation_ticket: string
@@ -650,9 +694,15 @@ export async function pairCurrentDesktop(): Promise<{ deviceId: number }> {
       )
     ).data
   )
+  const currentAccount = await getAgentAccountContext()
+  if (currentAccount.userId !== userId) {
+    throw new Error('The signed-in account changed. Start pairing again.')
+  }
   await invoke('agent_device_credential_set', {
     credential: redeemed.credential,
     deviceId: redeemed.device.id,
+    userId,
+    accessToken: currentAccount.accessToken,
   })
   return { deviceId: redeemed.device.id }
 }

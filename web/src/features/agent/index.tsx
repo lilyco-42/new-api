@@ -35,7 +35,7 @@ import {
   Upload,
   Wrench,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -65,7 +65,9 @@ import type {
   LocalToolProvider,
 } from '@/features/playground/types'
 import { useMediaQuery } from '@/hooks'
+import { useAuthStore } from '@/stores/auth-store'
 
+import { getAgentAccountId } from './agent-account-scope'
 import {
   createBrowserAgentBridge,
   createBrowserBridgeProvider,
@@ -624,6 +626,7 @@ function WorkspacePanelHeader({
 
 export function AgentWorkspace() {
   const { t } = useTranslation()
+  const accountId = useAuthStore((state) => state.auth.user?.id ?? null)
   const useToolsSheet = useMediaQuery('(max-width: 1279px)')
   const [preset, setPreset] = useState<AgentPreset>(PRESETS[0])
   const [chatId, setChatId] = useState(0)
@@ -641,7 +644,10 @@ export function AgentWorkspace() {
   const [bridgeJournal, setBridgeJournal] = useState<AgentRunEvent[]>([])
   const [pairingSession, setPairingSession] =
     useState<AgentPairingSession | null>(null)
-  const [mcpController] = useState(() => createMcpToolProvider())
+  const mcpController = useMemo(
+    () => createMcpToolProvider(),
+    [accountId]
+  )
   const [mcpRevision, setMcpRevision] = useState(0)
   const [remoteMcpServers, setRemoteMcpServers] = useState<
     McpServerDescriptor[]
@@ -713,8 +719,19 @@ export function AgentWorkspace() {
     setBridgeJournal([])
     setBridgeStatus(isDesktop ? 'unavailable' : 'connecting')
 
+    if (
+      accountId === null ||
+      !Number.isSafeInteger(accountId) ||
+      accountId <= 0
+    ) {
+      setBridgeStatus('unavailable')
+      return () => {
+        disposed = true
+      }
+    }
+
     if (isDesktop) {
-      void startDesktopAgentBridge(setBridgeStatus)
+      void startDesktopAgentBridge(accountId, setBridgeStatus)
         .then((dispose) => {
           if (disposed) {
             dispose?.()
@@ -791,7 +808,7 @@ export function AgentWorkspace() {
       remoteMcpProvider.current = null
       cleanup?.()
     }
-  }, [bridgeEpoch, isDesktop])
+  }, [accountId, bridgeEpoch, isDesktop])
 
   useEffect(() => {
     if (!isDesktop) return
@@ -804,7 +821,7 @@ export function AgentWorkspace() {
   }, [isDesktop, mcpController])
 
   const pairDesktop = async () => {
-    await pairCurrentDesktop()
+    await pairCurrentDesktop(getAgentAccountId())
     setBridgeEpoch((value) => value + 1)
   }
 
