@@ -17,8 +17,16 @@
 - DSH 的模型请求根据 session 反查 New API 账号，并复用 `Playground`、`Distribute` 和现有额度结算路径；GitHub 工具只使用同一账号加密保存的 Agent OAuth 凭据。网页聊天本身不要求配对桌面或 A7A。
 - DSH/New API 两端须独立配置至少 32 字节随机密钥：`LAIN42_DSH_BRIDGE_SECRET` 用于文本轮次与工具中继，`LAIN42_AGENT_MODEL_RELAY_SECRET` 用于模型中继；New API 管理配置 `LAIN42_DSH_BASE_URL`，仅允许 HTTPS（本机回环开发地址例外）。状态接口只回报配置是否完整，不返回地址或密钥。搜索可继续使用 `AGENT_WEB_SEARCH_URL`；未配置时沿用 New API 的现有 Bing RSS 搜索。
 - 当前后端工具中继仅实现公开网页搜索、公开 URL 读取、GitHub 仓库列表/搜索、Issue 与 PR 只读。DSH 侧另外声明的 GitHub Actions 工具仍返回明确的 `tool_not_available`，不伪装成功。
-- 本阶段**尚未接到 `/agent` 的浏览器聊天界面**，DSH 私有 turn 协议也暂不携带附件或流式事件；GitHub Actions、跨数据库真实迁移、生产 DSH 连通、实际模型计费和双账号端到端均待 CI/后续验收。当前代码只是待审 PR 分支，不代表线上已配置、已部署或已完成闭环。
+- 在 1.3 后端切片中，`/agent` 浏览器聊天尚未接入，DSH turn 也不携带附件或流式事件；后续 1.4 切片接入了普通文本对话，但附件与流式能力仍未覆盖。GitHub Actions、跨数据库迁移、生产 DSH 连通、实际模型计费和双账号端到端仍待 CI/后续验收。当前代码只是待审 PR 分支，不代表线上已配置、已部署或已完成闭环。
 - 按项目约束，Go 构建与测试只由 GitHub Actions 执行；不在开发机本地编译或运行测试。CI 通过前不合并、不部署，也不宣称交付完成。
+
+## 1.4 `/agent` 接入 DSH 托管对话（2026-09-29，CI 验证前）
+
+- 浏览器 Agent 现在为登录账号和会话创建独立的 New API DSH session，并把普通聊天轮次交给 DSH；网站原有的账号模型、配额与用量中继保持入口。New API 未配置 DSH 时，界面回退到现有聊天链路，因此未完成部署配置之前仍可使用原有能力。
+- 通用、代码、研究、内容四种网页预设分别映射到 DSH 服务端固定的安全 preset。系统提示要求优先回答最新问题；标点输入请求澄清；若聊天中已附浏览器读取的证据，不再重复抓取。公开网页和 GitHub 搜索由 DSH 模型按需调用网站账号级只读工具；浏览器只在用户提供 URL 并确认后尝试客户端读取。若目标站拒绝跨域读取，原始 URL 仍交给 DSH 网页读取工具处理。工具闭环和生产可用性仍须 CI 与线上验收确认。
+- 当前 DSH 轮次携带纯文本；前端已提取的文本文件和 PDF 文本可随提问进入 DSH，单轮上限 24 KiB。图像以及超过上限的内容沿用原有 OpenAI 兼容聊天链路；DSH bridge 暂无二进制附件与流式事件，因此不能把所有附件都算作 DSH 已支持。
+- DSH session/request ID 按账号和聊天命名空间隔离；请求 ID 会在失败重试期间保留，以利用 DSH session controller 的重复 request ID 去重。显式 CLI 工具请求仍走既有用户设备审批/桥接路径，普通聊天不依赖配对设备。
+- PR #25 的前端 TypeScript/测试、Go 测试与构建均须由 GitHub Actions 验证；此处没有本机执行前端构建或测试。线上 DSH 配置、真实模型计费、URL CORS、附件大小边界和双账号端到端仍未实测；通过 CI 之前不得部署或称为完整交付。
 
 ## 1.0 桥接重连结果隔离（2026-09-24）
 

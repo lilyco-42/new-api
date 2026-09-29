@@ -132,6 +132,17 @@ export interface LocalToolProvider {
   invoke: (call: ChatCompletionToolCall, signal: AbortSignal) => Promise<string>
 }
 
+/** Optional authenticated turn service used by a focused Agent workspace. */
+export interface HostedTurnProvider {
+  send: (
+    payload: ChatCompletionRequest,
+    messages: Message[],
+    signal: AbortSignal
+  ) => Promise<ChatCompletionResponse | null>
+  /** Drop remote turn state when a request falls back to a local-only path. */
+  reset: () => void
+}
+
 export interface ContentPart {
   type: 'text' | 'image_url'
   text?: string

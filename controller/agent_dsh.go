@@ -45,6 +45,7 @@ type agentDSHWireTurnRequest struct {
 	SessionID string `json:"sessionId"`
 	RequestID string `json:"requestId"`
 	Model     string `json:"model,omitempty"`
+	Mode      string `json:"mode,omitempty"`
 	Text      string `json:"text"`
 }
 
@@ -115,11 +116,16 @@ func AgentDSHTurn(c *gin.Context) {
 		writeAgentError(c, http.StatusServiceUnavailable, "AGENT_DSH_UNAVAILABLE", "The hosted Agent runtime is not configured")
 		return
 	}
+	mode := request.Mode
+	if mode == "" {
+		mode = "general"
+	}
 	wireRequest := agentDSHWireTurnRequest{
 		Version:   1,
 		SessionID: request.SessionID,
 		RequestID: strings.ToLower(request.RequestID),
 		Model:     request.Model,
+		Mode:      mode,
 		Text:      request.Text,
 	}
 	wireBody, err := common.Marshal(wireRequest)
@@ -188,7 +194,10 @@ func validAgentDSHTurnRequest(request dto.AgentDSHTurnRequest) bool {
 	if strings.TrimSpace(request.Text) == "" || len([]byte(request.Text)) > agentDSHTurnPromptLimit {
 		return false
 	}
-	return request.Model == "" || agentDSHTurnModelName.MatchString(request.Model)
+	if request.Model != "" && !agentDSHTurnModelName.MatchString(request.Model) {
+		return false
+	}
+	return request.Mode == "" || request.Mode == "general" || request.Mode == "coding" || request.Mode == "research" || request.Mode == "content"
 }
 
 func configuredAgentDSHEndpoint(path string) (string, error) {

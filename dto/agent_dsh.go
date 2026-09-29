@@ -6,6 +6,7 @@ type AgentDSHTurnRequest struct {
 	SessionID string `json:"session_id"`
 	RequestID string `json:"request_id"`
 	Model     string `json:"model,omitempty"`
+	Mode      string `json:"mode,omitempty"`
 	Text      string `json:"text"`
 }
 

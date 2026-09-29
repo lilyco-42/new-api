@@ -41,8 +41,10 @@ import type {
   Message,
   PlaygroundConfig,
   ParameterEnabled,
+  HostedTurnProvider,
 } from '../types'
 import { runLocalToolLoop, type LocalToolLoopEvent } from './local-tool-loop'
+import { resolveLocalToolPreflight } from './hosted-turn-routing'
 import { useStreamRequest } from './use-stream-request'
 
 interface UseChatHandlerOptions {
@@ -50,6 +52,7 @@ interface UseChatHandlerOptions {
   parameterEnabled: ParameterEnabled
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
   localToolProvider?: LocalToolProvider
+  hostedTurnProvider?: HostedTurnProvider
   isolateAgentTurnContext?: boolean
 }
 
@@ -107,6 +110,7 @@ export function useChatHandler({
   parameterEnabled,
   onMessageUpdate,
   localToolProvider,
+  hostedTurnProvider,
   isolateAgentTurnContext = false,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
@@ -375,14 +379,30 @@ export function useChatHandler({
             )
           }
         }
-        const response = localToolProvider
-          ? await runLocalToolLoop(
-              payload,
-              localToolProvider,
-              abortController.signal,
-              onToolEvent
-            )
-          : await sendChatCompletion(payload, abortController.signal)
+        const localPreflight = resolveLocalToolPreflight(
+          localToolProvider,
+          payload.messages,
+          hostedTurnProvider
+        )
+        let response = localPreflight ?? null
+        if (localPreflight) {
+          hostedTurnProvider?.reset()
+        } else {
+          response = hostedTurnProvider
+            ? await hostedTurnProvider.send(payload, messages, abortController.signal)
+            : null
+          if (!response) {
+            hostedTurnProvider?.reset()
+            response = localToolProvider
+              ? await runLocalToolLoop(
+                  payload,
+                  localToolProvider,
+                  abortController.signal,
+                  onToolEvent
+                )
+              : await sendChatCompletion(payload, abortController.signal)
+          }
+        }
         if (
           abortController.signal.aborted ||
           requestGenerationRef.current !== generation
@@ -428,6 +448,7 @@ export function useChatHandler({
       parameterEnabled,
       isolateAgentTurnContext,
       localToolProvider,
+      hostedTurnProvider,
       stopStream,
       discardPendingStreamUpdates,
       onMessageUpdate,
@@ -444,13 +465,21 @@ export function useChatHandler({
         (localToolProvider.isAvailable() || localToolProvider.preflight)
       ) {
         void sendNonStreamingChat(messages)
+      } else if (hostedTurnProvider) {
+        void sendNonStreamingChat(messages)
       } else if (config.stream) {
         sendStreamingChat(messages)
       } else {
         sendNonStreamingChat(messages)
       }
     },
-    [config.stream, localToolProvider, sendStreamingChat, sendNonStreamingChat]
+    [
+      config.stream,
+      localToolProvider,
+      hostedTurnProvider,
+      sendStreamingChat,
+      sendNonStreamingChat,
+    ]
   )
 
   // Stop generation

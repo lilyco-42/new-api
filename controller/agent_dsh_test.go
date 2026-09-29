@@ -86,6 +86,7 @@ func TestAgentDSHTurnUsesSignedPrivateRuntimeAndChecksSessionOwner(t *testing.T)
 		require.NoError(t, common.Unmarshal(body, &forwarded))
 		assert.Equal(t, session.SessionId, forwarded.SessionID)
 		assert.Equal(t, "hello from browser", forwarded.Text)
+		assert.Equal(t, "research", forwarded.Mode)
 		assert.NotContains(t, string(body), "user_id")
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, `{"version":1,"requestId":"123e4567-e89b-42d3-a456-426614174000","answer":"grounded response"}`)
@@ -97,6 +98,7 @@ func TestAgentDSHTurnUsesSignedPrivateRuntimeAndChecksSessionOwner(t *testing.T)
 		SessionID: session.SessionId,
 		RequestID: "123e4567-e89b-42d3-a456-426614174000",
 		Model:     "openai/gpt-5.6-sol",
+		Mode:      "research",
 		Text:      "hello from browser",
 	})
 	require.NoError(t, err)
@@ -119,6 +121,20 @@ func TestAgentDSHTurnUsesSignedPrivateRuntimeAndChecksSessionOwner(t *testing.T)
 	AgentDSHTurn(context)
 	assert.False(t, called, "another account must not proxy an owned session")
 	assert.Equal(t, http.StatusNotFound, response.Code)
+}
+
+func TestValidAgentDSHTurnRequestAllowsOnlyShippedModes(t *testing.T) {
+	request := dto.AgentDSHTurnRequest{
+		SessionID: strings.Repeat("a", 64),
+		RequestID: "123e4567-e89b-42d3-a456-426614174000",
+		Text:      "hello",
+	}
+	for _, mode := range []string{"", "general", "coding", "research", "content"} {
+		request.Mode = mode
+		assert.True(t, validAgentDSHTurnRequest(request), mode)
+	}
+	request.Mode = "shell"
+	assert.False(t, validAgentDSHTurnRequest(request))
 }
 
 func TestAgentDSHTurnRejectsOversizedBodyBeforeBuffering(t *testing.T) {

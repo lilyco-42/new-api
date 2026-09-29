@@ -24,7 +24,7 @@ import {
   usePlaygroundOptions,
   usePlaygroundState,
 } from './hooks'
-import type { LocalToolProvider } from './types'
+import type { HostedTurnProvider, LocalToolProvider } from './types'
 
 export interface PlaygroundProps {
   /** Optional instruction message for a focused agent workspace. */
@@ -37,6 +37,8 @@ export interface PlaygroundProps {
   emptyStateDescription?: string
   /** Optional desktop-only tool bridge. It is unavailable in a normal browser. */
   localToolProvider?: LocalToolProvider
+  /** Optional server-owned Agent turn runtime; null falls back to the existing chat path. */
+  hostedTurnProvider?: HostedTurnProvider
   /** Keep unrelated Agent prompts from inheriting stale topics or failed turns. */
   agentMode?: boolean
 }
@@ -47,6 +49,7 @@ export function Playground({
   emptyStateTitle,
   emptyStateDescription,
   localToolProvider,
+  hostedTurnProvider,
   agentMode = false,
 }: PlaygroundProps = {}) {
   const {
@@ -69,6 +72,7 @@ export function Playground({
     parameterEnabled,
     onMessageUpdate: updateMessages,
     localToolProvider,
+    hostedTurnProvider,
     isolateAgentTurnContext: agentMode,
   })
 
@@ -87,8 +91,28 @@ export function Playground({
   })
 
   const handleClearMessages = () => {
+    hostedTurnProvider?.reset()
     handleEditOpenChange(false)
     clearMessages()
+  }
+
+  const handleRegenerateWithHostedReset = (
+    message: Parameters<typeof handleRegenerateMessage>[0]
+  ) => {
+    hostedTurnProvider?.reset()
+    handleRegenerateMessage(message)
+  }
+
+  const handleDeleteWithHostedReset = (
+    message: Parameters<typeof handleDeleteMessage>[0]
+  ) => {
+    hostedTurnProvider?.reset()
+    handleDeleteMessage(message)
+  }
+
+  const handleEditWithHostedReset = (content: string, submit: boolean) => {
+    hostedTurnProvider?.reset()
+    applyEdit(content, submit)
   }
 
   const handleChooseModel = () => {
@@ -120,16 +144,20 @@ export function Playground({
           emptyStateTitle={emptyStateTitle}
           messages={messages}
           isLoadingMessages={isLoadingMessages}
-          onRegenerateMessage={handleRegenerateMessage}
+          onRegenerateMessage={handleRegenerateWithHostedReset}
           onEditMessage={handleEditMessage}
-          onDeleteMessage={handleDeleteMessage}
+          onDeleteMessage={handleDeleteWithHostedReset}
           onSelectPrompt={handleSendMessage}
           onChooseModel={handleChooseModel}
           isGenerating={isGenerating}
           editingKey={editingMessageKey}
           onCancelEdit={handleEditOpenChange}
-          onSaveEdit={(newContent) => applyEdit(newContent, false)}
-          onSaveEditAndSubmit={(newContent) => applyEdit(newContent, true)}
+          onSaveEdit={(newContent) =>
+            handleEditWithHostedReset(newContent, false)
+          }
+          onSaveEditAndSubmit={(newContent) =>
+            handleEditWithHostedReset(newContent, true)
+          }
         />
       </div>
 

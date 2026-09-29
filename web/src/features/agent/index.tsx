@@ -35,7 +35,7 @@ import {
   Upload,
   Wrench,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -85,6 +85,10 @@ import {
   getNextAgentChatId,
   parseAgentChatStorageKey,
 } from './agent-chat-storage'
+import {
+  createAgentDSHConversation,
+  type AgentDSHMode,
+} from './agent-dsh'
 import { localAgentToolProvider } from './agent-tool-provider'
 import { AgentBridgeCard } from './components/agent-bridge-card'
 import { AgentSidebar, type AgentPreset } from './components/agent-sidebar'
@@ -695,21 +699,36 @@ function AgentWorkspaceSession({ userId }: { userId: number }) {
     }
   }
   const isDesktop = localAgentToolProvider.isAvailable()
-  let activeToolProvider: LocalToolProvider
-  if (isDesktop) {
-    activeToolProvider = combineLocalToolProviders(
-      localAgentToolProvider,
-      mcpController,
-      webAgentToolProvider
-    )
-  } else if (bridgeProvider) {
-    activeToolProvider = createBrowserAgentToolProvider(
-      bridgeProvider,
-      bridgeStatus === 'connected'
-    )
-  } else {
-    activeToolProvider = createBrowserAgentToolProvider(undefined, false)
-  }
+  const activeToolProvider = useMemo(() => {
+    if (isDesktop) {
+      return combineLocalToolProviders(
+        localAgentToolProvider,
+        mcpController,
+        webAgentToolProvider
+      )
+    }
+    if (bridgeProvider) {
+      return createBrowserAgentToolProvider(
+        bridgeProvider,
+        bridgeStatus === 'connected'
+      )
+    }
+    return createBrowserAgentToolProvider(undefined, false)
+  }, [bridgeProvider, bridgeStatus, isDesktop, mcpController])
+
+  const chatStorageNamespace = getAgentChatStorageNamespace(
+    userId,
+    preset.id,
+    chatId
+  )
+  const hostedTurnProvider = useMemo(
+    () => createAgentDSHConversation({
+      storageNamespace: chatStorageNamespace,
+      mode: toAgentDSHMode(preset.id),
+      localToolProvider: activeToolProvider,
+    }),
+    [activeToolProvider, chatStorageNamespace, preset.id]
+  )
 
   useEffect(() => {
     setToolsOpen(!useToolsSheet)
@@ -1033,13 +1052,10 @@ function AgentWorkspaceSession({ userId }: { userId: number }) {
               'Test a model with a starter prompt, or write your own request below.'
             )}
             emptyStateTitle={t('How can I help you today?')}
-            storageNamespace={getAgentChatStorageNamespace(
-              userId,
-              preset.id,
-              chatId
-            )}
+            storageNamespace={chatStorageNamespace}
             systemPrompt={preset.prompt}
             localToolProvider={activeToolProvider ?? undefined}
+            hostedTurnProvider={hostedTurnProvider}
           />
         </main>
       </div>
@@ -1133,4 +1149,15 @@ function AgentWorkspaceSession({ userId }: { userId: number }) {
       )}
     </div>
   )
+}
+
+function toAgentDSHMode(presetId: string): AgentDSHMode {
+  if (
+    presetId === 'coding' ||
+    presetId === 'research' ||
+    presetId === 'content'
+  ) {
+    return presetId
+  }
+  return 'general'
 }
