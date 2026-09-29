@@ -137,7 +137,10 @@ describe('Lain42 DSH conversation adapter', () => {
       expect.objectContaining({ timeout: 130_000 })
     )
     expect(result?.choices[0]?.message.content).toBe('Here is the verified answer.')
-    expect(webAgentToolProvider.prepareContext).not.toHaveBeenCalled()
+    expect(webAgentToolProvider.prepareContext).toHaveBeenCalledOnce()
+    expect(JSON.stringify(api.post.mock.calls.at(-1)?.[1])).not.toContain(
+      'Browser-prepared context:'
+    )
   })
 
   it('resolves connected GitHub repository listing through OAuth before DSH', async () => {
