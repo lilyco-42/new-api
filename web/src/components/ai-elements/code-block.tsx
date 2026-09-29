@@ -21,6 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
+import { rust } from '@codemirror/lang-rust'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
 import {
@@ -33,9 +34,11 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  Code2,
   CopyIcon,
   DownloadIcon,
 } from 'lucide-react'
+import { SiRust } from 'react-icons/si'
 import {
   type ComponentProps,
   createContext,
@@ -127,6 +130,7 @@ const LANGUAGE_ALIASES: Record<string, BundledLanguage> = {
   csharp: 'c#',
   golang: 'go',
   js: 'javascript',
+  rs: 'rust',
   shell: 'bash',
   shellscript: 'bash',
   ts: 'typescript',
@@ -239,7 +243,27 @@ function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
     return javascript({ jsx: requestedLanguage === 'tsx', typescript: true })
   }
 
+  if (requestedLanguage === 'rust') {
+    return rust()
+  }
+
   return []
+}
+
+function CodeLanguageTitle(props: { language: string }) {
+  return (
+    <span
+      className='inline-flex min-w-0 items-center gap-1.5 normal-case'
+      data-language-icon={props.language}
+    >
+      {props.language === 'rust' ? (
+        <SiRust aria-hidden='true' className='size-3.5 shrink-0' />
+      ) : (
+        <Code2 aria-hidden='true' className='size-3.5 shrink-0' />
+      )}
+      <span>{props.language === 'rust' ? 'Rust' : props.language}</span>
+    </span>
+  )
 }
 
 function getCodeLineCount(code: string) {
@@ -488,7 +512,12 @@ export const CodeBlock = ({
   const previewLines = maxCollapsedLines ?? collapsedLines
   const canCollapse = enableCollapse && lineCount > previewLines
   const isCodeCollapsed = canCollapse && isCollapsed
-  const displayTitle = title ?? displayLanguage
+  const isLanguageTitle = title === undefined
+    || (typeof title === 'string'
+      && getRequestedCodeLanguage(title) === displayLanguage)
+  const displayTitle = isLanguageTitle
+    ? <CodeLanguageTitle language={displayLanguage} />
+    : title
   const bodyMaxHeight = getCodeBlockMaxHeight(
     isCodeCollapsed,
     previewLines,
