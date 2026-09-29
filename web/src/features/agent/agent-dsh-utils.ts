@@ -5,7 +5,9 @@ import type {
 } from '@/features/playground/types'
 
 export const MAX_TURN_TEXT_BYTES = 24 * 1024
-export const MAX_TURN_BODY_BYTES = 30 * 1024
+export const MAX_TURN_BODY_BYTES = 12 * 1024 * 1024
+export const MAX_DSH_IMAGES = 4
+export const MAX_DSH_IMAGE_BYTES = 8 * 1024 * 1024
 export const DSH_REQUEST_TIMEOUT_MS = 130_000
 export const DSH_SESSION_KEY_SUFFIX = ':dsh-session-id'
 export const DSH_LAST_TURN_KEY_SUFFIX = ':dsh-last-turn'
@@ -108,10 +110,56 @@ export function contentHasImage(content: ChatCompletionMessage['content']): bool
   return Array.isArray(content) && content.some((part) => part.type === 'image_url')
 }
 
+export type DSHImage = {
+  mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  data: string
+}
+
+export type DSHImageParts = {
+  images: DSHImage[]
+  error?: 'unsupported' | 'invalid' | 'too_many' | 'too_large'
+}
+
+/** Accept only bounded inline raster data; the server and DSH revalidate bytes before model admission. */
+export function imagesFromContent(content: ChatCompletionMessage['content']): DSHImageParts {
+  if (!Array.isArray(content)) return { images: [] }
+  const parts = content.filter((part) => part.type === 'image_url')
+  if (parts.length > MAX_DSH_IMAGES) return { images: [], error: 'too_many' }
+
+  const images: DSHImage[] = []
+  let totalBytes = 0
+  for (const part of parts) {
+    const url = part.image_url?.url
+    const match = typeof url === 'string'
+      ? /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/iu.exec(url)
+      : null
+    if (!match) return { images: [], error: 'unsupported' }
+    const mediaType = match[1]?.toLowerCase()
+    const data = match[2]
+    if (!mediaType || !data) return { images: [], error: 'invalid' }
+    if (data.length > Math.ceil(MAX_DSH_IMAGE_BYTES / 3) * 4 + 4) {
+      return { images: [], error: 'too_large' }
+    }
+
+    let decoded: string
+    try {
+      decoded = atob(data)
+      if (btoa(decoded) !== data) return { images: [], error: 'invalid' }
+    } catch {
+      return { images: [], error: 'invalid' }
+    }
+    if (decoded.length === 0) return { images: [], error: 'invalid' }
+    if (decoded.length > MAX_DSH_IMAGE_BYTES) return { images: [], error: 'too_large' }
+    totalBytes += decoded.length
+    if (totalBytes > MAX_DSH_IMAGE_BYTES) return { images: [], error: 'too_large' }
+    images.push({ mediaType: mediaType as DSHImage['mediaType'], data })
+  }
+  return { images }
+}
+
 export function textFromContent(content: ChatCompletionMessage['content']): string | null {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return null
-  if (content.some((part) => part.type === 'image_url')) return null
   return content
     .flatMap((part) => part.type === 'text' && typeof part.text === 'string' ? [part.text] : [])
     .join('\n')
@@ -123,12 +171,13 @@ export function buildTurnText(
   browserContext: string,
   seedHistory: boolean
 ): string | null {
-  const currentRequest = textFromContent(latest.content)?.trim()
-  if (!currentRequest) return null
+  const currentRequest = textFromContent(latest.content)?.trim() ?? ''
+  if (!currentRequest && !contentHasImage(latest.content)) return null
+  const effectiveRequest = currentRequest || '[The user attached image content for analysis.]'
   const evidence = browserContext.trim()
   const latestText = [
     evidence ? `Browser-prepared context:\n${evidence}` : '',
-    `Current user request:\n${currentRequest}`,
+    `Current user request:\n${effectiveRequest}`,
   ].filter(Boolean).join('\n\n')
   if (byteLength(latestText) > MAX_TURN_TEXT_BYTES) return null
   if (!seedHistory) return latestText

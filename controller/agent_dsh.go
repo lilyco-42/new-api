@@ -3,6 +3,7 @@ package controller
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -23,8 +24,11 @@ import (
 
 const (
 	agentDSHTurnPath           = "/lain42/bridge/v1/turn"
-	agentDSHTurnBodyLimit      = 32 * 1024
+	agentDSHTurnBodyLimit      = 12 * 1024 * 1024
 	agentDSHTurnPromptLimit    = 24 * 1024
+	agentDSHTurnMaxImages      = 4
+	agentDSHTurnMaxImageBytes  = 8 * 1024 * 1024
+	agentDSHTurnMaxImagesBytes = 8 * 1024 * 1024
 	agentDSHTurnResponseLimit  = 256 * 1024
 	agentDSHTurnTimeout        = 125 * time.Second
 	agentDSHRelayPath          = "/api/agent/bridge/v1/tool"
@@ -41,12 +45,13 @@ var (
 )
 
 type agentDSHWireTurnRequest struct {
-	Version   int    `json:"version"`
-	SessionID string `json:"sessionId"`
-	RequestID string `json:"requestId"`
-	Model     string `json:"model,omitempty"`
-	Mode      string `json:"mode,omitempty"`
-	Text      string `json:"text"`
+	Version   int                     `json:"version"`
+	SessionID string                  `json:"sessionId"`
+	RequestID string                  `json:"requestId"`
+	Model     string                  `json:"model,omitempty"`
+	Mode      string                  `json:"mode,omitempty"`
+	Text      string                  `json:"text"`
+	Images    []dto.AgentDSHTurnImage `json:"images,omitempty"`
 }
 
 type agentDSHWireTurnResponse struct {
@@ -120,13 +125,18 @@ func AgentDSHTurn(c *gin.Context) {
 	if mode == "" {
 		mode = "general"
 	}
+	version := 1
+	if len(request.Images) > 0 {
+		version = 2
+	}
 	wireRequest := agentDSHWireTurnRequest{
-		Version:   1,
+		Version:   version,
 		SessionID: request.SessionID,
 		RequestID: strings.ToLower(request.RequestID),
 		Model:     request.Model,
 		Mode:      mode,
 		Text:      request.Text,
+		Images:    request.Images,
 	}
 	wireBody, err := common.Marshal(wireRequest)
 	if err != nil || len(wireBody) > agentDSHTurnBodyLimit {
@@ -191,8 +201,33 @@ func validAgentDSHTurnRequest(request dto.AgentDSHTurnRequest) bool {
 	if !agentDSHTurnRequestID.MatchString(request.RequestID) {
 		return false
 	}
-	if strings.TrimSpace(request.Text) == "" || len([]byte(request.Text)) > agentDSHTurnPromptLimit {
+	if len([]byte(request.Text)) > agentDSHTurnPromptLimit {
 		return false
+	}
+	if len(request.Images) == 0 && strings.TrimSpace(request.Text) == "" {
+		return false
+	}
+	if len(request.Images) > agentDSHTurnMaxImages {
+		return false
+	}
+	totalImageBytes := 0
+	for _, image := range request.Images {
+		switch image.MediaType {
+		case "image/png", "image/jpeg", "image/webp", "image/gif":
+		default:
+			return false
+		}
+		if image.Data == "" || len(image.Data) > base64.StdEncoding.EncodedLen(agentDSHTurnMaxImageBytes)+4 {
+			return false
+		}
+		decoded, err := base64.StdEncoding.Strict().DecodeString(image.Data)
+		if err != nil || len(decoded) == 0 || base64.StdEncoding.EncodeToString(decoded) != image.Data || len(decoded) > agentDSHTurnMaxImageBytes {
+			return false
+		}
+		totalImageBytes += len(decoded)
+		if totalImageBytes > agentDSHTurnMaxImagesBytes {
+			return false
+		}
 	}
 	if request.Model != "" && !agentDSHTurnModelName.MatchString(request.Model) {
 		return false

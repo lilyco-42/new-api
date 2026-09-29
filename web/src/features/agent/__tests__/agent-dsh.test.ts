@@ -465,7 +465,15 @@ describe('Lain42 DSH conversation adapter', () => {
       ])
   })
 
-  it('keeps image attachments on the existing multimodal chat route', async () => {
+  it('forwards bounded inline image attachments through a DSH v2 turn', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
+      .mockResolvedValueOnce(success({
+        session_id: SESSION_ID,
+        request_id: REQUEST_ID,
+        answer: 'The picture contains a red object.',
+      }) as never)
     const provider = createAgentDSHConversation({
       storageNamespace: 'agent-user-42-general-chat-7',
       mode: 'general',
@@ -474,16 +482,46 @@ describe('Lain42 DSH conversation adapter', () => {
     providers.push(provider)
     const payload = request([
       { type: 'text', text: 'Describe this picture.' },
-      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' } },
     ])
 
-    await expect(provider.send(
+    const result = await provider.send(
       payload,
       message('user-image', 'Describe this picture.'),
       new AbortController().signal
-    )).resolves.toBeNull()
+    )
+
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/agent/dsh/turns',
+      expect.objectContaining({
+        text: expect.stringContaining('Describe this picture.'),
+        images: [{ mediaType: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' }],
+      }),
+      expect.any(Object)
+    )
+    expect(result?.choices[0]?.message.content).toBe('The picture contains a red object.')
+  })
+
+  it('does not forward remote image URLs or unsupported image formats to DSH', async () => {
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-chat-8',
+      mode: 'general',
+      storage: storageFixture(),
+    })
+    providers.push(provider)
+    const payload = request([
+      { type: 'text', text: 'Describe this picture.' },
+      { type: 'image_url', image_url: { url: 'https://example.com/private.png' } },
+    ])
+
+    const result = await provider.send(
+      payload,
+      message('user-remote-image', 'Describe this picture.'),
+      new AbortController().signal
+    )
     expect(api.get).not.toHaveBeenCalled()
     expect(api.post).not.toHaveBeenCalled()
+    expect(result?.choices[0]?.message.content).toContain('PNG')
   })
 
   it('does not reuse a hosted session across account namespaces', async () => {

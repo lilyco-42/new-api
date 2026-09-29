@@ -2,6 +2,7 @@ package controller
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -135,6 +136,93 @@ func TestValidAgentDSHTurnRequestAllowsOnlyShippedModes(t *testing.T) {
 	}
 	request.Mode = "shell"
 	assert.False(t, validAgentDSHTurnRequest(request))
+}
+
+func TestValidAgentDSHTurnRequestBoundsImagePayloads(t *testing.T) {
+	request := dto.AgentDSHTurnRequest{
+		SessionID: strings.Repeat("a", 64),
+		RequestID: "123e4567-e89b-42d3-a456-426614174000",
+		Text:      " ",
+		Images: []dto.AgentDSHTurnImage{{
+			MediaType: "image/png",
+			Data:      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+		}},
+	}
+	assert.True(t, validAgentDSHTurnRequest(request), "image-only prompts are accepted")
+
+	request.Images[0].MediaType = "image/svg+xml"
+	assert.False(t, validAgentDSHTurnRequest(request), "only raster formats used by DSH are accepted")
+	request.Images[0].MediaType = "image/png"
+	request.Images[0].Data = "not base64"
+	assert.False(t, validAgentDSHTurnRequest(request), "malformed base64 is rejected")
+	request.Images = []dto.AgentDSHTurnImage{}
+	assert.False(t, validAgentDSHTurnRequest(request), "an empty text-only prompt is rejected")
+	request.Text = "Inspect this image"
+	for range agentDSHTurnMaxImages + 1 {
+		request.Images = append(request.Images, dto.AgentDSHTurnImage{
+			MediaType: "image/png",
+			Data:      base64.StdEncoding.EncodeToString([]byte{0x01}),
+		})
+	}
+	assert.False(t, validAgentDSHTurnRequest(request), "image count is bounded")
+}
+
+func TestAgentDSHTurnRelaysImageAsVersionTwoOnlyForOwnedSession(t *testing.T) {
+	setupAgentDSHControllerTest(t)
+	gin.SetMode(gin.TestMode)
+	const userID = 52
+	secret := "0123456789abcdef0123456789abcdef"
+	session, err := model.CreateAgentDSHSession(userID, time.Now().UTC())
+	require.NoError(t, err)
+	t.Setenv("LAIN42_DSH_BRIDGE_SECRET", secret)
+	imageData := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		called = true
+		body, readErr := io.ReadAll(request.Body)
+		require.NoError(t, readErr)
+		var forwarded agentDSHWireTurnRequest
+		require.NoError(t, common.Unmarshal(body, &forwarded))
+		assert.Equal(t, 2, forwarded.Version)
+		assert.Equal(t, []dto.AgentDSHTurnImage{{MediaType: "image/png", Data: imageData}}, forwarded.Images)
+		timestamp := request.Header.Get("X-Lain42-Timestamp")
+		nonce := request.Header.Get("X-Lain42-Nonce")
+		assert.Equal(t, signAgentDSHTurn(secret, timestamp, nonce, body), request.Header.Get("X-Lain42-Signature"))
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"version":1,"requestId":"123e4567-e89b-42d3-a456-426614174000","answer":"The image contains a red object."}`)
+	}))
+	defer server.Close()
+	t.Setenv("LAIN42_DSH_BASE_URL", server.URL)
+
+	requestBody, err := common.Marshal(dto.AgentDSHTurnRequest{
+		SessionID: session.SessionId,
+		RequestID: "123e4567-e89b-42d3-a456-426614174000",
+		Model:     "openai/gpt-5.6-sol",
+		Mode:      "general",
+		Text:      "What is in this image?",
+		Images:    []dto.AgentDSHTurnImage{{MediaType: "image/png", Data: imageData}},
+	})
+	require.NoError(t, err)
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/agent/dsh/turns", strings.NewReader(string(requestBody)))
+	context.Request.Header.Set("Content-Type", "application/json")
+	context.Set("id", userID)
+	AgentDSHTurn(context)
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), "The image contains a red object.")
+
+	called = false
+	response = httptest.NewRecorder()
+	context, _ = gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/agent/dsh/turns", strings.NewReader(string(requestBody)))
+	context.Request.Header.Set("Content-Type", "application/json")
+	context.Set("id", userID+1)
+	AgentDSHTurn(context)
+	assert.False(t, called, "a different account cannot send image bytes to an owned session")
+	assert.Equal(t, http.StatusNotFound, response.Code)
 }
 
 func TestAgentDSHTurnRejectsOversizedBodyBeforeBuffering(t *testing.T) {

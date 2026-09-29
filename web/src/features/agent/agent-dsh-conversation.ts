@@ -17,11 +17,11 @@ import {
   DSH_REQUEST_KEY_SUFFIX,
   DSH_SESSION_KEY_SUFFIX,
   DSH_REQUEST_TIMEOUT_MS,
+  imagesFromContent,
   REQUEST_ID_PATTERN,
   SESSION_ID_PATTERN,
   buildTurnText,
   byteLength,
-  contentHasImage,
   createRequestId,
   fingerprintText,
   hasAccountScopedNamespace,
@@ -134,13 +134,43 @@ export function createAgentDSHConversation(options: {
     }
 
     const latest = latestUserMessage(payload.messages)
-    if (!latest || contentHasImage(latest.content)) {
+    if (!latest) {
       reset()
       return null
     }
+    const imageParts = imagesFromContent(latest.content)
+    if (imageParts.error) {
+      reset()
+      const imageErrorMessages = {
+        unsupported: {
+          chinese: '请使用 PNG、JPEG、WebP 或 GIF 格式的图片。',
+          english: 'Attach images as PNG, JPEG, WebP, or GIF files.',
+        },
+        invalid: {
+          chinese: '图片数据无效，请重新选择图片后重试。',
+          english: 'The image data is invalid. Select the image again and retry.',
+        },
+        too_many: {
+          chinese: '一次最多添加 4 张图片。',
+          english: 'You can attach up to 4 images per message.',
+        },
+        too_large: {
+          chinese: '图片总大小不能超过 8 MiB。',
+          english: 'The combined image size must not exceed 8 MiB.',
+        },
+      }[imageParts.error]
+      return localCompletion(
+        payload.model,
+        localizedMessage(
+          textFromContent(latest.content) ?? '',
+          imageErrorMessages.chinese,
+          imageErrorMessages.english
+        )
+      )
+    }
     const latestMessageKey = latestUserMessageKey(messages)
-    const latestText = textFromContent(latest.content)
-    if (!latestMessageKey || latestText === null) {
+    const latestText = textFromContent(latest.content) ?? ''
+    if (!latestMessageKey || (!latestText.trim() && imageParts.images.length === 0)) {
       reset()
       return null
     }
@@ -160,7 +190,14 @@ export function createAgentDSHConversation(options: {
       return accountRead
     }
 
-    const requestFingerprint = await fingerprintText(latestText)
+    const imageFingerprints: Array<{ mediaType: string; fingerprint: string }> = []
+    for (const image of imageParts.images) {
+      imageFingerprints.push({
+        mediaType: image.mediaType,
+        fingerprint: await fingerprintText(image.data),
+      })
+    }
+    const requestFingerprint = await fingerprintText(JSON.stringify({ text: latestText, images: imageFingerprints }))
     const requestKey = [
       storageNamespace,
       DSH_REQUEST_KEY_SUFFIX,
@@ -225,6 +262,16 @@ export function createAgentDSHConversation(options: {
     )
     if (!turnText || byteLength(turnText) > MAX_TURN_TEXT_BYTES) {
       reset()
+      if (imageParts.images.length > 0) {
+        return localCompletion(
+          payload.model,
+          localizedMessage(
+            latestText,
+            '附图对应的说明或网页资料超出文本上限；图片没有发送。请缩短问题或减少搜索结果后重试。',
+            'The image prompt and web context exceed the text limit. No image was sent; shorten the prompt or reduce search results and retry.'
+          )
+        )
+      }
       return null
     }
 
@@ -249,9 +296,20 @@ export function createAgentDSHConversation(options: {
       model: payload.model,
       mode,
       text: turnText,
+      ...(imageParts.images.length > 0 ? { images: imageParts.images } : {}),
     }
     if (byteLength(JSON.stringify(turnRequest)) > MAX_TURN_BODY_BYTES) {
       reset()
+      if (imageParts.images.length > 0) {
+        return localCompletion(
+          payload.model,
+          localizedMessage(
+            latestText,
+            '图片请求超出安全传输上限；图片没有发送。请减少图片数量或压缩图片后重试。',
+            'The image request exceeds the safe transfer limit. No image was sent; reduce the image size or count and retry.'
+          )
+        )
+      }
       return null
     }
 

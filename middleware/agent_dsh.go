@@ -27,7 +27,9 @@ const (
 	agentDSHAuthWindow     = 60 * time.Second
 	agentDSHNonceRetention = 2 * time.Minute
 	agentDSHToolBodyLimit  = 32 * 1024
-	agentDSHModelBodyLimit = 4 * 1024 * 1024
+	// DSH image requests use bounded base64 content; 12 MiB covers the
+	// 8 MiB decoded turn-image budget plus JSON encoding overhead.
+	agentDSHModelBodyLimit = 12 * 1024 * 1024
 )
 
 var (

@@ -138,6 +138,38 @@ func TestAgentDSHModelAuthBindsRelayToOwnedSessionAndRejectsReplay(t *testing.T)
 	assert.Contains(t, second.Body.String(), fmt.Sprintf(`"id":%d`, userTwo.Id))
 }
 
+func TestAgentDSHModelAuthAcceptsBoundedImageRequestAboveLegacyLimit(t *testing.T) {
+	setupAgentDSHMiddlewareTest(t)
+	gin.SetMode(gin.TestMode)
+	secret := "0123456789abcdef0123456789abcdef"
+	t.Setenv("LAIN42_AGENT_MODEL_RELAY_SECRET", secret)
+	user := createAgentDSHTestUser(t, "agent-dsh-image-model-owner")
+	session, err := model.CreateAgentDSHSession(user.Id, time.Now().UTC())
+	require.NoError(t, err)
+	modelName := "openai/gpt-5.6-sol"
+	encoded := strings.Repeat("A", 5*1024*1024)
+	body := `{"model":"openai/gpt-5.6-sol","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,` + encoded + `"}}]}]}`
+	router := gin.New()
+	router.POST(agentDSHModelRelayPath, AgentDSHModelAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"id": c.GetInt("id")})
+	})
+	timestamp := fmt.Sprintf("%d", time.Now().UTC().Unix())
+	nonce := "0123456789abcdef0123456789abcdef"
+	canonical := fmt.Sprintf("v1\n%s\n%s\nPOST\n%s\n%s\n%s", timestamp, nonce, agentDSHModelRelayPath, session.SessionId, modelName)
+	request := httptest.NewRequest(http.MethodPost, agentDSHModelRelayPath, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Lain42-Agent-Session", session.SessionId)
+	request.Header.Set("X-Lain42-Agent-Model", modelName)
+	request.Header.Set("X-Lain42-Timestamp", timestamp)
+	request.Header.Set("X-Lain42-Nonce", nonce)
+	request.Header.Set("X-Lain42-Signature", common.GenerateHMACWithKey([]byte(secret), canonical))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), fmt.Sprintf(`"id":%d`, user.Id))
+}
+
 func TestAgentDSHToolAuthBindsSignedToolCallsToTheSessionOwner(t *testing.T) {
 	setupAgentDSHMiddlewareTest(t)
 	gin.SetMode(gin.TestMode)
