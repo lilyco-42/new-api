@@ -28,6 +28,8 @@ describe('hosted Agent turn routing', () => {
   it('leaves search preflight to the hosted model and its account-scoped tools', () => {
     const localToolProvider: LocalToolProvider = {
       tools: [],
+      isAvailable: () => false,
+      invoke: vi.fn(async () => ''),
       preflight: vi.fn(() => preflightResponse),
     }
     const hostedTurnProvider: HostedTurnProvider = {
@@ -43,6 +45,8 @@ describe('hosted Agent turn routing', () => {
   it('keeps local preflight behavior when no hosted Agent owns the turn', () => {
     const localToolProvider: LocalToolProvider = {
       tools: [],
+      isAvailable: () => false,
+      invoke: vi.fn(async () => ''),
       preflight: vi.fn(() => preflightResponse),
     }
 

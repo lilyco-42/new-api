@@ -37,6 +37,7 @@ import {
   updateCurrentVersionContent,
 } from '../lib'
 import type {
+  ChatCompletionResponse,
   LocalToolProvider,
   Message,
   PlaygroundConfig,
@@ -384,14 +385,17 @@ export function useChatHandler({
           payload.messages,
           hostedTurnProvider
         )
-        let response = localPreflight ?? null
+        let response: ChatCompletionResponse
         if (localPreflight) {
           hostedTurnProvider?.reset()
+          response = localPreflight
         } else {
-          response = hostedTurnProvider
+          const hostedResponse = hostedTurnProvider
             ? await hostedTurnProvider.send(payload, messages, abortController.signal)
             : null
-          if (!response) {
+          if (hostedResponse) {
+            response = hostedResponse
+          } else {
             hostedTurnProvider?.reset()
             response = localToolProvider
               ? await runLocalToolLoop(

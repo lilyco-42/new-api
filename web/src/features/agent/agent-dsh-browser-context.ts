@@ -1,6 +1,7 @@
 import type { ChatCompletionMessage } from '@/features/playground/types'
 
 import { asRecord, latestUserMessage, textFromContent } from './agent-dsh-utils'
+import { webAgentToolProvider } from './web-agent-tool-provider'
 
 export type AgentDSHBrowserContext = {
   text: string
