@@ -76,10 +76,10 @@ export function requestsKnownAIEntityDefinition(text: string): boolean {
 
 function explicitlyDeclinesAccountRepositories(text: string): boolean {
   return (
-    /(?:不要|不用|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|列出|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,8}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /(?:不要|不用|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|列出|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的|(?:我|本人)(?:通过|已通过|在)).{0,48}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
       text
     ) ||
-    /\b(?:do not|don't|don’t|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access|list|fetch|inspect|query|show|view)\s+)?my(?: own)?\s+(?:personal\s+)?(?:github\s+)?(?:repositories|repository|repos?)\b/iu.test(
+    /\b(?:do not|don't|don’t|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access|list|fetch|inspect|query|show|view)\s+)?(?:my(?: own)?\s+(?:personal\s+)?(?:github\s+)?|(?:my|the)\s+connected\s+github\s+(?:account(?:'s|’s)?\s+)?)(?:repositories|repository|repos?)\b/iu.test(
       text
     )
   )

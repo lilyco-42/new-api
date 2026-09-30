@@ -72,6 +72,8 @@ describe('Agent tool intent routing', () => {
     'List repositories in the attached report; do not read my repositories.',
     'List my GitHub repositories, but do not access my repositories.',
     '列出附件里的仓库，不要读取我的 GitHub 仓库。',
+    '列出附件里的仓库，不要读取我通过网站 GitHub OAuth 授权的仓库。',
+    'List repositories in the report; do not read the connected GitHub account repositories.',
     'List repositories in this report.',
   ])('does not offer or execute account repository listing for %s', (request) => {
     const messages = userMessage(request)
@@ -93,6 +95,11 @@ describe('Agent tool intent routing', () => {
 
     expect(shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)).toBe(false)
     expect(shouldRunLocalAgentTool('files.preview', messages)).toBe(false)
+  })
+
+  it('offers account repository listing when the user selects the connected account', () => {
+    const messages = userMessage('List the connected GitHub account repositories.')
+    expect(shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)).toBe(true)
   })
 
   it('does not authorize account tools when the only text part is an attachment', () => {

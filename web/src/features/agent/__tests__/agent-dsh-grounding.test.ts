@@ -117,6 +117,8 @@ describe('hosted Agent with the real browser provider', () => {
   it.each([
     'List repositories in the attached report; do not read my repositories.',
     '列出附件报告里的仓库，不要读取我的 GitHub 仓库。',
+    '列出附件里的仓库，不要读取我通过网站 GitHub OAuth 授权的仓库。',
+    'List repositories in the report; do not read the connected GitHub account repositories.',
     'List repositories described in the attached report.',
   ])('keeps account repositories private when the request is %s', async (request) => {
     modelAnswer = 'The report describes public/project; no account repository lookup was needed.'
