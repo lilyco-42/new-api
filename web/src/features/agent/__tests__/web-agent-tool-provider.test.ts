@@ -473,7 +473,7 @@ describe('webAgentToolProvider', () => {
           index: 0,
           message: {
             role: 'assistant' as const,
-            content: 'DeepSeek 是一个搜索工具。',
+            content: '搜索未完成，没有可核验的来源；请提供文档或稍后重试。',
           },
           finish_reason: 'stop',
         },
