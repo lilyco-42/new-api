@@ -428,7 +428,7 @@ describe('Lain42 DSH conversation adapter', () => {
     )
   })
 
-  it('passes a supplied URL to DSH when browser-side reading is blocked', async () => {
+  it('passes a client-only failure notice when CORS prevents browser-side URL reading', async () => {
     const storage = storageFixture()
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
     vi.mocked(api.post)
@@ -461,6 +461,20 @@ describe('Lain42 DSH conversation adapter', () => {
       '/api/agent/dsh/turns',
       expect.objectContaining({
         text: expect.stringContaining(`Current user request:\n${query}`),
+      }),
+      expect.any(Object)
+    )
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/agent/dsh/turns',
+      expect.objectContaining({
+        text: expect.stringContaining('[Lain42 browser page read failed; no page content was retrieved.]'),
+      }),
+      expect.any(Object)
+    )
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/agent/dsh/turns',
+      expect.objectContaining({
+        text: expect.stringContaining('There is no server-side page-fetch tool.'),
       }),
       expect.any(Object)
     )

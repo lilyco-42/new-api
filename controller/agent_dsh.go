@@ -262,10 +262,6 @@ type agentDSHToolSearchArgs struct {
 	Limit int    `json:"limit"`
 }
 
-type agentDSHToolFetchArgs struct {
-	URL string `json:"url"`
-}
-
 type agentDSHToolRepositoryArgs struct {
 	Limit int `json:"limit"`
 }
@@ -335,19 +331,7 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		}
 		return gin.H{"query": query, "provider": provider, "items": items, "search_url": "https://www.bing.com/search?q=" + url.QueryEscape(query)}, "", ""
 	case "web_fetch":
-		var args agentDSHToolFetchArgs
-		if !decodeAgentDSHToolArgs(arguments, &args) {
-			return nil, "invalid_arguments", "The page URL is invalid."
-		}
-		pageURL, err := validateAgentFetchURL(args.URL)
-		if err != nil {
-			return nil, "invalid_arguments", "Only public HTTP(S) pages on the default port can be fetched."
-		}
-		result, err := fetchAgentWebPage(c.Request.Context(), pageURL)
-		if err != nil {
-			return nil, "fetch_unavailable", "The page could not be safely fetched as a supported text document."
-		}
-		return result, "", ""
+		return nil, "client_fetch_required", "Public page reading must run in the user's browser; this server does not fetch page contents."
 	case "github_repositories":
 		if !agentDSHGitHubConnected(c.GetInt("id")) {
 			return nil, "github_not_connected", "Connect GitHub to use account repository tools."

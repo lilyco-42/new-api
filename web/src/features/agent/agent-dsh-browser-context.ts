@@ -40,17 +40,12 @@ export async function prepareBrowserContext(
       const raw = await webAgentToolProvider.invoke(call, signal)
       const parsed = parseBrowserPageResult(raw)
       if (parsed.error) {
-        // A browser CORS/network failure is not a failed Agent turn. The DSH
-        // model still receives the user's URL and can retry with its
-        // account-scoped server-side page tool.
-        return { text: '' }
+        return { text: clientPageReadFailureContext(url) }
       }
       pageContext = parsed.context
     } catch (error: unknown) {
       if (signal.aborted) throw error
-      // Keep the original turn intact so DSH can read the supplied URL through
-      // the server relay when the target site blocks browser-side access.
-      return { text: '' }
+      return { text: clientPageReadFailureContext(url) }
     }
   }
 
@@ -58,6 +53,14 @@ export async function prepareBrowserContext(
   // asks the user to approve a tool before the model can decide whether it is
   // needed, and an approval refusal used to fail the whole chat turn.
   return { text: pageContext }
+}
+
+function clientPageReadFailureContext(url: string): string {
+  return [
+    '[Lain42 browser page read failed; no page content was retrieved.]',
+    `URL: ${url}`,
+    'The browser-side HTTPS request or WASM parser could not read this page (often because of CORS or network policy). There is no server-side page-fetch tool. Do not claim to have read or summarize the page; explain the limitation and ask the user to paste the text or attach a file.',
+  ].join('\n')
 }
 
 function parseBrowserPageResult(raw: string): { context: string; error?: string } {

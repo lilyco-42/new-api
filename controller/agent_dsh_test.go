@@ -242,7 +242,12 @@ func TestAgentDSHTurnRejectsOversizedBodyBeforeBuffering(t *testing.T) {
 
 func TestAgentDSHToolRelayDoesNotExposeUnsupportedToolsAsSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	result, code, message := executeAgentDSHTool(nil, "github_actions_logs", map[string]any{"job_id": float64(2)})
+	result, code, message := executeAgentDSHTool(nil, "web_fetch", map[string]any{"url": "https://example.com/"})
+	assert.Nil(t, result)
+	assert.Equal(t, "client_fetch_required", code)
+	assert.Contains(t, message, "user's browser")
+
+	result, code, message = executeAgentDSHTool(nil, "github_actions_logs", map[string]any{"job_id": float64(2)})
 	assert.Nil(t, result)
 	assert.Equal(t, "tool_not_available", code)
 	assert.NotEmpty(t, message)
