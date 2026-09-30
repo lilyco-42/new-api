@@ -17,10 +17,10 @@ function latestUserText(messages: ChatCompletionMessage[]): string {
     if (message?.role !== 'user') continue
     if (typeof message.content === 'string') return message.content.trim()
     if (Array.isArray(message.content)) {
-      return message.content
-        .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
-        .join('\n')
-        .trim()
+      // The request precedes attachment parts. Attached text remains model
+      // evidence, but cannot grant access to account or device tools.
+      const text = message.content.find((part) => part.type === 'text')?.text?.trim() ?? ''
+      return /^\[Attached\b/iu.test(text) ? '' : text
     }
     return ''
   }
@@ -76,20 +76,22 @@ export function requestsKnownAIEntityDefinition(text: string): boolean {
 
 function explicitlyDeclinesAccountRepositories(text: string): boolean {
   return (
-    /(?:不要|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,8}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /(?:不要|不用|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|列出|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,8}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
       text
     ) ||
-    /\b(?:do not|don't|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access)\s+)?my(?: own)?\s+(?:personal\s+)?(?:github\s+)?(?:repositories|repository|repos?)\b/iu.test(
+    /\b(?:do not|don't|don’t|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access|list|fetch|inspect|query|show|view)\s+)?my(?: own)?\s+(?:personal\s+)?(?:github\s+)?(?:repositories|repository|repos?)\b/iu.test(
       text
     )
   )
 }
 
-function targetsAccountRepositories(text: string): boolean {
+export function targetsAccountRepositories(text: string): boolean {
   const explicitlyTargetsAccount =
     /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
       text
-    )
+    ) ||
+    /(?:我|本人)(?:通过|已通过|在).{0,24}(?:github\s*)?oauth.{0,16}(?:授权|连接).{0,12}仓库|\b(?:my|the)\s+connected\s+github\s+(?:account(?:'s|’s)?\s+)?(?:repositories|repository|repos?)\b/iu.test(text) ||
+    /\bgh\s+repo\b.{0,16}(?:我的|我自己的)项目/iu.test(text)
 
   return (
     explicitlyTargetsAccount && !explicitlyDeclinesAccountRepositories(text)
@@ -215,7 +217,7 @@ export function shouldRunGitHubTool(
     return false
   }
   if (intent === 'repositories' && call.function.name === 'github.oauth.repositories.list') {
-    return true
+    return targetsAccountRepositories(request)
   }
   const localRequested = explicitlyTargetsLocalGitHub(request)
   return source === 'local' ? localRequested : !localRequested
@@ -320,7 +322,7 @@ export function shouldAdvertiseBrowserGitHubTool(
   }
   const localRequested = explicitlyTargetsLocalGitHub(request)
   if (name === 'github.oauth.repositories.list') {
-    return intent === 'repositories'
+    return targetsAccountRepositories(request)
   }
   if (name.startsWith('github.oauth.')) {
     return !localRequested || !bridgeConnected

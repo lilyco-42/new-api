@@ -25,6 +25,7 @@ import {
   shouldRunGitHubTool,
   shouldRunLocalAgentTool,
   shouldRunWebAgentTool,
+  targetsAccountRepositories,
 } from './agent-tool-routing'
 import { combineLocalToolProviders } from './mcp-tool-provider'
 
@@ -913,6 +914,7 @@ export const webAgentToolProvider: LocalToolProvider = {
     const request = latestUserRequestText(messages)
     if (
       getGitHubReadIntent(request) === 'repositories' &&
+      targetsAccountRepositories(request) &&
       !explicitlyTargetsLocalGitHub(request)
     ) {
       let result: string
@@ -969,6 +971,7 @@ export const webAgentToolProvider: LocalToolProvider = {
     const request = latestUserRequestText(messages)
     if (
       getGitHubReadIntent(request) !== 'repositories' ||
+      !targetsAccountRepositories(request) ||
       explicitlyTargetsLocalGitHub(request)
     ) {
       return null
@@ -1152,6 +1155,9 @@ export function createBrowserAgentToolProvider(
     shouldRunTool: (call, messages) => {
       const request = latestUserRequestText(messages)
       const intent = getGitHubReadIntent(request)
+      if (call.function.name === 'github.oauth.repositories.list' && !targetsAccountRepositories(request)) {
+        return false
+      }
       if (
         call.function.name.startsWith('github.oauth.') &&
         intent &&
@@ -1282,6 +1288,7 @@ export function createBrowserAgentToolProvider(
         return shouldRunLocalAgentTool(name, messages)
       }
       if (!intent) return false
+      if (intent === 'repositories' && !targetsAccountRepositories(latestUserRequestText(messages))) return false
       const localRequested = explicitlyTargetsLocalGitHub(
         latestUserRequestText(messages)
       )
