@@ -100,3 +100,6 @@ jobs:
 
       - name: Test
         run: bun run test
+
+      - name: Build frontend production bundle
+        run: bun run build
