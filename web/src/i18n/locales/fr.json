@@ -4228,6 +4228,8 @@
     "Could not check GitHub OAuth status (HTTP {{status}}).": "Impossible de vérifier l’état de GitHub OAuth (HTTP {{status}}). Veuillez réessayer.",
     "GitHub OAuth failed.": "Échec de GitHub OAuth. Veuillez réessayer.",
     "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.": "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.",
+    "The AI service is temporarily paused because server storage is nearly full. Please retry later.": "Le service IA est temporairement suspendu, car l’espace de stockage du serveur est presque saturé. Veuillez réessayer plus tard.",
+    "The AI service is temporarily paused because the server is under heavy load. Please retry later.": "Le service IA est temporairement suspendu en raison d’une forte charge du serveur. Veuillez réessayer plus tard.",
     "Searching…": "Searching…",
     "Capture failed.": "Capture failed.",
     "Could not capture an image.": "Could not capture an image.",

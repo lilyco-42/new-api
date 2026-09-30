@@ -4228,6 +4228,8 @@
     "Could not check GitHub OAuth status (HTTP {{status}}).": "Không thể kiểm tra trạng thái GitHub OAuth (HTTP {{status}}). Vui lòng thử lại.",
     "GitHub OAuth failed.": "GitHub OAuth thất bại. Vui lòng thử lại.",
     "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.": "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.",
+    "The AI service is temporarily paused because server storage is nearly full. Please retry later.": "Dịch vụ AI tạm dừng vì dung lượng lưu trữ máy chủ sắp đầy. Vui lòng thử lại sau.",
+    "The AI service is temporarily paused because the server is under heavy load. Please retry later.": "Dịch vụ AI tạm dừng do máy chủ đang quá tải. Vui lòng thử lại sau.",
     "Searching…": "Searching…",
     "Capture failed.": "Capture failed.",
     "Could not capture an image.": "Could not capture an image.",

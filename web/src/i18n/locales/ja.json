@@ -4228,6 +4228,8 @@
     "Could not check GitHub OAuth status (HTTP {{status}}).": "GitHub OAuth の状態を確認できませんでした（HTTP {{status}}）。もう一度お試しください。",
     "GitHub OAuth failed.": "GitHub OAuth に失敗しました。もう一度お試しください。",
     "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.": "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.",
+    "The AI service is temporarily paused because server storage is nearly full. Please retry later.": "サーバーのストレージ容量が不足しているため、AI サービスを一時停止しています。後でもう一度お試しください。",
+    "The AI service is temporarily paused because the server is under heavy load. Please retry later.": "サーバーの負荷が高いため、AI サービスを一時停止しています。後でもう一度お試しください。",
     "Searching…": "Searching…",
     "Capture failed.": "Capture failed.",
     "Could not capture an image.": "Could not capture an image.",

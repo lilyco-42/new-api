@@ -4228,6 +4228,8 @@
     "Could not check GitHub OAuth status (HTTP {{status}}).": "Не удалось проверить статус GitHub OAuth (HTTP {{status}}). Попробуйте ещё раз.",
     "GitHub OAuth failed.": "Не удалось выполнить GitHub OAuth. Попробуйте ещё раз.",
     "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.": "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.",
+    "The AI service is temporarily paused because server storage is nearly full. Please retry later.": "Сервис ИИ временно приостановлен: на сервере почти закончилось место. Попробуйте позже.",
+    "The AI service is temporarily paused because the server is under heavy load. Please retry later.": "Сервис ИИ временно приостановлен из-за высокой нагрузки на сервер. Попробуйте позже.",
     "Searching…": "Searching…",
     "Capture failed.": "Capture failed.",
     "Could not capture an image.": "Could not capture an image.",

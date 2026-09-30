@@ -50,7 +50,23 @@ export function parseRequestErrorDetails(error: unknown): RequestErrorDetails {
   }
 }
 
-export function getActionableRequestErrorKey(message: string): string | null {
+export function getActionableRequestErrorKey(
+  message: string,
+  errorCode?: string
+): string | null {
+  if (
+    errorCode === 'system_disk_overloaded' ||
+    /system disk overloaded/i.test(message)
+  ) {
+    return 'The AI service is temporarily paused because server storage is nearly full. Please retry later.'
+  }
+  if (
+    errorCode === 'system_cpu_overloaded' ||
+    errorCode === 'system_memory_overloaded' ||
+    /system (?:cpu|memory) overloaded/i.test(message)
+  ) {
+    return 'The AI service is temporarily paused because the server is under heavy load. Please retry later.'
+  }
   if (
     /(?:status\s*code\s*)?429\b|rate.?limit|temporarily\s+rate.?limited/i.test(
       message

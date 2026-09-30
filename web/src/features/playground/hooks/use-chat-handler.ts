@@ -212,14 +212,14 @@ export function useChatHandler({
   )
 
   const getDisplayError = useCallback(
-    (error: string) => {
+    (error: string, errorCode?: string) => {
       if (KNOWN_ERROR_MESSAGES.has(error)) {
         return t(error)
       }
 
       // Upstream channels commonly surface transient 429/5xx errors as bare
       // Axios status strings. Turn those into useful recovery guidance.
-      const actionableErrorKey = getActionableRequestErrorKey(error)
+      const actionableErrorKey = getActionableRequestErrorKey(error, errorCode)
       if (actionableErrorKey) return t(actionableErrorKey)
 
       const connectionClosedSuffix = `: ${ERROR_MESSAGES.CONNECTION_CLOSED}`
@@ -272,7 +272,7 @@ export function useChatHandler({
       if (generation !== requestGenerationRef.current) return
       flushStreamUpdates(generation)
       setIsRequesting(false)
-      const displayError = getDisplayError(error)
+      const displayError = getDisplayError(error, errorCode)
       toast.error(displayError)
       const errorTitle = t(ERROR_MESSAGES.API_REQUEST_ERROR)
       onMessageUpdate((prev) => {

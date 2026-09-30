@@ -461,6 +461,8 @@ export const STATIC_I18N_KEYS = [
   'Network connection failed or server not responding',
   'Error parsing response data',
   'Error establishing connection',
+  'The AI service is temporarily paused because server storage is nearly full. Please retry later.',
+  'The AI service is temporarily paused because the server is under heavy load. Please retry later.',
   'Connection closed',
   'Generation was interrupted',
   'Note',
