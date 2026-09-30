@@ -138,6 +138,15 @@ export function createAgentDSHConversation(options: {
       reset()
       return null
     }
+    if (signal.aborted) {
+      throw new DOMException('The request was canceled.', 'AbortError')
+    }
+    const localPreflight = webAgentToolProvider.preflight?.(payload.messages)
+    if (localPreflight) {
+      reset()
+      return localPreflight
+    }
+
     const imageParts = imagesFromContent(latest.content)
     if (imageParts.error) {
       reset()

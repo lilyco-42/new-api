@@ -15,6 +15,7 @@ vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 vi.mock('../web-agent-tool-provider', () => ({
   webAgentToolProvider: {
     tools: [],
+    preflight: vi.fn(() => null),
     requiresApproval: vi.fn(async () => true),
     invoke: vi.fn(async () => JSON.stringify({ error: 'CORS blocked the page read' })),
     beforeModel: vi.fn(async () => null),
@@ -80,6 +81,7 @@ describe('Lain42 DSH conversation adapter', () => {
     vi.mocked(api.get).mockReset()
     vi.mocked(api.post).mockReset()
     vi.mocked(webAgentToolProvider.beforeModel!).mockReset().mockResolvedValue(null)
+    vi.mocked(webAgentToolProvider.preflight!).mockReset().mockReturnValue(null)
     vi.mocked(webAgentToolProvider.prepareContext!).mockClear()
     vi.mocked(webAgentToolProvider.finalizeResponse!).mockClear()
     vi.mocked(webAgentToolProvider.requiresApproval!).mockReset().mockResolvedValue(true)
@@ -142,6 +144,47 @@ describe('Lain42 DSH conversation adapter', () => {
       'Browser-prepared context:'
     )
   })
+
+  it.each([
+    ['hi', 'Hi! I\'m here. What would you like help with?'],
+    ['123', '你发来的是一个数字（123）。你希望我帮你做什么？'],
+    ['??', '我看到你发的是一个标点。你想继续刚才的话题，还是有新的问题？'],
+  ])(
+    'uses a local preflight response before contacting DSH for short input %j',
+    async (text, answer) => {
+      const localAnswer: ChatCompletionResponse = {
+        id: 'local-preflight',
+        object: 'chat.completion',
+        created: 0,
+        model: 'openai/gpt-5.6-sol',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: answer },
+          finish_reason: 'stop',
+        }],
+      }
+      vi.mocked(webAgentToolProvider.preflight!).mockReturnValueOnce(localAnswer)
+      const payload = request(text)
+      const provider = createAgentDSHConversation({
+        storageNamespace: 'agent-user-42-general-chat-13',
+        mode: 'general',
+        storage: storageFixture(),
+      })
+      providers.push(provider)
+
+      const result = await provider.send(
+        payload,
+        message(`short-${text}`, text),
+        new AbortController().signal
+      )
+
+      expect(webAgentToolProvider.preflight).toHaveBeenCalledWith(payload.messages)
+      expect(result?.choices[0]?.message.content).toBe(answer)
+      expect(api.get).not.toHaveBeenCalled()
+      expect(api.post).not.toHaveBeenCalled()
+      expect(webAgentToolProvider.prepareContext).not.toHaveBeenCalled()
+    }
+  )
 
   it('forwards locally extracted Office text as part of the DSH user turn', async () => {
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
