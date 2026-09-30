@@ -169,7 +169,7 @@ describe('Lain42 DSH conversation adapter', () => {
       invoke: vi.fn(async () => 'agent device is offline'),
     }
     const provider = createAgentDSHConversation({
-      storageNamespace: 'agent-user-42-general-chat-offline-device',
+      storageNamespace: 'agent-user-42-general-chat-14',
       mode: 'general',
       localToolProvider,
       storage: storageFixture(),
