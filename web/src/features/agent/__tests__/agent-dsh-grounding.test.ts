@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ChatCompletionRequest, Message } from '@/features/playground/types'
+import type { ChatCompletionMessage, ChatCompletionRequest, Message } from '@/features/playground/types'
 import { api } from '@/lib/api'
 
 import { createAgentDSHConversation } from '../agent-dsh'
@@ -18,13 +18,15 @@ vi.mock('../client-crawler/client-crawler', () => ({
 
 const SESSION_ID = 'C'.repeat(64)
 const providers: Array<ReturnType<typeof createAgentDSHConversation>> = []
-const submitted: Array<{ text: string; request_id: string; session_id: string }> = []
+const submitted: Array<{ text: string; request_id: string; session_id: string; model: string }> = []
 let modelAnswer: string
+let loseNextTurnResponse: boolean
 
 function send(
   text: string,
   attachedText?: string,
-  signal = new AbortController().signal
+  signal = new AbortController().signal,
+  options: { model?: string; history?: ChatCompletionMessage[] } = {}
 ) {
   const provider = createAgentDSHConversation({
     storageNamespace: 'agent-user-42-general-chat-29',
@@ -33,8 +35,8 @@ function send(
   })
   providers.push(provider)
   const payload: ChatCompletionRequest = {
-    model: 'site-model',
-    messages: [{
+    model: options.model ?? 'site-model',
+    messages: [...(options.history ?? []), {
       role: 'user',
       content: attachedText
         ? [{ type: 'text', text }, { type: 'text', text: attachedText }]
@@ -54,6 +56,7 @@ describe('hosted Agent with the real browser provider', () => {
   beforeEach(() => {
     submitted.length = 0
     modelAnswer = 'Model answer for the current request.'
+    loseNextTurnResponse = false
     vi.mocked(api.get).mockReset().mockImplementation(async (url) => {
       if (url === '/api/agent/dsh/status') {
         return { data: { success: true, data: { configured: true } } } as never
@@ -73,6 +76,10 @@ describe('hosted Agent with the real browser provider', () => {
       if (url === '/api/agent/dsh/turns') {
         const turn = body as typeof submitted[number]
         submitted.push(turn)
+        if (loseNextTurnResponse) {
+          loseNextTurnResponse = false
+          throw new Error('Response lost after admission')
+        }
         return { data: { success: true, data: { ...turn, answer: modelAnswer } } } as never
       }
       throw new Error(`Unexpected external request: ${url}`)
@@ -193,5 +200,66 @@ describe('hosted Agent with the real browser provider', () => {
     expect(submitted).toHaveLength(1)
     expect(submitted[0]?.text).toContain('Report score: 42.')
     expect(response?.choices[0]?.message.content).toBe(modelAnswer)
+  })
+
+  it.each([
+    'A'.repeat(30 * 1024),
+    '中文🙂'.repeat(7000),
+  ])('bounds a long attachment without dropping the task or changing the hosted path (%#)', async (content) => {
+    const task = 'Summarize the attached report and state any reading limits.'
+    const response = await send(task, `[Attached file: report.txt]\n${content}\n[End attached file]`)
+
+    expect(submitted).toHaveLength(1)
+    expect(submitted[0]?.text).toContain(`Current user request:\n${task}`)
+    expect(submitted[0]?.text).toContain('report.txt')
+    expect(submitted[0]?.text).toContain('evidence truncated')
+    expect(new TextEncoder().encode(submitted[0]?.text).byteLength).toBeLessThanOrEqual(24 * 1024)
+    expect(submitted[0]?.text).not.toContain('\uFFFD')
+    expect(response?.choices[0]?.message.content).toContain(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain('truncated')
+  })
+
+  it('rejects an oversized user instruction explicitly instead of silently choosing the old chat loop', async () => {
+    await expect(send('Explain this task: ' + 'A'.repeat(30 * 1024)))
+      .rejects.toThrow(/text limit/iu)
+    expect(submitted).toHaveLength(0)
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
+  it('replays the identical admitted input after refresh without fetching changed evidence or dropping history', async () => {
+    const task = 'Explain DeepSeek and compare it with the earlier conclusion.'
+    const history: ChatCompletionMessage[] = [
+      { role: 'user', content: 'Our report measured score 42.' },
+      { role: 'assistant', content: 'We should verify that measurement.' },
+    ]
+    loseNextTurnResponse = true
+    await expect(send(task, undefined, undefined, { history }))
+      .rejects.toThrow('Response lost after admission')
+    vi.mocked(searchClientSources).mockResolvedValueOnce({
+      execution: 'browser-wasm', query: 'DeepSeek', fetched_at: '2026-09-30T02:00:00Z',
+      sources: ['Hugging Face'], warnings: [], items: [{
+        title: 'Changed evidence', url: 'https://huggingface.co/changed-after-admission',
+        snippet: 'Different data after the response was lost.', source: 'Hugging Face',
+      }],
+    })
+    const response = await send(task, undefined, undefined, { history })
+
+    expect(submitted).toHaveLength(2)
+    expect(submitted[1]).toEqual(submitted[0])
+    expect(submitted[1]?.text).toContain('Our report measured score 42.')
+    expect(searchClientSources).toHaveBeenCalledOnce()
+    expect(response?.choices[0]?.message.content).toContain('https://huggingface.co/deepseek-ai')
+    expect(response?.choices[0]?.message.content).not.toContain('changed-after-admission')
+  })
+
+  it('creates a distinct admitted request when the selected model changes during retry', async () => {
+    loseNextTurnResponse = true
+    await expect(send('Analyze this report.', 'Report score: 42.', undefined, { model: 'first-model' }))
+      .rejects.toThrow('Response lost after admission')
+    await send('Analyze this report.', 'Report score: 42.', undefined, { model: 'second-model' })
+
+    expect(submitted).toHaveLength(2)
+    expect(submitted[1]?.request_id).not.toBe(submitted[0]?.request_id)
+    expect(submitted[1]?.model).toBe('second-model')
   })
 })
