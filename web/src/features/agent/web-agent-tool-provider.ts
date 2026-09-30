@@ -263,7 +263,12 @@ function browserSearchQuery(request: string): string {
     const entity = request.match(
       /\b(?:deepseek|qwen|llama|claude|chatgpt|gemini|openai|anthropic|hugging[ -]?face)\b/iu
     )
-    if (entity?.[0]) return entity[0]
+    if (entity?.[0]) {
+      const qualifier = /[\u3400-\u9fff]/u.test(request)
+        ? '官方 公司 人工智能 模型'
+        : 'official company AI models'
+      return `${entity[0]} ${qualifier}`
+    }
   }
 
   if (getGitHubReadIntent(request) === 'repository_search') {
@@ -362,6 +367,19 @@ function finalizePreparedBrowserSearch(
   const asksWhatDeepSeekIs =
     requestsKnownAIEntityDefinition(latestRequest) &&
     /\bdeepseek\b/iu.test(latestRequest)
+  const deepSeekSources = sources.filter(({ url }) => {
+    try {
+      const parsed = new URL(url)
+      return (
+        parsed.hostname === 'deepseek.com' ||
+        parsed.hostname.endsWith('.deepseek.com') ||
+        (parsed.hostname === 'huggingface.co' &&
+          /^\/deepseek-ai(?:\/|$)/iu.test(parsed.pathname))
+      )
+    } catch {
+      return false
+    }
+  })
   const hasDeepSeekOfficialModelEvidence = result.items.some((item) => {
     try {
       const url = new URL(item.url)
@@ -374,18 +392,20 @@ function finalizePreparedBrowserSearch(
       return false
     }
   })
-  if (asksWhatDeepSeekIs && hasDeepSeekOfficialModelEvidence) {
+  if (
+    asksWhatDeepSeekIs &&
+    hasDeepSeekOfficialModelEvidence &&
+    deepSeekSources.length > 0
+  ) {
     const answer = isChinese
       ? 'DeepSeek 是一家人工智能公司，也开发 DeepSeek 系列模型；它不是搜索工具。'
       : 'DeepSeek is an AI company that develops the DeepSeek model family; it is not a search tool.'
     const sourcesBlock = [
       isChinese ? '来源：' : 'Sources:',
-      isChinese
-        ? '- [DeepSeek 官方网站](<https://www.deepseek.com/>)'
-        : '- [DeepSeek official website](<https://www.deepseek.com/>)',
-      isChinese
-        ? '- [DeepSeek 官方 Hugging Face 模型组织](<https://huggingface.co/deepseek-ai/models>)'
-        : '- [DeepSeek official Hugging Face model organization](<https://huggingface.co/deepseek-ai/models>)',
+      ...deepSeekSources.slice(0, 3).map(
+        ({ title, url, source }) =>
+          `- [${title.replace(/[\[\]\\]/gu, '\\$&')}](<${url}>)${source ? ` · ${source}` : ''}`
+      ),
     ].join('\n')
     return {
       ...response,

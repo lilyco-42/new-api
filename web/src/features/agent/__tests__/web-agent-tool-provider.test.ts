@@ -201,7 +201,7 @@ describe('webAgentToolProvider', () => {
       (message) => message.name === 'lain42_browser_search_context'
     )
     expect(searchClientSources).toHaveBeenCalledWith(
-      'DeepSeek',
+      'DeepSeek 官方 公司 人工智能 模型',
       5,
       expect.any(AbortSignal),
       'auto'
@@ -217,11 +217,10 @@ describe('webAgentToolProvider', () => {
     expect(response.choices[0]?.message.content).toContain('它不是搜索工具。')
     expect(response.choices[0]?.message.content).not.toContain('知识图谱检索工具')
     expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek 官方网站](<https://www.deepseek.com/>)'
+      '[DeepSeek model collection](<https://huggingface.co/deepseek-ai>) · Hugging Face'
     )
-    expect(response.choices[0]?.message.content).toContain(
-      '[DeepSeek 官方 Hugging Face 模型组织](<https://huggingface.co/deepseek-ai/models>)'
-    )
+    expect(response.choices[0]?.message.content).not.toContain('https://www.deepseek.com/')
+    expect(response.choices[0]?.message.content).not.toContain('https://huggingface.co/deepseek-ai/models')
   })
 
   it('advertises only browser search for public repository queries that exclude personal repositories', () => {
