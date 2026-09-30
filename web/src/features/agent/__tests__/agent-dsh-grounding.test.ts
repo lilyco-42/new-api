@@ -234,14 +234,14 @@ describe('hosted Agent with the real browser provider', () => {
   })
 
   it('rejects an oversized user instruction explicitly instead of silently choosing the old chat loop', async () => {
-    await expect(send('Explain this task: ' + 'A'.repeat(30 * 1024)))
+    await expect(send(`Explain this task: ${'A'.repeat(30 * 1024)}`))
       .rejects.toThrow(/text limit/iu)
     expect(submitted).toHaveLength(0)
     expect(api.post).not.toHaveBeenCalled()
   })
 
   it('uses the instruction language for the reading-limit notice even when attachment content is in another language', async () => {
-    const response = await send('总结附件并指出阅读范围。', '[Attached file: report.txt]\n' + 'A'.repeat(30 * 1024))
+    const response = await send('总结附件并指出阅读范围。', `[Attached file: report.txt]\n${'A'.repeat(30 * 1024)}`)
 
     expect(submitted[0]?.text).toContain('Current user request:\n总结附件并指出阅读范围。')
     expect(response?.choices[0]?.message.content).toContain('截断')
@@ -251,10 +251,10 @@ describe('hosted Agent with the real browser provider', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     vi.mocked(fetchClientPage).mockResolvedValueOnce({
       url: 'https://example.com/report', title: 'Browser report',
-      fetched_at: '2026-09-30T01:00:00Z', text: 'Page evidence: ' + '网页🙂'.repeat(6000),
+      fetched_at: '2026-09-30T01:00:00Z', text: `Page evidence: ${'网页🙂'.repeat(6000)}`,
     } as never)
     const task = 'Compare https://example.com/report with the attached report.'
-    const response = await send(task, '[Attached file: comparison.txt]\n' + 'File evidence. '.repeat(4000))
+    const response = await send(task, `[Attached file: comparison.txt]\n${'File evidence. '.repeat(4000)}`)
 
     expect(fetchClientPage).toHaveBeenCalledOnce()
     expect(submitted[0]?.text).toContain('Page evidence:')
@@ -342,7 +342,7 @@ describe('hosted Agent with the real browser provider', () => {
   })
 
   it('can restore a bounded input whose JSON control-character escaping makes its stored snapshot larger', async () => {
-    const attachment = '[Attached file: binary-report.txt]\n' + '\u0000'.repeat(13000)
+    const attachment = `[Attached file: binary-report.txt]\n${'\u0000'.repeat(13000)}`
     loseNextTurnResponse = true
     await expect(send('Analyze this report.', attachment)).rejects.toThrow('Response lost after admission')
     memoryStorage.clear()
