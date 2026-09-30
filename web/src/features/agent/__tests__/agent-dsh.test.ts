@@ -4,6 +4,7 @@ import type {
   ChatCompletionMessage,
   ChatCompletionRequest,
   ChatCompletionResponse,
+  LocalToolProvider,
   Message,
 } from '@/features/playground/types'
 import { api } from '@/lib/api'
@@ -142,6 +143,58 @@ describe('Lain42 DSH conversation adapter', () => {
     expect(webAgentToolProvider.prepareContext).toHaveBeenCalledOnce()
     expect(JSON.stringify(vi.mocked(api.post).mock.calls.at(-1)?.[1])).not.toContain(
       'Browser-prepared context:'
+    )
+  })
+
+  it('keeps ordinary hosted chat working when the paired local device is offline', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
+      .mockResolvedValueOnce(success({
+        session_id: SESSION_ID,
+        request_id: REQUEST_ID,
+        answer: 'DeepSeek is an AI company and model family.',
+      }) as never)
+
+    const localToolProvider: LocalToolProvider = {
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'agent.workspace.browse',
+          description: 'Browse the paired device workspace.',
+          parameters: { type: 'object', properties: {} },
+        },
+      }],
+      isAvailable: () => false,
+      invoke: vi.fn(async () => 'agent device is offline'),
+    }
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-chat-offline-device',
+      mode: 'general',
+      localToolProvider,
+      storage: storageFixture(),
+    })
+    providers.push(provider)
+    const query = 'What is DeepSeek?'
+
+    const result = await provider.send(
+      request(query),
+      message('offline-device-question', query),
+      new AbortController().signal
+    )
+
+    expect(api.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/agent/dsh/turns',
+      expect.objectContaining({
+        mode: 'general',
+        text: expect.stringContaining(`Current user request:\n${query}`),
+      }),
+      expect.any(Object)
+    )
+    expect(localToolProvider.invoke).not.toHaveBeenCalled()
+    expect(result?.choices[0]?.message.content).toBe(
+      'DeepSeek is an AI company and model family.'
     )
   })
 
