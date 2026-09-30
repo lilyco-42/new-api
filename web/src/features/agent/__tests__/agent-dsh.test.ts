@@ -203,6 +203,25 @@ describe('Lain42 DSH conversation adapter', () => {
     expect(webAgentToolProvider.preflight).not.toHaveBeenCalled()
   })
 
+  it('fails closed when no site model is selected instead of using the DSH host default', async () => {
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-chat-no-model',
+      mode: 'general',
+      storage: storageFixture(),
+    })
+    providers.push(provider)
+
+    const result = await provider.send(
+      { ...request('hello'), model: '' },
+      message('missing-model', 'hello'),
+      new AbortController().signal
+    )
+
+    expect(result?.choices[0]?.message.content).toBe('Select a site model before sending a message.')
+    expect(api.get).not.toHaveBeenCalled()
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
   it('forwards locally extracted Office text as part of the DSH user turn', async () => {
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
     vi.mocked(api.post)

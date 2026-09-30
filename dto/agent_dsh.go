@@ -3,12 +3,13 @@ package dto
 // AgentDSHTurnRequest is accepted only from an authenticated New API browser
 // session. The DSH session id is checked against that account before relay.
 type AgentDSHTurnRequest struct {
-	SessionID string              `json:"session_id"`
-	RequestID string              `json:"request_id"`
-	Model     string              `json:"model,omitempty"`
-	Mode      string              `json:"mode,omitempty"`
-	Text      string              `json:"text"`
-	Images    []AgentDSHTurnImage `json:"images,omitempty"`
+	SessionID string `json:"session_id"`
+	RequestID string `json:"request_id"`
+	// Model is mandatory so a user turn cannot inherit the DSH host's shared default.
+	Model  string              `json:"model"`
+	Mode   string              `json:"mode,omitempty"`
+	Text   string              `json:"text"`
+	Images []AgentDSHTurnImage `json:"images,omitempty"`
 }
 
 // AgentDSHTurnImage is a bounded browser image payload accepted only as part

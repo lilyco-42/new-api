@@ -142,6 +142,14 @@ export function createAgentDSHConversation(options: {
       throw new DOMException('The request was canceled.', 'AbortError')
     }
     const requestText = latestUserRequestText(payload.messages)
+    if (payload.model.trim() === '') {
+      return localCompletion(
+        payload.model,
+        localizedMessage(requestText,
+          '请先选择网站模型，再发送消息。',
+          'Select a site model before sending a message.')
+      )
+    }
     const imageParts = imagesFromContent(latest.content)
     if (imageParts.error) {
       reset()

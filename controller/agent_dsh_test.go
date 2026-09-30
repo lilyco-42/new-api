@@ -128,6 +128,7 @@ func TestValidAgentDSHTurnRequestAllowsOnlyShippedModes(t *testing.T) {
 	request := dto.AgentDSHTurnRequest{
 		SessionID: strings.Repeat("a", 64),
 		RequestID: "123e4567-e89b-42d3-a456-426614174000",
+		Model:     "openai/gpt-5.6-sol",
 		Text:      "hello",
 	}
 	for _, mode := range []string{"", "general", "coding", "research", "content"} {
@@ -138,10 +139,26 @@ func TestValidAgentDSHTurnRequestAllowsOnlyShippedModes(t *testing.T) {
 	assert.False(t, validAgentDSHTurnRequest(request))
 }
 
+func TestValidAgentDSHTurnRequestRequiresGatewayModel(t *testing.T) {
+	request := dto.AgentDSHTurnRequest{
+		SessionID: strings.Repeat("a", 64),
+		RequestID: "123e4567-e89b-42d3-a456-426614174000",
+		Model:     "openai/gpt-5.6-sol",
+		Text:      "hello",
+	}
+	assert.True(t, validAgentDSHTurnRequest(request))
+
+	request.Model = ""
+	assert.False(t, validAgentDSHTurnRequest(request), "missing model must fail closed instead of inheriting the DSH host default")
+	request.Model = "model with spaces"
+	assert.False(t, validAgentDSHTurnRequest(request), "model ids must stay in the gateway-compatible allowlist")
+}
+
 func TestValidAgentDSHTurnRequestBoundsImagePayloads(t *testing.T) {
 	request := dto.AgentDSHTurnRequest{
 		SessionID: strings.Repeat("a", 64),
 		RequestID: "123e4567-e89b-42d3-a456-426614174000",
+		Model:     "openai/gpt-5.6-sol",
 		Text:      " ",
 		Images: []dto.AgentDSHTurnImage{{
 			MediaType: "image/png",

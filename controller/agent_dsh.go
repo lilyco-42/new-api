@@ -48,7 +48,7 @@ type agentDSHWireTurnRequest struct {
 	Version   int                     `json:"version"`
 	SessionID string                  `json:"sessionId"`
 	RequestID string                  `json:"requestId"`
-	Model     string                  `json:"model,omitempty"`
+	Model     string                  `json:"model"`
 	Mode      string                  `json:"mode,omitempty"`
 	Text      string                  `json:"text"`
 	Images    []dto.AgentDSHTurnImage `json:"images,omitempty"`
@@ -229,7 +229,7 @@ func validAgentDSHTurnRequest(request dto.AgentDSHTurnRequest) bool {
 			return false
 		}
 	}
-	if request.Model != "" && !agentDSHTurnModelName.MatchString(request.Model) {
+	if !agentDSHTurnModelName.MatchString(request.Model) {
 		return false
 	}
 	return request.Mode == "" || request.Mode == "general" || request.Mode == "coding" || request.Mode == "research" || request.Mode == "content"
