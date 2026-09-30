@@ -205,7 +205,7 @@ describe('Lain42 DSH conversation adapter', () => {
 
   it('fails closed when no site model is selected instead of using the DSH host default', async () => {
     const provider = createAgentDSHConversation({
-      storageNamespace: 'agent-user-42-general-chat-no-model',
+      storageNamespace: 'agent-user-42-general-chat-14',
       mode: 'general',
       storage: storageFixture(),
     })
