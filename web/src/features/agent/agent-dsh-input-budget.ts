@@ -29,7 +29,7 @@ export function buildTurnInput(
   seedHistory: boolean
 ): AgentDSHTurnInput {
   const parts = Array.isArray(latest.content)
-    ? latest.content.flatMap((part) => part.type === 'text' ? [part.text] : [])
+    ? latest.content.flatMap((part) => part.type === 'text' && typeof part.text === 'string' ? [part.text] : [])
     : []
   const firstPartIsAttachment = /^\[Attached/iu.test(parts[0]?.trim() ?? '')
   const attachments = firstPartIsAttachment ? parts : parts.slice(1)

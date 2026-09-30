@@ -333,4 +333,15 @@ describe('hosted Agent with the real browser provider', () => {
       .rejects.toThrow('cannot be safely resumed')
     expect(submitted).toHaveLength(1)
   })
+
+  it('can restore a bounded input whose JSON control-character escaping makes its stored snapshot larger', async () => {
+    const attachment = '[Attached file: binary-report.txt]\n' + '\u0000'.repeat(13000)
+    loseNextTurnResponse = true
+    await expect(send('Analyze this report.', attachment)).rejects.toThrow('Response lost after admission')
+    memoryStorage.clear()
+    await send('Analyze this report.', attachment)
+
+    expect(submitted).toHaveLength(2)
+    expect(submitted[1]).toEqual(submitted[0])
+  })
 })
