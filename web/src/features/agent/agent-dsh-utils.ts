@@ -53,18 +53,39 @@ export async function fingerprintText(value: string): Promise<string> {
   ).join('')
 }
 
-export function parseRequestRecord(
-  value: string | null
-): { requestId: string; fingerprint: string } | null {
+export type AgentDSHRequestRecord = {
+  version: 2
+  requestId: string
+  fingerprint: string
+  sessionId: string
+  model: string
+  mode: 'general' | 'coding' | 'research' | 'content'
+  text: string
+  appendix: string
+}
+
+export function parseRequestRecord(value: string | null): AgentDSHRequestRecord | null {
   if (!value) return null
+  // JSON may escape each text byte as six ASCII bytes (for example, U+0000).
+  if (byteLength(value) > 6 * (MAX_TURN_TEXT_BYTES + 8 * 1024) + 4096) return null
   try {
     const record = asRecord(JSON.parse(value))
     if (
-      typeof record?.requestId === 'string' &&
+      record?.version === 2 &&
+      typeof record.requestId === 'string' &&
       REQUEST_ID_PATTERN.test(record.requestId) &&
-      typeof record.fingerprint === 'string'
+      typeof record.fingerprint === 'string' && /^[a-f0-9]{64}$/u.test(record.fingerprint) &&
+      typeof record.sessionId === 'string' && SESSION_ID_PATTERN.test(record.sessionId) &&
+      typeof record.model === 'string' && record.model.length > 0 && record.model.length <= 256 &&
+      (record.mode === 'general' || record.mode === 'coding' || record.mode === 'research' || record.mode === 'content') &&
+      typeof record.text === 'string' && record.text.trim().length > 0 && byteLength(record.text) <= MAX_TURN_TEXT_BYTES &&
+      typeof record.appendix === 'string' && byteLength(record.appendix) <= 8 * 1024
     ) {
-      return { requestId: record.requestId, fingerprint: record.fingerprint }
+      return {
+        version: 2, requestId: record.requestId, fingerprint: record.fingerprint,
+        sessionId: record.sessionId, model: record.model, mode: record.mode,
+        text: record.text, appendix: record.appendix,
+      }
     }
   } catch {
     // An invalid or old record must not be reused as an idempotency key.
@@ -163,41 +184,6 @@ export function textFromContent(content: ChatCompletionMessage['content']): stri
   return content
     .flatMap((part) => part.type === 'text' && typeof part.text === 'string' ? [part.text] : [])
     .join('\n')
-}
-
-export function buildTurnText(
-  messages: ChatCompletionMessage[],
-  latest: ChatCompletionMessage,
-  browserContext: string,
-  seedHistory: boolean
-): string | null {
-  const currentRequest = textFromContent(latest.content)?.trim() ?? ''
-  if (!currentRequest && !contentHasImage(latest.content)) return null
-  const effectiveRequest = currentRequest || '[The user attached image content for analysis.]'
-  const evidence = browserContext.trim()
-  const latestText = [
-    evidence ? `Browser-prepared context:\n${evidence}` : '',
-    `Current user request:\n${effectiveRequest}`,
-  ].filter(Boolean).join('\n\n')
-  if (byteLength(latestText) > MAX_TURN_TEXT_BYTES) return null
-  if (!seedHistory) return latestText
-
-  const latestIndex = messages.lastIndexOf(latest)
-  if (latestIndex <= 0) return latestText
-  const history = messages
-    .slice(0, latestIndex)
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .flatMap((message) => {
-      const content = textFromContent(message.content)?.trim()
-      if (!content) return []
-      return [`${message.role === 'user' ? 'User' : 'Assistant'}:\n${content}`]
-    })
-  while (history.length > 0) {
-    const text = `Previous visible conversation for context only:\n${history.join('\n\n')}\n\n${latestText}`
-    if (byteLength(text) <= MAX_TURN_TEXT_BYTES) return text
-    history.shift()
-  }
-  return latestText
 }
 
 export function readEnvelopeData<T>(value: unknown): T {

@@ -88,6 +88,9 @@ jobs:
         run: >-
           bunx oxlint -c .oxlintrc.json
           src/features/agent/agent-dsh-conversation.ts
+          src/features/agent/agent-dsh-input-budget.ts
+          src/features/agent/agent-dsh-utils.ts
+          src/features/agent/agent-dsh-browser-context.ts
           src/features/agent/agent-tool-routing.ts
           src/features/agent/web-agent-tool-provider.ts
           src/features/agent/__tests__/agent-dsh-grounding.test.ts

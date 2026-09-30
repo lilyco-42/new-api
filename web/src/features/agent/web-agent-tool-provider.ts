@@ -300,7 +300,7 @@ function validBrowserSearchSources(
   return result.items.flatMap((item) => {
     try {
       const url = new URL(item.url)
-      if (url.protocol !== 'https:' || url.username || url.password) return []
+      if (url.protocol !== 'https:' || url.username || url.password || url.toString().length > 2048) return []
       const title = item.title
         .replaceAll(/\p{Cc}/gu, ' ')
         .replaceAll(/\s+/gu, ' ')
@@ -319,31 +319,44 @@ function validBrowserSearchSources(
   })
 }
 
-function finalizePreparedBrowserSearch(
-  response: ChatCompletionResponse,
+/** A bounded source appendix can be saved with a turn and replayed without rerunning search. */
+export function browserSearchResponseAppendix(
   messages: ChatCompletionMessage[],
   preparedContext: ChatCompletionMessage[]
-): ChatCompletionResponse {
+): string {
   const result = preparedContext
     .map((message) => browserSearchResultsByContext.get(message))
     .find((value): value is ClientSearchResponse => value !== undefined)
-  const firstChoice = response.choices?.[0]
-  if (!result || !firstChoice) return response
+  if (!result) return ''
 
   const sources = validBrowserSearchSources(result)
   const latestRequest = latestUserRequestText(messages)
   const isChinese = /[\u3400-\u9fff]/u.test(latestRequest)
   // Missing search evidence is already in the model context. Preserve its
   // answer about other supplied files/pages instead of replacing the response.
-  if (sources.length === 0) return response
+  if (sources.length === 0) return ''
 
-  const sourceBlock = [
-    isChinese ? '检索来源：' : 'Sources:',
-    ...sources.map(
-      ({ title, url, source }) =>
-        `- [${title.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]')}](<${url}>)${source ? ` · ${source}` : ''}`
-    ),
-  ].join('\n')
+  const lines = [isChinese ? '检索来源：' : 'Sources:']
+  let size = new TextEncoder().encode(lines[0]).byteLength
+  for (const { title, url, source } of sources.slice(0, 8)) {
+    const line = `- [${title.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]')}](<${url}>)${source ? ` · ${source}` : ''}`
+    const bytes = new TextEncoder().encode(line).byteLength + 1
+    // Keep complete links and leave room for the turn's reading-limit notice.
+    if (size + bytes > 7 * 1024) break
+    lines.push(line)
+    size += bytes
+  }
+  return lines.length > 1 ? lines.join('\n') : ''
+}
+
+function finalizePreparedBrowserSearch(
+  response: ChatCompletionResponse,
+  messages: ChatCompletionMessage[],
+  preparedContext: ChatCompletionMessage[]
+): ChatCompletionResponse {
+  const sourceBlock = browserSearchResponseAppendix(messages, preparedContext)
+  const firstChoice = response.choices?.[0]
+  if (!sourceBlock || !firstChoice) return response
   const answer =
     typeof firstChoice.message.content === 'string'
       ? firstChoice.message.content.trim()

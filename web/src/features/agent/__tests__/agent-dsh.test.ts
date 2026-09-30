@@ -10,10 +10,11 @@ import type {
 import { api } from '@/lib/api'
 
 import { createAgentDSHConversation } from '../agent-dsh'
-import { webAgentToolProvider } from '../web-agent-tool-provider'
+import { browserSearchResponseAppendix, webAgentToolProvider } from '../web-agent-tool-provider'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 vi.mock('../web-agent-tool-provider', () => ({
+  browserSearchResponseAppendix: vi.fn(() => ''),
   webAgentToolProvider: {
     tools: [],
     preflight: vi.fn(() => null),
@@ -73,6 +74,7 @@ describe('Lain42 DSH conversation adapter', () => {
     vi.mocked(browserHooks.preflight).mockReset().mockReturnValue(null)
     vi.mocked(browserHooks.prepareContext).mockClear()
     vi.mocked(browserHooks.finalizeResponse).mockClear()
+    vi.mocked(browserSearchResponseAppendix).mockReset().mockReturnValue('')
     vi.mocked(browserHooks.requiresApproval).mockReset().mockResolvedValue(true)
     vi.mocked(browserHooks.invoke).mockReset()
     vi.stubGlobal('crypto', {
@@ -270,9 +272,6 @@ describe('Lain42 DSH conversation adapter', () => {
       content: 'Public GitHub result: https://github.com/ast-grep/ast-grep',
     }
     vi.mocked(browserHooks.prepareContext).mockResolvedValueOnce([evidence])
-    vi.mocked(browserHooks.finalizeResponse).mockImplementationOnce(
-      (response) => response
-    )
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
     vi.mocked(api.post)
       .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
@@ -354,13 +353,11 @@ describe('Lain42 DSH conversation adapter', () => {
       }),
       expect.any(Object)
     )
-    expect(webAgentToolProvider.finalizeResponse).toHaveBeenCalledWith(
-      expect.objectContaining({ choices: [expect.objectContaining({
-        message: expect.objectContaining({ content: 'DeepSeek model comparison: report evidence and architecture analysis.' }),
-      })] }),
+    expect(browserSearchResponseAppendix).toHaveBeenCalledWith(
       expect.any(Array),
       [evidence]
     )
+    expect(webAgentToolProvider.finalizeResponse).not.toHaveBeenCalled()
     expect(result?.choices[0]?.message.content).toBe(
       'DeepSeek model comparison: report evidence and architecture analysis.'
     )

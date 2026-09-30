@@ -1,6 +1,7 @@
 import type { ChatCompletionMessage } from '@/features/playground/types'
 
-import { asRecord, latestUserMessage, textFromContent } from './agent-dsh-utils'
+import { asRecord } from './agent-dsh-utils'
+import { latestUserRequestText, shouldRunWebAgentTool } from './agent-tool-routing'
 import { webAgentToolProvider } from './web-agent-tool-provider'
 
 export type AgentDSHBrowserContext = {
@@ -12,10 +13,7 @@ export async function prepareBrowserContext(
   messages: ChatCompletionMessage[],
   signal: AbortSignal
 ): Promise<AgentDSHBrowserContext> {
-  const latest = latestUserMessage(messages)
-  if (!latest) return { text: '' }
-
-  const requestText = textFromContent(latest.content) ?? ''
+  const requestText = latestUserRequestText(messages)
   const url = firstPublicHttpsUrl(requestText)
   let pageContext = ''
   if (url) {
@@ -31,6 +29,7 @@ export async function prepareBrowserContext(
         ),
       },
     }
+    if (!shouldRunWebAgentTool(call, messages)) return { text: '' }
     const approved = await webAgentToolProvider.requiresApproval?.(call, signal)
     if (!approved) {
       if (signal.aborted) throw new DOMException('The request was canceled.', 'AbortError')
