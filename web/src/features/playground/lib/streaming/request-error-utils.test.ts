@@ -39,6 +39,22 @@ describe('parseRequestErrorDetails', () => {
 })
 
 describe('getActionableRequestErrorKey', () => {
+  it('maps generic OpenAI errors to a user-facing recovery message', () => {
+    expect(getActionableRequestErrorKey('openai_error', 'openai_error')).toBe(
+      'The AI request could not be completed. Please retry or choose another model. If this continues, contact support.'
+    )
+  })
+
+  it('maps inference connection failures to a retryable connection message', () => {
+    expect(
+      getActionableRequestErrorKey(
+        'Inference connection error while making inference request'
+      )
+    ).toBe(
+      'The connection to the AI service was interrupted. Please retry or choose another model.'
+    )
+  })
+
   it('explains server resource overloads without exposing diagnostic details', () => {
     expect(
       getActionableRequestErrorKey(

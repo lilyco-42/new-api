@@ -54,6 +54,16 @@ export function getActionableRequestErrorKey(
   message: string,
   errorCode?: string
 ): string | null {
+  if (errorCode === 'openai_error' || /\bopenai_error\b/i.test(message)) {
+    return 'The AI request could not be completed. Please retry or choose another model. If this continues, contact support.'
+  }
+  if (
+    /inference connection error|network error|err_network|failed to fetch/i.test(
+      message
+    )
+  ) {
+    return 'The connection to the AI service was interrupted. Please retry or choose another model.'
+  }
   if (
     errorCode === 'system_disk_overloaded' ||
     /system disk overloaded/i.test(message)

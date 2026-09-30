@@ -4230,6 +4230,8 @@
     "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.": "The selected model or API channel is temporarily unavailable. Retry or choose another model; if all models fail, check channel and server health.",
     "The AI service is temporarily paused because server storage is nearly full. Please retry later.": "Le service IA est temporairement suspendu, car l’espace de stockage du serveur est presque saturé. Veuillez réessayer plus tard.",
     "The AI service is temporarily paused because the server is under heavy load. Please retry later.": "Le service IA est temporairement suspendu en raison d’une forte charge du serveur. Veuillez réessayer plus tard.",
+    "The AI request could not be completed. Please retry or choose another model. If this continues, contact support.": "La requête IA n’a pas abouti. Réessayez ou choisissez un autre modèle. Si le problème persiste, contactez le support.",
+    "The connection to the AI service was interrupted. Please retry or choose another model.": "La connexion au service IA a été interrompue. Réessayez ou choisissez un autre modèle.",
     "Searching…": "Searching…",
     "Capture failed.": "Capture failed.",
     "Could not capture an image.": "Could not capture an image.",
