@@ -150,7 +150,7 @@ describe('webAgentToolProvider', () => {
     ).toBe('auto')
   })
 
-  it('grounds DeepSeek definition in its verified official model search source', async () => {
+  it('preserves model analysis with its verified official search sources', async () => {
     const payload: ChatCompletionRequest = {
       model: 'test-model',
       messages: [{ role: 'user', content: 'DeepSeek 是什么？' }],
@@ -181,7 +181,7 @@ describe('webAgentToolProvider', () => {
           index: 0,
           message: {
             role: 'assistant' as const,
-            content: 'DeepSeek 是一个知识图谱检索工具。',
+            content: 'DeepSeek 公司开发模型。对照报告，R1 推理模型的架构和实验仍需分别核实。',
           },
           finish_reason: 'stop',
         },
@@ -212,9 +212,8 @@ describe('webAgentToolProvider', () => {
     expect(sent?.tools).toEqual([])
     expect(sent?.tool_choice).toBe('none')
     expect(response.choices[0]?.message.content).toContain(
-      'DeepSeek 是一家人工智能公司，也开发 DeepSeek 系列模型'
+      'DeepSeek 公司开发模型。对照报告，R1 推理模型的架构和实验仍需分别核实。'
     )
-    expect(response.choices[0]?.message.content).toContain('它不是搜索工具。')
     expect(response.choices[0]?.message.content).not.toContain('知识图谱检索工具')
     expect(response.choices[0]?.message.content).toContain(
       '[DeepSeek model collection](<https://huggingface.co/deepseek-ai>) · Hugging Face'
@@ -342,7 +341,7 @@ describe('webAgentToolProvider', () => {
     expect(context?.[0]?.content).toContain('https://doc.rust-lang.org/book/')
   })
 
-  it('does not let an unavailable broad search provider produce an unsupported answer', async () => {
+  it('keeps a model explanation when the broad search provider is unavailable', async () => {
     const query = '请用网页搜索确认 Rust 官方教程的名称。'
     const messages: ChatCompletionMessage[] = [{ role: 'user', content: query }]
     vi.mocked(api.get).mockRejectedValueOnce(
@@ -360,7 +359,7 @@ describe('webAgentToolProvider', () => {
       model: 'test-model',
       choices: [{
         index: 0,
-        message: { role: 'assistant', content: '猜测的搜索答案' },
+        message: { role: 'assistant', content: 'The supplied document is available, but no search sources were retrieved.' },
         finish_reason: 'stop',
       }],
     }
@@ -371,10 +370,8 @@ describe('webAgentToolProvider', () => {
     )
 
     expect(context?.[0]?.content).not.toContain('private provider endpoint details')
-    expect(finalized?.choices[0]?.message.content).toContain(
-      '网站配置的网页搜索服务暂时不可用'
-    )
-    expect(finalized?.choices[0]?.message.content).not.toContain('猜测的搜索答案')
+    expect(context?.[0]?.content).toContain('configured web-search provider is unavailable')
+    expect(finalized?.choices[0]?.message.content).toBe(response.choices[0]?.message.content)
   })
 
   it('distinguishes an empty provider result from a provider outage', async () => {
@@ -408,11 +405,9 @@ describe('webAgentToolProvider', () => {
       context ?? []
     )
 
-    expect(finalized?.choices[0]?.message.content).toContain(
-      '没有返回可用来源'
-    )
-    expect(finalized?.choices[0]?.message.content).not.toContain('暂时不可用')
-    expect(finalized?.choices[0]?.message.content).not.toContain('猜测的搜索答案')
+    expect(context?.[0]?.content).toContain('returned no usable results')
+    expect(context?.[0]?.content).not.toContain('provider is unavailable')
+    expect(finalized?.choices[0]?.message.content).toBe(response.choices[0]?.message.content)
   })
 
   it('routes model-invoked broad web search using the latest user request', async () => {

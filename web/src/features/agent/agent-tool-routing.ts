@@ -233,6 +233,9 @@ export function shouldRunLocalAgentTool(
   const text = latestUserText(messages)
   if (!text || isQuestionAboutToolBehavior(text)) return false
 
+  // Website OAuth tools do not require a paired device or its gh login.
+  if (name.startsWith('github.oauth.')) return false
+
   if (name.startsWith('github.')) {
     return shouldRunGitHubTool(
       {

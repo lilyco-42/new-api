@@ -21,23 +21,7 @@ vi.mock('../web-agent-tool-provider', () => ({
     invoke: vi.fn(async () => JSON.stringify({ error: 'CORS blocked the page read' })),
     beforeModel: vi.fn(async () => null),
     prepareContext: vi.fn(async () => []),
-    finalizeResponse: vi.fn((response: ChatCompletionResponse) => {
-      const firstChoice = response.choices?.[0]
-      if (!firstChoice) return response
-      return {
-        ...response,
-        choices: [
-          {
-            ...firstChoice,
-            message: {
-              ...firstChoice.message,
-              content: 'DeepSeek is an AI company and model family. Sources: https://huggingface.co/deepseek-ai',
-            },
-          },
-          ...response.choices.slice(1),
-        ],
-      }
-    }),
+    finalizeResponse: vi.fn((response: ChatCompletionResponse) => response),
   },
 }))
 
@@ -198,46 +182,20 @@ describe('Lain42 DSH conversation adapter', () => {
     )
   })
 
-  it.each([
-    ['hi', 'Hi! I\'m here. What would you like help with?'],
-    ['123', '你发来的是一个数字（123）。你希望我帮你做什么？'],
-    ['??', '我看到你发的是一个标点。你想继续刚才的话题，还是有新的问题？'],
-  ])(
-    'uses a local preflight response before contacting DSH for short input %j',
-    async (text, answer) => {
-      const localAnswer: ChatCompletionResponse = {
-        id: 'local-preflight',
-        object: 'chat.completion',
-        created: 0,
-        model: 'openai/gpt-5.6-sol',
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: answer },
-          finish_reason: 'stop',
-        }],
-      }
-      vi.mocked(webAgentToolProvider.preflight!).mockReturnValueOnce(localAnswer)
-      const payload = request(text)
-      const provider = createAgentDSHConversation({
-        storageNamespace: 'agent-user-42-general-chat-13',
-        mode: 'general',
-        storage: storageFixture(),
-      })
-      providers.push(provider)
-
-      const result = await provider.send(
-        payload,
-        message(`short-${text}`, text),
-        new AbortController().signal
-      )
-
-      expect(webAgentToolProvider.preflight).toHaveBeenCalledWith(payload.messages)
-      expect(result?.choices[0]?.message.content).toBe(answer)
-      expect(api.get).not.toHaveBeenCalled()
-      expect(api.post).not.toHaveBeenCalled()
-      expect(webAgentToolProvider.prepareContext).not.toHaveBeenCalled()
-    }
-  )
+  it.each(['hi', '123', '??'])('uses hosted inference rather than preflight for short input %j', async (text) => {
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID, request_id: REQUEST_ID, answer: 'Selected model reply.' }) as never)
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-chat-13', mode: 'general', storage: storageFixture(),
+    })
+    providers.push(provider)
+    const result = await provider.send(request(text), message('short-input', text), new AbortController().signal)
+    expect(result?.choices[0]?.message.content).toBe('Selected model reply.')
+    expect(api.post).toHaveBeenLastCalledWith('/api/agent/dsh/turns', expect.objectContaining({ text: expect.stringContaining(text) }), expect.any(Object))
+    expect(webAgentToolProvider.preflight).not.toHaveBeenCalled()
+  })
 
   it('forwards locally extracted Office text as part of the DSH user turn', async () => {
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
@@ -283,45 +241,21 @@ describe('Lain42 DSH conversation adapter', () => {
     )
   })
 
-  it('resolves connected GitHub repository listing through OAuth before DSH', async () => {
-    const oauthResponse: ChatCompletionResponse = {
-      id: 'browser-github-oauth-repositories',
-      object: 'chat.completion',
-      created: 0,
-      model: 'openai/gpt-5.6-sol',
-      choices: [{
-        index: 0,
-        finish_reason: 'stop',
-        message: {
-          role: 'assistant',
-          content: '通过已连接的 GitHub OAuth 找到 lilyco-42/rembg-ui。',
-        },
-      }],
-    }
-    vi.mocked(webAgentToolProvider.beforeModel!).mockResolvedValueOnce(oauthResponse)
-
+  it('passes connected GitHub evidence to DSH instead of returning the browser list', async () => {
+    const evidence: ChatCompletionMessage = { role: 'system', name: 'lain42_github_oauth_context', content: 'lilyco-42/rembg-ui: image processing repository' }
+    vi.mocked(webAgentToolProvider.prepareContext!).mockResolvedValueOnce([evidence])
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID, request_id: REQUEST_ID, answer: 'Repository analysis from DSH.' }) as never)
     const provider = createAgentDSHConversation({
-      storageNamespace: 'agent-user-42-general-chat-11',
-      mode: 'general',
-      storage: storageFixture(),
+      storageNamespace: 'agent-user-42-general-chat-11', mode: 'general', storage: storageFixture(),
     })
     providers.push(provider)
-    const payload = request('查看我的 GitHub 仓库')
-    const signal = new AbortController().signal
-
-    const result = await provider.send(
-      payload,
-      message('github-repository-list', '查看我的 GitHub 仓库'),
-      signal
-    )
-
-    expect(webAgentToolProvider.beforeModel).toHaveBeenCalledWith(
-      payload.messages,
-      signal
-    )
-    expect(result).toBe(oauthResponse)
-    expect(api.get).not.toHaveBeenCalled()
-    expect(api.post).not.toHaveBeenCalled()
+    const result = await provider.send(request('查看我的 GitHub 仓库'), message('github-repository-list', '查看我的 GitHub 仓库'), new AbortController().signal)
+    expect(result?.choices[0]?.message.content).toBe('Repository analysis from DSH.')
+    expect(webAgentToolProvider.beforeModel).not.toHaveBeenCalled()
+    expect(api.post).toHaveBeenLastCalledWith('/api/agent/dsh/turns', expect.objectContaining({ text: expect.stringContaining('image processing repository') }), expect.any(Object))
   })
 
   it('adds explicitly requested browser search evidence to the hosted DSH turn', async () => {
@@ -378,7 +312,7 @@ describe('Lain42 DSH conversation adapter', () => {
     )
   })
 
-  it('passes browser search evidence into DSH and finalizes named AI definitions', async () => {
+  it('passes browser search evidence into DSH without substituting its analysis', async () => {
     const storage = storageFixture()
     const evidence: ChatCompletionMessage = {
       role: 'system',
@@ -392,7 +326,7 @@ describe('Lain42 DSH conversation adapter', () => {
       .mockResolvedValueOnce(success({
         session_id: SESSION_ID,
         request_id: REQUEST_ID,
-        answer: 'DeepSeek is a search tool.',
+        answer: 'DeepSeek model comparison: report evidence and architecture analysis.',
       }) as never)
 
     const provider = createAgentDSHConversation({
@@ -418,13 +352,13 @@ describe('Lain42 DSH conversation adapter', () => {
     )
     expect(webAgentToolProvider.finalizeResponse).toHaveBeenCalledWith(
       expect.objectContaining({ choices: [expect.objectContaining({
-        message: expect.objectContaining({ content: 'DeepSeek is a search tool.' }),
+        message: expect.objectContaining({ content: 'DeepSeek model comparison: report evidence and architecture analysis.' }),
       })] }),
       expect.any(Array),
       [evidence]
     )
     expect(result?.choices[0]?.message.content).toBe(
-      'DeepSeek is an AI company and model family. Sources: https://huggingface.co/deepseek-ai'
+      'DeepSeek model comparison: report evidence and architecture analysis.'
     )
   })
 
