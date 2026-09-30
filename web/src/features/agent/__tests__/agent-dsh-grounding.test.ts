@@ -240,6 +240,13 @@ describe('hosted Agent with the real browser provider', () => {
     expect(api.post).not.toHaveBeenCalled()
   })
 
+  it('uses the instruction language for the reading-limit notice even when attachment content is in another language', async () => {
+    const response = await send('总结附件并指出阅读范围。', '[Attached file: report.txt]\n' + 'A'.repeat(30 * 1024))
+
+    expect(submitted[0]?.text).toContain('Current user request:\n总结附件并指出阅读范围。')
+    expect(response?.choices[0]?.message.content).toContain('截断')
+  })
+
   it('shares the text budget between an approved browser page and an attachment while retaining both and the current task', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     vi.mocked(fetchClientPage).mockResolvedValueOnce({

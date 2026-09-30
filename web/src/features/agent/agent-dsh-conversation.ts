@@ -7,7 +7,7 @@ import type {
 } from '@/features/playground/types'
 import { api } from '@/lib/api'
 
-import { shouldRunLocalAgentTool } from './agent-tool-routing'
+import { latestUserRequestText, shouldRunLocalAgentTool } from './agent-tool-routing'
 import { prepareBrowserContext } from './agent-dsh-browser-context'
 import { buildTurnInput } from './agent-dsh-input-budget'
 import { browserSearchResponseAppendix, webAgentToolProvider } from './web-agent-tool-provider'
@@ -141,6 +141,7 @@ export function createAgentDSHConversation(options: {
     if (signal.aborted) {
       throw new DOMException('The request was canceled.', 'AbortError')
     }
+    const requestText = latestUserRequestText(payload.messages)
     const imageParts = imagesFromContent(latest.content)
     if (imageParts.error) {
       reset()
@@ -165,7 +166,7 @@ export function createAgentDSHConversation(options: {
       return localCompletion(
         payload.model,
         localizedMessage(
-          textFromContent(latest.content) ?? '',
+          requestText,
           imageErrorMessages.chinese,
           imageErrorMessages.english
         )
@@ -200,7 +201,7 @@ export function createAgentDSHConversation(options: {
       const legacyFingerprint = await fingerprintText(JSON.stringify({ text: latestText, images: imageFingerprints }))
       const legacyKey = `${storageNamespace}${DSH_REQUEST_KEY_SUFFIX}${encodeURIComponent(latestMessageKey)}:${legacyFingerprint}`
       if (read(legacyKey)) {
-        throw new Error(localizedMessage(latestText,
+        throw new Error(localizedMessage(requestText,
           '旧版请求没有保存原始输入，无法安全恢复。请新建一轮对话；不会自动重新执行旧任务。',
           'The previous request cannot be safely resumed because the old version did not save its input. Start a new turn.'))
       }
@@ -215,7 +216,7 @@ export function createAgentDSHConversation(options: {
     let pending: AgentDSHRequestRecord | null = parseRequestRecord(savedRequest)
     if (savedRequest && (!pending || pending.fingerprint !== requestFingerprint || pending.model !== payload.model || pending.mode !== mode)) {
       // Never reuse an admitted ID with fresh input, even after a version change.
-      throw new Error(localizedMessage(latestText,
+      throw new Error(localizedMessage(requestText,
         '无法安全恢复之前的请求。请新建一轮对话；不会自动重新执行旧任务。',
         'The previous request cannot be safely resumed. Start a new turn; the old task was not automatically rerun.'))
     }
@@ -225,7 +226,7 @@ export function createAgentDSHConversation(options: {
       try {
         buildTurnInput(payload.messages, latest, '', false)
       } catch {
-        throw new Error(localizedMessage(latestText,
+        throw new Error(localizedMessage(requestText,
           '用户指令超出文本上限。请缩短指令，将长资料作为附件添加。',
           'The request exceeds the text limit. Shorten the instruction or attach the material as a file.'))
       }
@@ -238,7 +239,7 @@ export function createAgentDSHConversation(options: {
       const browserContext = await prepareBrowserContext(payload.messages, signal)
       if (browserContext.cancelled) {
         reset()
-        return localCompletion(payload.model, localizedMessage(latestText,
+        return localCompletion(payload.model, localizedMessage(requestText,
           '网页读取已取消；没有把网页内容发送给模型。',
           'Page reading was canceled; no page content was sent to the model.'))
       }
@@ -265,7 +266,7 @@ export function createAgentDSHConversation(options: {
         throw new Error('The prepared request exceeds the text limit. No turn was submitted.')
       }
       const appendix = [
-        input.truncated ? localizedMessage(latestText,
+        input.truncated ? localizedMessage(requestText,
           '阅读范围提示：支持资料已按输入预算截断，以上回答未基于完整资料。',
           'Reading limit: supporting evidence was truncated to fit the input budget; the answer is not based on the complete material.') : '',
         browserSearchResponseAppendix(payload.messages, preparedContext),
@@ -292,7 +293,7 @@ export function createAgentDSHConversation(options: {
         return localCompletion(
           payload.model,
           localizedMessage(
-            latestText,
+            requestText,
             '图片请求超出安全传输上限；图片没有发送。请减少图片数量或压缩图片后重试。',
             'The image request exceeds the safe transfer limit. No image was sent; reduce the image size or count and retry.'
           )
