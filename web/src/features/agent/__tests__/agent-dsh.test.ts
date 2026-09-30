@@ -29,6 +29,10 @@ const SESSION_ID = 'A'.repeat(64)
 const OTHER_SESSION_ID = 'B'.repeat(64)
 const REQUEST_ID = '123e4567-e89b-42d3-a456-426614174000'
 const providers: Array<ReturnType<typeof createAgentDSHConversation>> = []
+const browserHooks = webAgentToolProvider as LocalToolProvider & Required<Pick<
+  LocalToolProvider,
+  'beforeModel' | 'preflight' | 'prepareContext' | 'finalizeResponse' | 'requiresApproval'
+>>
 
 function storageFixture() {
   const values = new Map<string, string>()
@@ -65,12 +69,12 @@ describe('Lain42 DSH conversation adapter', () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset()
     vi.mocked(api.post).mockReset()
-    vi.mocked(webAgentToolProvider.beforeModel!).mockReset().mockResolvedValue(null)
-    vi.mocked(webAgentToolProvider.preflight!).mockReset().mockReturnValue(null)
-    vi.mocked(webAgentToolProvider.prepareContext!).mockClear()
-    vi.mocked(webAgentToolProvider.finalizeResponse!).mockClear()
-    vi.mocked(webAgentToolProvider.requiresApproval!).mockReset().mockResolvedValue(true)
-    vi.mocked(webAgentToolProvider.invoke!).mockReset()
+    vi.mocked(browserHooks.beforeModel).mockReset().mockResolvedValue(null)
+    vi.mocked(browserHooks.preflight).mockReset().mockReturnValue(null)
+    vi.mocked(browserHooks.prepareContext).mockClear()
+    vi.mocked(browserHooks.finalizeResponse).mockClear()
+    vi.mocked(browserHooks.requiresApproval).mockReset().mockResolvedValue(true)
+    vi.mocked(browserHooks.invoke).mockReset()
     vi.stubGlobal('crypto', {
       randomUUID: () => REQUEST_ID,
       subtle: globalThis.crypto.subtle,
@@ -243,7 +247,7 @@ describe('Lain42 DSH conversation adapter', () => {
 
   it('passes connected GitHub evidence to DSH instead of returning the browser list', async () => {
     const evidence: ChatCompletionMessage = { role: 'system', name: 'lain42_github_oauth_context', content: 'lilyco-42/rembg-ui: image processing repository' }
-    vi.mocked(webAgentToolProvider.prepareContext!).mockResolvedValueOnce([evidence])
+    vi.mocked(browserHooks.prepareContext).mockResolvedValueOnce([evidence])
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
     vi.mocked(api.post)
       .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
@@ -265,8 +269,8 @@ describe('Lain42 DSH conversation adapter', () => {
       name: 'lain42_browser_search_context',
       content: 'Public GitHub result: https://github.com/ast-grep/ast-grep',
     }
-    vi.mocked(webAgentToolProvider.prepareContext!).mockResolvedValueOnce([evidence])
-    vi.mocked(webAgentToolProvider.finalizeResponse!).mockImplementationOnce(
+    vi.mocked(browserHooks.prepareContext).mockResolvedValueOnce([evidence])
+    vi.mocked(browserHooks.finalizeResponse).mockImplementationOnce(
       (response) => response
     )
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
@@ -319,7 +323,7 @@ describe('Lain42 DSH conversation adapter', () => {
       name: 'lain42_browser_search_context',
       content: 'Official DeepSeek model releases. URL: https://huggingface.co/deepseek-ai',
     }
-    vi.mocked(webAgentToolProvider.prepareContext!).mockResolvedValueOnce([evidence])
+    vi.mocked(browserHooks.prepareContext).mockResolvedValueOnce([evidence])
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
     vi.mocked(api.post)
       .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
@@ -372,7 +376,7 @@ describe('Lain42 DSH conversation adapter', () => {
         request_id: REQUEST_ID,
         answer: 'I could not verify the page from the available sources.',
       }) as never)
-    vi.mocked(webAgentToolProvider.invoke!).mockResolvedValueOnce(
+    vi.mocked(browserHooks.invoke).mockResolvedValueOnce(
       JSON.stringify({ error: 'CORS blocked the page read' })
     )
 

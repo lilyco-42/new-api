@@ -431,7 +431,7 @@ describe('webAgentToolProvider', () => {
     const provider = createBrowserAgentToolProvider()
     provider.availableTools?.([{ role: 'user', content: requestText }])
 
-    const result = JSON.parse(await provider.invoke!(
+    const result = JSON.parse(await provider.invoke(
       toolCall('web.search', {
         query: 'Rust official tutorial',
         limit: 3,

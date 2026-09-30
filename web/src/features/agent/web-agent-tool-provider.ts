@@ -272,7 +272,7 @@ function browserSearchQuery(request: string): string {
   }
 
   if (getGitHubReadIntent(request) === 'repository_search') {
-    const textWithoutUrls = request.replace(/https?:\/\/\S+/giu, ' ')
+    const textWithoutUrls = request.replaceAll(/https?:\/\/\S+/giu, ' ')
     const repositoryPath = textWithoutUrls.match(
       /\b([a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*)\b/iu
     )
@@ -301,14 +301,14 @@ function validBrowserSearchSources(
       const url = new URL(item.url)
       if (url.protocol !== 'https:' || url.username || url.password) return []
       const title = item.title
-        .replace(/[\u0000-\u001f\u007f]/gu, ' ')
-        .replace(/\s+/gu, ' ')
+        .replaceAll(/\p{Cc}/gu, ' ')
+        .replaceAll(/\s+/gu, ' ')
         .trim()
         .slice(0, 200)
       if (!title) return []
       const source = item.source
-        .replace(/[\u0000-\u001f\u007f]/gu, ' ')
-        .replace(/\s+/gu, ' ')
+        .replaceAll(/\p{Cc}/gu, ' ')
+        .replaceAll(/\s+/gu, ' ')
         .trim()
         .slice(0, 80)
       return [{ title, url: url.toString(), source }]
@@ -340,7 +340,7 @@ function finalizePreparedBrowserSearch(
     isChinese ? '检索来源：' : 'Sources:',
     ...sources.map(
       ({ title, url, source }) =>
-        `- [${title.replace(/[\[\]\\]/gu, '\\$&')}](<${url}>)${source ? ` · ${source}` : ''}`
+        `- [${title.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]')}](<${url}>)${source ? ` · ${source}` : ''}`
     ),
   ].join('\n')
   const answer =
@@ -412,11 +412,12 @@ function formatGitHubRepositories(raw: string): string {
     outer.data && typeof outer.data === 'object' && !Array.isArray(outer.data)
       ? (outer.data as Record<string, unknown>)
       : outer
-  const values = Array.isArray(data.items)
-    ? data.items
-    : Array.isArray(data.repositories)
-      ? data.repositories
-      : null
+  let values: unknown[] | null = null
+  if (Array.isArray(data.items)) {
+    values = data.items
+  } else if (Array.isArray(data.repositories)) {
+    values = data.repositories
+  }
   if (!values) {
     return 'GitHub OAuth 没有返回仓库列表，请稍后重试。'
   }
@@ -450,7 +451,7 @@ function formatGitHubRepositories(raw: string): string {
 }
 
 function hasConnectedOAuthCliLoginConfusion(text: string): boolean {
-  const normalized = text.replace(/\s+/gu, ' ')
+  const normalized = text.replaceAll(/\s+/gu, ' ')
   const oauthConnected =
     /oauth.{0,48}(?:connected|已连接|连接成功)|(?:已连接|连接成功).{0,24}oauth/iu.test(
       normalized
@@ -685,8 +686,8 @@ function shouldUseConfiguredWebSearch(
 function safeSearchText(value: unknown, maximum: number): string {
   return typeof value === 'string'
     ? value
-        .replace(/[\u0000-\u001f\u007f]/gu, ' ')
-        .replace(/\s+/gu, ' ')
+        .replaceAll(/\p{Cc}/gu, ' ')
+        .replaceAll(/\s+/gu, ' ')
         .trim()
         .slice(0, maximum)
     : ''
@@ -697,7 +698,7 @@ async function searchConfiguredWebProvider(
   requestedLimit: number,
   signal: AbortSignal
 ): Promise<ClientSearchResponse> {
-  const boundedQuery = Array.from(query.trim()).slice(0, 200).join('')
+  const boundedQuery = [...query.trim()].slice(0, 200).join('')
   const boundedResultLimit = boundedLimit(requestedLimit, 5, 8)
   const raw = await invokeApi(
     '/api/agent/search',
@@ -857,7 +858,7 @@ export const webAgentToolProvider: LocalToolProvider = {
       )
     }
 
-    const normalized = text.toLocaleLowerCase().replace(/\s+/gu, ' ')
+    const normalized = text.toLocaleLowerCase().replaceAll(/\s+/gu, ' ')
     if (
       normalized.length <= 48 &&
       /(?:刚才|刚刚|之前).{0,18}(?:问候|问好|打招呼)|(?:我只是|我就只是|我刚才只是).{0,18}(?:问候|问好|打招呼)/u.test(
