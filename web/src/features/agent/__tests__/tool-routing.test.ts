@@ -49,7 +49,10 @@ describe('Agent tool intent routing', () => {
     const messages = userMessage('请阅读我的 GitHub 项目的 issue')
 
     expect(shouldAdvertiseBrowserGitHubTool('github.oauth.issues.list', messages, false)).toBe(true)
-    expect(shouldRunWebAgentTool(toolCall('github.oauth.issues.list'), messages)).toBe(true)
+    const readCall = toolCall('github.oauth.issues.list')
+    readCall.function.arguments = JSON.stringify({ repo: 'merchant/image-workflow', limit: 3 })
+    expect(shouldRunWebAgentTool(readCall, messages)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('github.oauth.issues.list'), messages)).toBe(false)
     expect(shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)).toBe(false)
   })
 
