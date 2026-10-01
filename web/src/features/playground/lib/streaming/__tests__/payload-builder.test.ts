@@ -37,6 +37,29 @@ function message(
 }
 
 describe('buildChatCompletionPayload', () => {
+  it.each([
+    ['查看我的 GitHub 仓库', 'OAuth returned merchant/image-workflow.', '你怎么查询的?'],
+    ['修复 merchant/image-workflow 的 workflow', 'Which workflow service is failing?', 'github action'],
+    ['阅读 merchant/image-workflow 的 issues', 'You can open the Issues page yourself.', '你自己阅读'],
+  ])('preserves the current task context for the user continuation %s → %s → %s', (initialRequest, reply, continuation) => {
+    const payload = buildChatCompletionPayload(
+      [
+        message('system', 'system', 'Use tools to complete the current task.'),
+        message('initial-user', 'user', initialRequest),
+        message('previous-answer', 'assistant', reply),
+        message('follow-up', 'user', continuation),
+      ],
+      DEFAULT_CONFIG,
+      DEFAULT_PARAMETER_ENABLED,
+      true
+    )
+
+    expect(payload.messages).toContainEqual({ role: 'user', content: initialRequest })
+    expect(payload.messages).toContainEqual({ role: 'assistant', content: reply })
+    expect(payload.messages.at(-1)).toEqual({ role: 'user', content: continuation })
+    expect(payload.messages[0]).toEqual({ role: 'system', content: 'Use tools to complete the current task.' })
+  })
+
   it('omits failed turns from model context but keeps successful and current turns', () => {
     const messages = [
       message('system', 'system', 'answer the latest request'),
