@@ -124,6 +124,55 @@ func TestAgentDSHTurnUsesSignedPrivateRuntimeAndChecksSessionOwner(t *testing.T)
 	assert.Equal(t, http.StatusNotFound, response.Code)
 }
 
+func TestAgentDSHTurnPreservesSafeRecoveryErrorsWithoutLeakingRuntimeDetails(t *testing.T) {
+	setupAgentDSHControllerTest(t)
+	gin.SetMode(gin.TestMode)
+	const userID = 41
+	t.Setenv("LAIN42_DSH_BRIDGE_SECRET", "0123456789abcdef0123456789abcdef")
+	session, err := model.CreateAgentDSHSession(userID, time.Now().UTC())
+	require.NoError(t, err)
+	body, err := common.Marshal(dto.AgentDSHTurnRequest{
+		SessionID: session.SessionId,
+		RequestID: "123e4567-e89b-42d3-a456-426614174000",
+		Model:     "site-model",
+		Text:      "continue this conversation",
+	})
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name       string
+		status     int
+		body       string
+		wantStatus int
+		wantCode   string
+	}{
+		{"conflict", 409, `{"error":"request_id_conflict","message":"private-runtime-secret"}`, 409, "AGENT_DSH_REQUEST_CONFLICT"},
+		{"timeout", 504, `{"error":"agent_turn_timeout","message":"private-runtime-secret"}`, 504, "AGENT_DSH_TURN_TIMEOUT"},
+		{"result unavailable", 502, `{"error":"agent_turn_unavailable","message":"private-runtime-secret"}`, 502, "AGENT_DSH_RESULT_UNAVAILABLE"},
+		{"unknown conflict", 409, `{"error":"private-runtime-secret"}`, 502, "AGENT_DSH_TURN_FAILED"},
+		{"mismatched error status", 502, `{"error":"request_id_conflict"}`, 502, "AGENT_DSH_TURN_FAILED"},
+		{"non-json timeout", 504, `private-runtime-secret`, 502, "AGENT_DSH_TURN_FAILED"},
+		{"oversized error", 504, strings.Repeat("x", agentDSHTurnResponseLimit+1), 502, "AGENT_DSH_INVALID_RESPONSE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(test.status)
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer server.Close()
+			t.Setenv("LAIN42_DSH_BASE_URL", server.URL)
+			response := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(response)
+			context.Request = httptest.NewRequest(http.MethodPost, "/api/agent/dsh/turns", strings.NewReader(string(body)))
+			context.Set("id", userID)
+			AgentDSHTurn(context)
+			assert.Equal(t, test.wantStatus, response.Code)
+			assert.Contains(t, response.Body.String(), test.wantCode)
+			assert.NotContains(t, response.Body.String(), "private-runtime-secret")
+		})
+	}
+}
+
 func TestValidAgentDSHTurnRequestAllowsOnlyShippedModes(t *testing.T) {
 	request := dto.AgentDSHTurnRequest{
 		SessionID: strings.Repeat("a", 64),

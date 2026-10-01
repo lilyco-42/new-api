@@ -474,6 +474,51 @@ describe('Lain42 DSH conversation adapter', () => {
     expect(result?.choices[0]?.message.content).toBe('Recovered answer.')
   })
 
+  it.each([
+    [409, 'AGENT_DSH_REQUEST_CONFLICT', 'Continue.', 'changed after it was accepted'],
+    [504, 'AGENT_DSH_TURN_TIMEOUT', 'Continue.', 'timed out'],
+    [502, 'AGENT_DSH_RESULT_UNAVAILABLE', 'Continue.', 'result is unavailable'],
+    [409, 'AGENT_DSH_REQUEST_CONFLICT', '继续。', '已接收的请求内容发生冲突'],
+    [504, 'AGENT_DSH_TURN_TIMEOUT', '继续。', '本轮处理超时'],
+    [502, 'AGENT_DSH_RESULT_UNAVAILABLE', '继续。', '上一轮的结果暂时无法恢复'],
+  ])('explains %s/%s while retaining the exact admitted request', async (status, code, prompt, expected) => {
+    const storage = storageFixture()
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
+      .mockRejectedValueOnce(Object.assign(new Error('Request failed with status code ' + status), {
+        response: { status, data: { code, message: 'private-runtime-secret' } },
+      }))
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID, request_id: REQUEST_ID, answer: 'Recovered.' }) as never)
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-recovery-errors', mode: 'general', storage,
+    })
+    providers.push(provider)
+    const payload = request(prompt)
+    const messages = message('recover-error', prompt)
+    await expect(provider.send(payload, messages, new AbortController().signal)).rejects.toThrow(expected)
+    await provider.send(payload, messages, new AbortController().signal)
+    const calls = vi.mocked(api.post).mock.calls.filter(([path]) => path === '/api/agent/dsh/turns')
+    expect(calls).toHaveLength(2)
+    expect(calls[1]?.[1]).toEqual(calls[0]?.[1])
+  })
+
+  it('keeps unknown transport failures intact instead of displaying upstream details', async () => {
+    const original = Object.assign(new Error('network error'), {
+      response: { status: 502, data: { code: 'UNKNOWN', message: 'private-runtime-secret' } },
+    })
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
+      .mockRejectedValueOnce(original)
+    const provider = createAgentDSHConversation({
+      storageNamespace: 'agent-user-42-general-unknown-error', mode: 'general', storage: storageFixture(),
+    })
+    providers.push(provider)
+    await expect(provider.send(request('Continue.'), message('unknown-error', 'Continue.'), new AbortController().signal))
+      .rejects.toBe(original)
+  })
+
   it('starts a fresh DSH session when a failed user message is edited before retry', async () => {
     const storage = storageFixture()
     const requestIds = [
