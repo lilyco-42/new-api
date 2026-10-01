@@ -166,7 +166,7 @@ export function explicitGitHubRepository(text: string): string | null {
   for (const match of text.matchAll(/https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/giu)) {
     repositories.add(`${match[1]}/${match[2]}`.toLowerCase())
   }
-  const withoutURLs = text.replace(/https?:\/\/[^\s<>]+/giu, ' ')
+  const withoutURLs = text.replaceAll(/https?:\/\/[^\s<>]+/giu, ' ')
   for (const match of withoutURLs.matchAll(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/gu)) {
     repositories.add(match[0].toLowerCase())
   }
