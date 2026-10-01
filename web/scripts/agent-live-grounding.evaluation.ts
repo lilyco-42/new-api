@@ -106,6 +106,12 @@ it.each([
     const returnedLinks = answer.match(/https:\/\/github\.com\/ast-grep\/ast-grep\/(?:issues|pull)\/\d+/gu) ?? []
     const allowedLinks = new Set(source.slice(0, 2).map((item) => item.html_url))
     expect(returnedLinks.every((link) => allowedLinks.has(link))).toBe(true)
+    if (source.length === 1) {
+      expect(answer).not.toMatch(/(?:^|\n)\s*2[.)、]\s/mu)
+    }
+    const numberedReferences = [...answer.matchAll(/#(\d+)\b/gu)].map((match) => Number(match[1]))
+    const allowedNumbers = new Set(source.slice(0, 2).map((item) => item.number))
+    expect(numberedReferences.every((number) => allowedNumbers.has(number))).toBe(true)
     expect(answer).not.toMatch(/gh auth login|github\.oauth\.\w+\.\w+\(\)/iu)
     results.push({ resource, passed: true, elapsed_ms: Date.now() - started, expected_items: Math.min(2, source.length), inference_calls: caseCalls, source: source.slice(0, 2), answer: answer.slice(0, 8000), usage })
   } catch {

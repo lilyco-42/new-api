@@ -428,6 +428,7 @@ function githubActivityMembershipEvidence(result: string): string {
     return [
       `Confirmed collection membership: ${JSON.stringify({ returned_count: members.length, items: members })}`,
       `Only ${members.length} items were returned on this page. If the user asks for more, report the actual count; never invent additional items.`,
+      `本页实际返回 ${members.length} 条。请求的数量是上限，不是必须凑满的数量。少于请求数量时只列实际条目，说明本页返回数量；禁止复制同一条凑数，禁止添加“无”“未找到”等空白占位条目。`,
       'Use the exact item numbers and titles above, and cite each item URL. A description may mention other issues, dependencies, checkboxes or release notes; those are NOT additional members of this collection.',
     ].join('\n')
   } catch {
