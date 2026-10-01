@@ -33,7 +33,7 @@ const (
 	agentDSHTurnTimeout        = 125 * time.Second
 	agentDSHRelayPath          = "/api/agent/bridge/v1/tool"
 	agentDSHRelayBodyLimit     = 32 * 1024
-	agentDSHRequestIDPattern   = `^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
+	agentDSHRequestIDPattern   = model.AgentDSHRequestIDPattern
 	agentDSHModelNamePattern   = `^[A-Za-z0-9._:/-]{1,128}$`
 	agentDSHToolQueryMaxRunes  = 200
 	agentDSHToolSearchMaxItems = 8
@@ -166,6 +166,26 @@ func AgentDSHTurn(c *gin.Context) {
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+	// Reserve the account-owned identity before crossing the runtime boundary.
+	// A persisted Stop must never be cleared by a retry. This admission fence
+	// alone does not settle a task that was already forwarded to DSH.
+	reservation, err := model.ReserveOwnedAgentDSHRequest(c.GetInt("id"), request.SessionID, wireRequest.RequestID, time.Now().UTC())
+	if errors.Is(err, model.ErrAgentDSHSessionNotFound) {
+		writeAgentError(c, http.StatusNotFound, "AGENT_DSH_SESSION_NOT_FOUND", "Agent session was not found")
+		return
+	}
+	if errors.Is(err, model.ErrAgentDSHRequestLimit) {
+		writeAgentError(c, http.StatusConflict, "AGENT_DSH_REQUEST_LIMIT", "This chat reached its request limit. Create a new chat to continue.")
+		return
+	}
+	if err != nil {
+		writeAgentError(c, http.StatusServiceUnavailable, "AGENT_DSH_ADMISSION_UNAVAILABLE", "The Agent could not safely accept this message. Retry the same message later.")
+		return
+	}
+	if reservation.CancelRequested {
+		writeAgentError(c, http.StatusConflict, "AGENT_DSH_CANCEL_REQUESTED", "Stop was requested for this message. The task was not resubmitted.")
+		return
 	}
 	response, err := client.Do(outbound)
 	if err != nil {

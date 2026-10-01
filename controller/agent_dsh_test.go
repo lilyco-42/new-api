@@ -31,7 +31,7 @@ func setupAgentDSHControllerTest(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	model.DB = db
-	require.NoError(t, model.DB.AutoMigrate(&model.AgentDSHSession{}))
+	require.NoError(t, model.DB.AutoMigrate(&model.AgentDSHSession{}, &model.AgentDSHRequest{}))
 	t.Cleanup(func() {
 		model.DB = previousDB
 		_ = sqlDB.Close()
