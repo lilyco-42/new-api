@@ -53,3 +53,4 @@ go.work.sum
 
 # Build output for the desktop runtime and its independent Rust crates.
 tauri/**/target/
+web/evaluation-results/

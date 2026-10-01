@@ -19,6 +19,16 @@ on:
         description: Branch, tag, or commit to package (defaults to the triggering revision)
         required: false
         type: string
+      evaluate_only:
+        description: Run bounded live-model context checks without packaging or deployment
+        required: false
+        default: false
+        type: boolean
+      evaluation_model:
+        description: An allowlisted model already accessible to the evaluation account
+        required: false
+        default: nvidia/nemotron-3-super-120b-a12b
+        type: string
 
 permissions:
   contents: read
@@ -29,6 +39,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ !inputs.evaluate_only }}
     name: Build Linux amd64 server artifact
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -139,3 +150,38 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  evaluate:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluate_only && github.repository == 'lilyco-42/new-api' && github.ref == 'refs/heads/feat/agent-dsh-control-plane' }}
+    name: Live model task continuity (limited scope)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.4.0'
+      - run: bun install --frozen-lockfile
+      - name: Check evaluation types and lint
+        run: |
+          bunx tsgo -p tsconfig.agent-evaluation.json
+          bunx oxlint -c .oxlintrc.json scripts/evaluate-agent-context.ts src/features/agent/agent-prompts.ts
+      - name: Evaluate three bounded requests against the website model
+        env:
+          LAIN42_AGENT_EVAL_API_KEY: ${{ secrets.LAIN42_AGENT_EVAL_API_KEY }}
+          LAIN42_AGENT_EVAL_MODEL: ${{ inputs.evaluation_model }}
+        run: bun scripts/evaluate-agent-context.ts
+      - name: Preserve synthetic evaluation evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: agent-context-evaluation-${{ github.sha }}
+          path: web/evaluation-results/agent-context.json
+          if-no-files-found: error
+          retention-days: 7
