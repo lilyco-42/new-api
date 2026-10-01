@@ -531,6 +531,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	resp, err := relayClient.Do(req)
 	if err != nil {
+		// Cancellation is a request lifecycle outcome, not a provider failure.
+		// Preserve its safe sentinel without exposing transport URLs or headers.
+		if contextErr := req.Context().Err(); contextErr != nil && errors.Is(err, contextErr) {
+			return nil, contextErr
+		}
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
