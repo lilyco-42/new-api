@@ -93,6 +93,39 @@ describe('webAgentToolProvider', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
+  it.each([
+    '不要阅读 merchant/image-workflow 的 issues。',
+    '请阅读我的项目的 issues。',
+    '请阅读 merchant/image-workflow 和 merchant/other-workflow 的 issues。',
+    '请在我的 Radxa 上读取 merchant/image-workflow 的 issues。',
+  ])('does not pre-read denied, ambiguous or device activity requests: %s', async (content) => {
+    await createBrowserAgentToolProvider(undefined, false).prepareContext?.(
+      [{ role: 'user', content }], new AbortController().signal
+    )
+    expect(api.get).not.toHaveBeenCalled()
+  })
+
+  it('reads an explicitly linked GitHub repository without treating the hostname as its owner', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data: { items: [] } } })
+    const messages: ChatCompletionMessage[] = [{ role: 'user', content: '请阅读 https://github.com/merchant/image-workflow/issues 的 issues。' }]
+    const provider = createBrowserAgentToolProvider(undefined, false)
+    const result = await provider.prepareContext?.(messages, new AbortController().signal)
+    expect(api.get).toHaveBeenCalledWith('/api/agent/github/issues', expect.objectContaining({
+      params: expect.objectContaining({ repo: 'merchant/image-workflow' }),
+    }))
+    expect(result?.[0]?.content).toContain('merchant/image-workflow')
+    expect(result?.[0]?.content).not.toContain('repository: github.com/merchant')
+  })
+
+  it('passes an activity lookup failure to the model without claiming an empty successful list', async () => {
+    vi.mocked(api.get).mockRejectedValueOnce(new Error('private upstream credential detail'))
+    const result = await createBrowserAgentToolProvider(undefined, false).prepareContext?.(
+      [{ role: 'user', content: '请读取 merchant/image-workflow 的 issues' }], new AbortController().signal
+    )
+    expect(result?.[0]?.content).toContain('error')
+    expect(result?.[0]?.content).not.toContain('private upstream credential detail')
+  })
+
   it('reads the requested Issues and gives their actual content to the model after a user asks it to do the reading', async () => {
     vi.mocked(api.get).mockResolvedValueOnce({
       data: { success: true, data: { items: [{
@@ -108,19 +141,10 @@ describe('webAgentToolProvider', () => {
       { role: 'user', content: '你自己阅读' },
     ]
     const request = vi.fn(async (payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
-      const result = payload.messages.find((message) => message.role === 'tool')
-      if (!result) {
-        expect(payload.tools?.map((tool) => tool.function.name)).toContain('github.oauth.issues.list')
-        return {
-          id: 'issue-read-call', object: 'chat.completion', created: 1, model: payload.model,
-          choices: [{ index: 0, message: {
-            role: 'assistant', content: null,
-            tool_calls: [toolCall('github.oauth.issues.list', { repo: 'merchant/image-workflow', limit: 3 })],
-          }, finish_reason: 'tool_calls' }],
-        }
-      }
-      expect(result.content).toContain('Duplicate export after reconnect')
-      expect(result.content).toContain('Reconnecting downloads the same export twice.')
+      const result = payload.messages.find((message) => message.name === 'lain42_github_oauth_context')
+      expect(result?.content).toContain('Duplicate export after reconnect')
+      expect(result?.content).toContain('Reconnecting downloads the same export twice.')
+      expect(payload.tools).toEqual([])
       expect(payload.messages.filter((message) => message.role === 'user').at(-1)?.content).toBe('你自己阅读')
       return {
         id: 'issue-read-answer', object: 'chat.completion', created: 1, model: payload.model,
@@ -137,10 +161,10 @@ describe('webAgentToolProvider', () => {
     )
 
     expect(api.get).toHaveBeenCalledWith('/api/agent/github/issues', expect.objectContaining({
-      params: expect.objectContaining({ repo: 'merchant/image-workflow', limit: 3 }),
+      params: expect.objectContaining({ repo: 'merchant/image-workflow', limit: 10 }),
     }))
     expect(api.get).toHaveBeenCalledTimes(1)
-    expect(request).toHaveBeenCalledTimes(2)
+    expect(request).toHaveBeenCalledTimes(1)
     expect(response.choices[0]?.message.content).toContain('Issue #17')
   })
 

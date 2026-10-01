@@ -102,6 +102,9 @@ export function getGitHubReadIntent(
   value: string
 ): GitHubReadIntent | null {
   const text = value.trim()
+  if (/(?:不要|不用|别|禁止|不许)\s*(?:读取|阅读|查看|列出|获取)|\b(?:do not|don't|don’t)\s+(?:read|fetch|list|view|access)\b/iu.test(text)) {
+    return null
+  }
   if (!text || isQuestionAboutToolBehavior(text) || /(?:项目看板|项目板|github\s+projects\b|project\s+boards?\b)/iu.test(text)) {
     return null
   }
@@ -155,6 +158,19 @@ export function getGitHubReadIntent(
     }
   }
   return null
+}
+
+/** A read may target exactly one repository named by the user, never a model guess. */
+export function explicitGitHubRepository(text: string): string | null {
+  const repositories = new Set<string>()
+  for (const match of text.matchAll(/https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/giu)) {
+    repositories.add(`${match[1]}/${match[2]}`.toLowerCase())
+  }
+  const withoutURLs = text.replace(/https?:\/\/[^\s<>]+/giu, ' ')
+  for (const match of withoutURLs.matchAll(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/gu)) {
+    repositories.add(match[0].toLowerCase())
+  }
+  return repositories.size === 1 ? [...repositories][0] ?? null : null
 }
 
 export function explicitlyTargetsLocalGitHub(text: string): boolean {
@@ -216,7 +232,7 @@ export function shouldRunGitHubTool(
     source === 'oauth' && request !== latestUserText(messages) &&
     (intent === 'issues' || intent === 'pull_requests')
   ) {
-    const repository = request.match(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/u)?.[0]
+    const repository = explicitGitHubRepository(request)
     try {
       const args: unknown = JSON.parse(call.function.arguments)
       if (!repository || !args || typeof args !== 'object' || !('repo' in args) ||
@@ -435,7 +451,7 @@ export function browserGitHubReadRequestText(messages: ChatCompletionMessage[]):
     }
     const intent = getGitHubReadIntent(previous)
     if (intent === 'repositories' && targetsAccountRepositories(previous)) return previous
-    if ((intent === 'issues' || intent === 'pull_requests') && /\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/u.test(previous)) {
+    if ((intent === 'issues' || intent === 'pull_requests') && explicitGitHubRepository(previous)) {
       return previous
     }
     return latest
