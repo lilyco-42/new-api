@@ -45,6 +45,19 @@ describe('Agent tool intent routing', () => {
     expect(shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)).toBe(false)
   })
 
+  it.each([
+    '查看我的本地项目',
+    '查看我的 GitHub 项目看板',
+    'Show my GitHub Projects board.',
+    '查看附件里的项目，不要读取我的 GitHub 项目。',
+  ])('does not treat unrelated projects, boards or declined account access as repository listing: %s', (request) => {
+    const messages = userMessage(request)
+    const name = 'github.oauth.repositories.list'
+
+    expect(shouldAdvertiseBrowserGitHubTool(name, messages, false)).toBe(false)
+    expect(shouldRunWebAgentTool(toolCall(name), messages)).toBe(false)
+  })
+
   it('routes a request to view my GitHub repositories to browser OAuth', () => {
     const messages = userMessage('查看我的 GitHub 仓库')
 

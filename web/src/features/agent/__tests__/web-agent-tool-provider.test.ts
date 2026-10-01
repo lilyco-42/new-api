@@ -938,15 +938,21 @@ describe('webAgentToolProvider', () => {
     expect(names).not.toContain('github.auth.status')
   })
 
-  it('lists the requested OAuth repositories before asking the model', async () => {
+  it('reads the requested OAuth repository limit and lets the model answer using that evidence', async () => {
     const bridgeProvider: LocalToolProvider = {
       tools: [],
       isAvailable: () => true,
       invoke: vi.fn(),
     }
     const provider = createBrowserAgentToolProvider(bridgeProvider, true)
-    const request = vi.fn(async () => {
-      throw new Error('The model must not be called for repository listing.')
+    const request = vi.fn(async (payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
+      const evidence = payload.messages.find((message) => message.name === 'lain42_github_oauth_context')
+      expect(evidence?.role).toBe('system')
+      expect(evidence?.content).toContain('lilyco-42/repo-three')
+      return {
+        id: 'repository-model-turn', object: 'chat.completion', created: 1, model: 'test-model',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'OAuth returned lilyco-42/repo-one, lilyco-42/repo-two and lilyco-42/repo-three.' }, finish_reason: 'stop' }],
+      }
     })
     vi.mocked(api.get).mockResolvedValueOnce({
       data: {
@@ -999,18 +1005,22 @@ describe('webAgentToolProvider', () => {
       expect.objectContaining({ params: { limit: 3 } })
     )
     expect(result.choices[0]?.message.content).toContain(
-      '已通过连接的 GitHub OAuth 获取到 3 个仓库'
-    )
-    expect(result.choices[0]?.message.content).toContain(
       'lilyco-42/repo-three'
     )
-    expect(request).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(bridgeProvider.invoke).not.toHaveBeenCalled()
   })
 
   it('reports OAuth repository failures without blaming local gh login', async () => {
     const provider = createBrowserAgentToolProvider(undefined, false)
-    const request = vi.fn(async () => {
-      throw new Error('The model must not be called for repository listing.')
+    const request = vi.fn(async (payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
+      const evidence = payload.messages.find((message) => message.name === 'lain42_github_oauth_context')
+      expect(evidence?.content).toContain('Request failed with status code 401')
+      expect(evidence?.content).toContain('A lookup error does not imply that local gh must be logged in.')
+      return {
+        id: 'repository-error-model-turn', object: 'chat.completion', created: 1, model: 'test-model',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'GitHub OAuth 仓库读取失败（401）；这与本机 GitHub CLI 是否登录无关。' }, finish_reason: 'stop' }],
+      }
     })
     vi.mocked(api.get).mockRejectedValueOnce(
       new Error('Request failed with status code 401')
@@ -1034,7 +1044,8 @@ describe('webAgentToolProvider', () => {
     expect(result.choices[0]?.message.content).toContain(
       '这与本机 GitHub CLI 是否登录无关'
     )
-    expect(request).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(api.get).toHaveBeenCalledTimes(1)
   })
 
   it('lists repositories through the connected GitHub OAuth account', async () => {

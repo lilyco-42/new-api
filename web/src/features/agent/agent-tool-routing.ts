@@ -76,7 +76,7 @@ export function requestsKnownAIEntityDefinition(text: string): boolean {
 
 function explicitlyDeclinesAccountRepositories(text: string): boolean {
   return (
-    /(?:不要|不用|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|列出|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的|(?:我|本人)(?:通过|已通过|在)).{0,48}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /(?:不要|不用|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|列出|访问|读取|阅读)?\s*(?:我的|我自己的|我账号的|我账户的|(?:我|本人)(?:通过|已通过|在)).{0,48}(?:github\s*)?(?:仓库|项目|repositories|repository|repos?)/iu.test(
       text
     ) ||
     /\b(?:do not|don't|don’t|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access|list|fetch|inspect|query|show|view)\s+)?(?:my(?: own)?\s+(?:personal\s+)?(?:github\s+)?|(?:my|the)\s+connected\s+github\s+(?:account(?:'s|’s)?\s+)?)(?:repositories|repository|repos?)\b/iu.test(
@@ -87,7 +87,7 @@ function explicitlyDeclinesAccountRepositories(text: string): boolean {
 
 export function targetsAccountRepositories(text: string): boolean {
   const explicitlyTargetsAccount =
-    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*项目|(?:github\s*)?(?:仓库|repositories|repository|repos?))/iu.test(
       text
     ) ||
     /(?:我|本人)(?:通过|已通过|在).{0,24}(?:github\s*)?oauth.{0,16}(?:授权|连接).{0,12}仓库|\b(?:my|the)\s+connected\s+github\s+(?:account(?:'s|’s)?\s+)?(?:repositories|repository|repos?)\b/iu.test(text) ||
@@ -102,15 +102,15 @@ export function getGitHubReadIntent(
   value: string
 ): GitHubReadIntent | null {
   const text = value.trim()
-  if (!text || isQuestionAboutToolBehavior(text)) {
+  if (!text || isQuestionAboutToolBehavior(text) || /(?:项目看板|项目板|github\s+projects\b|project\s+boards?\b)/iu.test(text)) {
     return null
   }
 
   const mentionsRepositories =
-    /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text)
+    /(?:github\s*项目|(?:github\s*)?(?:仓库|repositories|repository|repos?\b))/iu.test(text)
   const explicitlyReadsRepositories =
     mentionsRepositories &&
-    /(?:查看|看|列出|浏览|获取|读取|show|list|view|browse|get|read|fetch|inspect)/iu.test(
+    /(?:查看|看|列出|浏览|获取|读取|阅读|show|list|view|browse|get|read|fetch|inspect)/iu.test(
       text
     ) &&
     !/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)
@@ -127,7 +127,7 @@ export function getGitHubReadIntent(
   }
   if (
     /(?:issue|issues|工单|议题|问题列表)/iu.test(text) &&
-    /(?:查看|列出|搜索|读取|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
+    /(?:查看|列出|搜索|读取|阅读|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
       text
     )
   ) {
@@ -135,7 +135,7 @@ export function getGitHubReadIntent(
   }
   if (
     /(?:pull\s*requests?|\bprs?\b|拉取请求|合并请求)/iu.test(text) &&
-    /(?:查看|列出|搜索|读取|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
+    /(?:查看|列出|搜索|读取|阅读|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
       text
     )
   ) {
@@ -147,7 +147,7 @@ export function getGitHubReadIntent(
     }
     if (
       /(?:查看|看|列出|浏览|获取|show|list|view|browse|get)/iu.test(text) ||
-      /(?:读取|read|fetch|inspect)/iu.test(text) ||
+      /(?:读取|阅读|read|fetch|inspect)/iu.test(text) ||
       /(?:我的|我自己的|我账号的|my(?: own)?)/iu.test(text)
     ) {
       return 'repositories'
