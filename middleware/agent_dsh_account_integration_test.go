@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
@@ -45,7 +46,7 @@ func TestAgentDSHHTTPRoutesEnforceAuthenticatedSessionOwners(t *testing.T) {
 		gin.SetMode(previousGinMode)
 		_ = sqlDB.Close()
 	})
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AgentDSHSession{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AgentDSHSession{}, &model.AgentDSHRequest{}))
 
 	tokenA, tokenB := strings.Repeat("a", 32), strings.Repeat("b", 32)
 	userA := &model.User{
@@ -159,11 +160,18 @@ func TestAgentDSHHTTPRoutesEnforceAuthenticatedSessionOwners(t *testing.T) {
 	response = sendTurn(tokenA, sessionA, requestID)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	require.Contains(t, response.Body.String(), "answer for "+sessionA)
+	_, err = model.RequestOwnedAgentDSHCancellation(userA.Id, sessionA, requestID, time.Now().UTC())
+	require.NoError(t, err)
+	response = sendTurn(tokenA, sessionA, requestID)
+	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "AGENT_DSH_CANCEL_REQUESTED")
+	require.Equal(t, []string{sessionA}, forwardedSessions(), "a canceled identity must not be resubmitted through the authenticated route")
 
 	response = sendTurn(tokenA, sessionB, "123e4567-e89b-42d3-a456-426614174001")
 	require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
 
-	response = sendTurn(tokenB, sessionB, "123e4567-e89b-42d3-a456-426614174001")
+	// Reusing the same UUID in a different owned session is independent of A's Stop.
+	response = sendTurn(tokenB, sessionB, requestID)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	require.Contains(t, response.Body.String(), "answer for "+sessionB)
 	require.NoError(t, forwardingError())
