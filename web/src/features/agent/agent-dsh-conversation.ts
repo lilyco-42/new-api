@@ -21,6 +21,7 @@ import {
   imagesFromContent,
   SESSION_ID_PATTERN,
   type AgentDSHRequestRecord,
+  asRecord,
   byteLength,
   createRequestId,
   fingerprintText,
@@ -323,7 +324,27 @@ export function createAgentDSHConversation(options: {
         skipBusinessError: true,
         skipErrorHandler: true,
       }
-    )
+    ).catch((error: unknown) => {
+      const status = statusFromError(error)
+      const response = asRecord(asRecord(error)?.response)
+      const code = asRecord(response?.data)?.code
+      if (status === 409 && code === 'AGENT_DSH_REQUEST_CONFLICT') {
+        throw new Error(localizedMessage(requestText,
+          '已接收的请求内容发生冲突。请新建一条消息继续；不会自动重复执行旧任务。',
+          'The request changed after it was accepted. Start a new message; the old task was not automatically rerun.'))
+      }
+      if (status === 504 && code === 'AGENT_DSH_TURN_TIMEOUT') {
+        throw new Error(localizedMessage(requestText,
+          '本轮处理超时。请新建一条消息继续；旧任务不会自动重新执行。',
+          'This turn timed out. Start a new message; the old task was not automatically rerun.'))
+      }
+      if (status === 502 && code === 'AGENT_DSH_RESULT_UNAVAILABLE') {
+        throw new Error(localizedMessage(requestText,
+          '上一轮的结果暂时无法恢复。请新建一条消息继续；不会自动重复执行旧任务。',
+          'The previous turn\'s result is unavailable. Start a new message; the old task was not automatically rerun.'))
+      }
+      throw error
+    })
     const result = readEnvelopeData<AgentDSHTurnData>(response.data)
     if (
       result.session_id !== pending.sessionId ||

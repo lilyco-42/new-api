@@ -173,13 +173,29 @@ func AgentDSHTurn(c *gin.Context) {
 		return
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_DSH_TURN_FAILED", "The hosted Agent could not complete this turn")
-		return
-	}
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, agentDSHTurnResponseLimit+1))
 	if err != nil || len(responseBody) > agentDSHTurnResponseLimit {
 		writeAgentError(c, http.StatusBadGateway, "AGENT_DSH_INVALID_RESPONSE", "The hosted Agent returned an invalid response")
+		return
+	}
+	if response.StatusCode != http.StatusOK {
+		var failure struct {
+			Error string `json:"error"`
+		}
+		if common.Unmarshal(responseBody, &failure) == nil {
+			switch {
+			case response.StatusCode == http.StatusConflict && failure.Error == "request_id_conflict":
+				writeAgentError(c, http.StatusConflict, "AGENT_DSH_REQUEST_CONFLICT", "The accepted request changed. Start a new message; the old task was not automatically rerun.")
+				return
+			case response.StatusCode == http.StatusGatewayTimeout && failure.Error == "agent_turn_timeout":
+				writeAgentError(c, http.StatusGatewayTimeout, "AGENT_DSH_TURN_TIMEOUT", "This turn timed out. Start a new message to continue.")
+				return
+			case response.StatusCode == http.StatusBadGateway && failure.Error == "agent_turn_unavailable":
+				writeAgentError(c, http.StatusBadGateway, "AGENT_DSH_RESULT_UNAVAILABLE", "The previous turn's result is unavailable. Start a new message; the old task was not automatically rerun.")
+				return
+			}
+		}
+		writeAgentError(c, http.StatusBadGateway, "AGENT_DSH_TURN_FAILED", "The hosted Agent could not complete this turn")
 		return
 	}
 	var turn agentDSHWireTurnResponse
