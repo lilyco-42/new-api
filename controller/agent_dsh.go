@@ -408,17 +408,7 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &raw); err != nil {
 			return nil, "github_request_failed", "GitHub activity request failed."
 		}
-		items := make([]agentGitHubActivity, 0, len(raw))
-		for _, item := range raw {
-			number, _ := item["number"].(float64)
-			title, _ := item["title"].(string)
-			htmlURL, _ := item["html_url"].(string)
-			itemState, _ := item["state"].(string)
-			updated, _ := item["updated_at"].(string)
-			if title != "" && htmlURL != "" {
-				items = append(items, agentGitHubActivity{Number: int(number), Title: title, URL: htmlURL, State: itemState, UpdatedAt: updated})
-			}
-		}
+		items := normalizeAgentGitHubActivity(raw, tool == "github_pull_requests")
 		return gin.H{"repo": args.Repo, "items": items}, "", ""
 	default:
 		return nil, "tool_not_available", "This read-only tool is not available in this Lain42 runtime."

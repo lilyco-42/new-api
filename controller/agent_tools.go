@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -257,11 +258,41 @@ type agentGitHubSearchResponse struct {
 }
 
 type agentGitHubActivity struct {
-	Number    int    `json:"number"`
-	Title     string `json:"title"`
-	URL       string `json:"url"`
-	State     string `json:"state"`
-	UpdatedAt string `json:"updated_at,omitempty"`
+	Number        int    `json:"number"`
+	Title         string `json:"title"`
+	URL           string `json:"url"`
+	State         string `json:"state"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+	Body          string `json:"body,omitempty"`
+	BodyTruncated bool   `json:"body_truncated,omitempty"`
+}
+
+// Share the bounded evidence contract between browser reads and hosted DSH tools.
+func normalizeAgentGitHubActivity(raw []map[string]any, pulls bool) []agentGitHubActivity {
+	items := make([]agentGitHubActivity, 0, len(raw))
+	for _, item := range raw {
+		if _, isPullRequest := item["pull_request"]; isPullRequest && !pulls {
+			continue
+		}
+		number, _ := item["number"].(float64)
+		title, _ := item["title"].(string)
+		htmlURL, _ := item["html_url"].(string)
+		itemState, _ := item["state"].(string)
+		updated, _ := item["updated_at"].(string)
+		body, _ := item["body"].(string)
+		truncated := len(body) > 4096
+		if truncated {
+			end := 4096
+			for end > 0 && !utf8.RuneStart(body[end]) {
+				end--
+			}
+			body = body[:end]
+		}
+		if title != "" && htmlURL != "" {
+			items = append(items, agentGitHubActivity{Number: int(number), Title: title, URL: htmlURL, State: itemState, UpdatedAt: updated, Body: body, BodyTruncated: truncated})
+		}
+	}
+	return items
 }
 
 var agentGitHubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
@@ -324,17 +355,7 @@ func agentGitHubActivityList(c *gin.Context, pulls bool) {
 		writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", "GitHub activity request failed")
 		return
 	}
-	items := make([]agentGitHubActivity, 0, len(raw))
-	for _, item := range raw {
-		number, _ := item["number"].(float64)
-		title, _ := item["title"].(string)
-		htmlURL, _ := item["html_url"].(string)
-		itemState, _ := item["state"].(string)
-		updated, _ := item["updated_at"].(string)
-		if title != "" && htmlURL != "" {
-			items = append(items, agentGitHubActivity{Number: int(number), Title: title, URL: htmlURL, State: itemState, UpdatedAt: updated})
-		}
-	}
+	items := normalizeAgentGitHubActivity(raw, pulls)
 	common.ApiSuccess(c, gin.H{"repo": repo, "items": items})
 }
 

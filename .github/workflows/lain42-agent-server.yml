@@ -29,6 +29,14 @@ on:
         required: false
         default: nvidia/nemotron-3-super-120b-a12b
         type: string
+      evaluation_kind:
+        description: Choose task continuity or real public-data grounding (not website OAuth E2E)
+        required: false
+        default: continuity
+        type: choice
+        options:
+          - continuity
+          - grounding
 
 permissions:
   contents: read
@@ -171,17 +179,24 @@ jobs:
       - name: Check evaluation types and lint
         run: |
           bunx tsgo -p tsconfig.agent-evaluation.json
-          bunx oxlint -c .oxlintrc.json scripts/evaluate-agent-context.ts src/features/agent/agent-prompts.ts
+          bunx oxlint -c .oxlintrc.json scripts/evaluate-agent-context.ts scripts/agent-live-grounding.evaluation.ts vitest.agent-live.config.ts src/features/agent/agent-prompts.ts
       - name: Evaluate three bounded requests against the website model
+        if: ${{ inputs.evaluation_kind != 'grounding' }}
         env:
           LAIN42_AGENT_EVAL_API_KEY: ${{ secrets.LAIN42_AGENT_EVAL_API_KEY }}
           LAIN42_AGENT_EVAL_MODEL: ${{ inputs.evaluation_model }}
         run: bun scripts/evaluate-agent-context.ts
+      - name: Evaluate two real public GitHub reads through the candidate provider and website model
+        if: ${{ inputs.evaluation_kind == 'grounding' }}
+        env:
+          LAIN42_AGENT_EVAL_API_KEY: ${{ secrets.LAIN42_AGENT_EVAL_API_KEY }}
+          LAIN42_AGENT_EVAL_MODEL: ${{ inputs.evaluation_model }}
+        run: bunx vitest run --config vitest.agent-live.config.ts
       - name: Preserve synthetic evaluation evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: agent-context-evaluation-${{ github.sha }}
-          path: web/evaluation-results/agent-context.json
+          path: web/evaluation-results/*.json
           if-no-files-found: error
           retention-days: 7

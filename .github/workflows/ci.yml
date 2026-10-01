@@ -84,6 +84,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Check opt-in evaluation types and lint without making live requests
+        run: |
+          bunx tsgo -p tsconfig.agent-evaluation.json
+          bunx oxlint -c .oxlintrc.json scripts/evaluate-agent-context.ts scripts/agent-live-grounding.evaluation.ts vitest.agent-live.config.ts
+
       - name: Lint Agent conversation changes
         run: >-
           bunx oxlint -c .oxlintrc.json

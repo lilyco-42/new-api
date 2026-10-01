@@ -38,7 +38,9 @@ func TestAgentGitHubActivityReturnsBodyAndKeepsIssuesSeparateFromPulls(t *testin
 			}
 			require.Equal(t, http.StatusOK, recorder.Code)
 			var response struct {
-				Data struct { Items []map[string]any `json:"items"` } `json:"data"`
+				Data struct {
+					Items []map[string]any `json:"items"`
+				} `json:"data"`
 			}
 			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 			require.NotEmpty(t, response.Data.Items)
@@ -57,10 +59,10 @@ func TestAgentGitHubActivityReturnsBodyAndKeepsIssuesSeparateFromPulls(t *testin
 func TestAgentGitHubActivityBoundsBodyWithoutBreakingUTF8(t *testing.T) {
 	previousTransport := http.DefaultTransport
 	body := strings.Repeat("修复", 3000)
-	upstream, err := json.Marshal([]map[string]any{{"number":17, "title":"Large report", "html_url":"https://github.com/merchant/image-workflow/issues/17", "body":body}})
+	upstream, err := json.Marshal([]map[string]any{{"number": 17, "title": "Large report", "html_url": "https://github.com/merchant/image-workflow/issues/17", "body": body}})
 	require.NoError(t, err)
 	http.DefaultTransport = agentGitHubRoundTripper(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode:http.StatusOK, Header:make(http.Header), Body:io.NopCloser(strings.NewReader(string(upstream)))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(upstream)))}, nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = previousTransport })
 	recorder := httptest.NewRecorder()
@@ -69,7 +71,11 @@ func TestAgentGitHubActivityBoundsBodyWithoutBreakingUTF8(t *testing.T) {
 	c.Set("id", 0)
 	AgentGitHubIssues(c)
 	require.Equal(t, http.StatusOK, recorder.Code)
-	var response struct { Data struct { Items []map[string]any `json:"items"` } `json:"data"` }
+	var response struct {
+		Data struct {
+			Items []map[string]any `json:"items"`
+		} `json:"data"`
+	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 	require.Len(t, response.Data.Items, 1)
 	text, ok := response.Data.Items[0]["body"].(string)
