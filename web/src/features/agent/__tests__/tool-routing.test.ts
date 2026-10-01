@@ -27,6 +27,24 @@ function toolCall(name: string): ChatCompletionToolCall {
 }
 
 describe('Agent tool intent routing', () => {
+  it('offers browser OAuth repository listing when the user calls repositories GitHub projects', () => {
+    const messages = userMessage('查看我的github 项目')
+    const name = 'github.oauth.repositories.list'
+
+    expect(shouldAdvertiseBrowserGitHubTool(name, messages, false)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall(name), messages)).toBe(true)
+    expect(shouldRunLocalAgentTool('github.repositories.search', messages)).toBe(false)
+  })
+
+  it('offers and permits the Issue reader when the user asks to read their project Issues', () => {
+    const messages = userMessage('阅读我的项目的issue')
+    const name = 'github.oauth.issues.list'
+
+    expect(shouldAdvertiseBrowserGitHubTool(name, messages, false)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall(name), messages)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)).toBe(false)
+  })
+
   it('routes a request to view my GitHub repositories to browser OAuth', () => {
     const messages = userMessage('查看我的 GitHub 仓库')
 

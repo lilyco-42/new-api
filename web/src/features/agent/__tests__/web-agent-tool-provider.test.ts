@@ -39,6 +39,46 @@ function toolCall(
 }
 
 describe('webAgentToolProvider', () => {
+  it('queries connected repositories and gives the model their metadata for the requested analysis', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { items: [{
+          full_name: 'merchant/image-workflow',
+          html_url: 'https://github.com/merchant/image-workflow',
+          description: 'Batch product images with preview and delivery.',
+        }] },
+      },
+    })
+    const messages: ChatCompletionMessage[] = [{
+      role: 'user',
+      content: '查看我的 GitHub 仓库，分析哪个适合商品图商业化并说明依据。',
+    }]
+    const request = vi.fn(async (payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
+      const evidence = payload.messages.find((message) => message.name === 'lain42_github_oauth_context')
+      expect(evidence?.role).toBe('system')
+      expect(evidence?.content).toContain('merchant/image-workflow')
+      expect(evidence?.content).toContain('Batch product images with preview and delivery.')
+      expect(payload.messages.at(-1)).toEqual(messages[0])
+      return {
+        id: 'analysis-model-turn', object: 'chat.completion', created: 1, model: 'test-model',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'A product-image workflow is a candidate; revenue is unverified.' }, finish_reason: 'stop' }],
+      }
+    })
+
+    const response = await runLocalToolLoop(
+      { model: 'test-model', messages, stream: false },
+      createBrowserAgentToolProvider(),
+      new AbortController().signal,
+      undefined,
+      request
+    )
+
+    expect(api.get).toHaveBeenCalledTimes(1)
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(response.choices[0]?.message.content).toBe('A product-image workflow is a candidate; revenue is unverified.')
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
