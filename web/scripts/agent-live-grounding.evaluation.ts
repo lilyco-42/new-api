@@ -19,7 +19,7 @@ vi.mock('../src/features/agent/client-crawler/client-crawler', () => ({
   searchClientSources: vi.fn(() => { throw new Error('Unexpected search in GitHub evaluation.') }),
 }))
 
-type PublicActivity = { number: number; title: string; html_url: string; body: string | null; pull_request?: unknown }
+type PublicActivity = { number: number; title: string; html_url: string; body: string | null; pull_request?: unknown; body_truncated?: boolean }
 const repository = 'ast-grep/ast-grep'
 const results: Array<Record<string, unknown>> = []
 let inferenceCalls = 0
@@ -46,6 +46,7 @@ it.each([
   let answer = ''
   let usage: unknown
   let caseCalls = 0
+  let stage = 'lookup'
   const userText = `请阅读 ${repository} 的 ${resource}，仅列出返回结果中前两条的编号、标题、简短摘要和原始链接。不要给我操作教程，也不要使用本机 CLI。`
   vi.mocked(api.get).mockImplementation(async (path, config) => {
     expect(path).toBe(sitePath)
@@ -58,21 +59,23 @@ it.each([
     const data = await response.json() as PublicActivity[]
     source = data.filter((item) => githubPath !== 'issues' || !item.pull_request).map((item) => ({
       number: item.number, title: item.title, html_url: item.html_url, body: item.body?.slice(0, 2000) ?? null,
+      body_truncated: (item.body?.length ?? 0) > 2000,
     }))
-    expect(source.length).toBeGreaterThanOrEqual(2)
+    expect(source.length).toBeGreaterThanOrEqual(1)
     return { data: { success: true, data: { items: source.map((item) => ({
-      number: item.number, title: item.title, url: item.html_url, body: item.body,
+      number: item.number, title: item.title, url: item.html_url, body: item.body, body_truncated: item.body_truncated,
     })) } } }
   })
   const request = async (payload: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResponse> => {
-    caseCalls += 1
-    inferenceCalls += 1
-    if (caseCalls > 1 || inferenceCalls > 2) throw new Error('Live inference budget exceeded; no retries are allowed.')
-    expect(source.length).toBeGreaterThanOrEqual(2)
+    expect(source.length).toBeGreaterThanOrEqual(1)
     expect(payload.tools).toEqual([])
     expect(payload.messages.at(-1)?.content).toBe(userText)
     const evidence = payload.messages.find((entry) => entry.name === 'lain42_github_oauth_context')
     expect(evidence?.content).toContain(source[0].title)
+    caseCalls += 1
+    inferenceCalls += 1
+    if (caseCalls > 1 || inferenceCalls > 2) throw new Error('Live inference budget exceeded; no retries are allowed.')
+    stage = 'inference'
     const response = await fetch('https://api.lain42.top/v1/chat/completions', {
       method: 'POST', redirect: 'error', signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -95,15 +98,19 @@ it.each([
     { ...DEFAULT_PARAMETER_ENABLED, max_tokens: true, temperature: false,
       top_p: false, frequency_penalty: false, presence_penalty: false }, true)
     await runLocalToolLoop(payload, createBrowserAgentToolProvider(undefined, false), AbortSignal.timeout(90_000), undefined, request)
+    stage = 'grounding'
     for (const item of source.slice(0, 2)) {
       expect(answer).toContain(item.html_url)
       expect(answer.toLowerCase()).toContain(item.title.toLowerCase())
     }
+    const returnedLinks = answer.match(/https:\/\/github\.com\/ast-grep\/ast-grep\/(?:issues|pull)\/\d+/gu) ?? []
+    const allowedLinks = new Set(source.slice(0, 2).map((item) => item.html_url))
+    expect(returnedLinks.every((link) => allowedLinks.has(link))).toBe(true)
     expect(answer).not.toMatch(/gh auth login|github\.oauth\.\w+\.\w+\(\)/iu)
-    results.push({ resource, passed: true, elapsed_ms: Date.now() - started, source: source.slice(0, 2), answer: answer.slice(0, 8000), usage })
+    results.push({ resource, passed: true, elapsed_ms: Date.now() - started, expected_items: Math.min(2, source.length), inference_calls: caseCalls, source: source.slice(0, 2), answer: answer.slice(0, 8000), usage })
   } catch {
     results.push({ resource, passed: false, elapsed_ms: Date.now() - started, source: source.slice(0, 2),
-      answer: answer.slice(0, 8000), error: 'Lookup, timeout, inference or grounding assertions failed.', usage })
+      answer: answer.slice(0, 8000), stage, inference_calls: caseCalls, error: 'Lookup, timeout, inference or grounding assertions failed.', usage })
     throw new Error('Live grounding failed; inspect the bounded evidence artifact.')
   }
 })
