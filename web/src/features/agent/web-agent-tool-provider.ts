@@ -15,6 +15,7 @@ import {
   type ClientSearchScope,
 } from './client-crawler/client-crawler'
 import {
+  browserGitHubReadRequestText,
   explicitlyRequestsBrowserWebSearch,
   explicitlyTargetsLocalGitHub,
   getGitHubReadIntent,
@@ -871,7 +872,7 @@ export const webAgentToolProvider: LocalToolProvider = {
     return null
   },
   prepareContext: async (messages, signal) => {
-    const request = latestUserRequestText(messages)
+    const request = browserGitHubReadRequestText(messages)
     if (
       getGitHubReadIntent(request) === 'repositories' &&
       targetsAccountRepositories(request) &&
@@ -1086,7 +1087,7 @@ export function createBrowserAgentToolProvider(
   const browserWebProvider: LocalToolProvider = {
     ...webAgentToolProvider,
     shouldRunTool: (call, messages) => {
-      const request = latestUserRequestText(messages)
+      const request = browserGitHubReadRequestText(messages)
       const intent = getGitHubReadIntent(request)
       if (call.function.name === 'github.oauth.repositories.list' && !targetsAccountRepositories(request)) {
         return false
@@ -1213,7 +1214,7 @@ export function createBrowserAgentToolProvider(
     shouldRunTool: (call, messages) => {
       routedMessages = messages
       const name = call.function.name
-      const intent = getGitHubReadIntent(latestUserRequestText(messages))
+      const intent = getGitHubReadIntent(browserGitHubReadRequestText(messages))
       if (!name.startsWith('github.')) {
         if (name.startsWith('web.')) {
           return webAgentToolProvider.shouldRunTool?.(call, messages) ?? false
@@ -1221,9 +1222,9 @@ export function createBrowserAgentToolProvider(
         return shouldRunLocalAgentTool(name, messages)
       }
       if (!intent) return false
-      if (intent === 'repositories' && !targetsAccountRepositories(latestUserRequestText(messages))) return false
+      if (intent === 'repositories' && !targetsAccountRepositories(browserGitHubReadRequestText(messages))) return false
       const localRequested = explicitlyTargetsLocalGitHub(
-        latestUserRequestText(messages)
+        browserGitHubReadRequestText(messages)
       )
       if (!localRequested) {
         if (name in LOCAL_TO_OAUTH_GITHUB_TOOL) {
@@ -1263,12 +1264,12 @@ export function createBrowserAgentToolProvider(
           return invokeWebSearch(
             call,
             signal,
-            latestUserRequestText(routedMessages)
+            browserGitHubReadRequestText(routedMessages)
           )
         }
         return combined.invoke(call, signal)
       }
-      const requestText = latestUserRequestText(routedMessages)
+      const requestText = browserGitHubReadRequestText(routedMessages)
       if (!getGitHubReadIntent(requestText)) {
         return combined.invoke(call, signal)
       }

@@ -106,19 +106,6 @@ export function getGitHubReadIntent(
     return null
   }
 
-  const mentionsRepositories =
-    /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text) ||
-    (/github\s*项目/iu.test(text) && targetsAccountRepositories(text))
-  const explicitlyReadsRepositories =
-    mentionsRepositories &&
-    /(?:查看|看|列出|浏览|获取|读取|阅读|show|list|view|browse|get|read|fetch|inspect)/iu.test(
-      text
-    ) &&
-    !/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)
-  if (explicitlyReadsRepositories) {
-    return 'repositories'
-  }
-
   if (
     /(?:检查|查看|查询|确认|显示|check|show|tell me).{0,30}(?:github|gh|oauth).{0,24}(?:登录|连接|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in)|(?:github|gh|oauth).{0,24}(?:登录状态|连接状态|授权状态|授权是否成功|授权成功|状态|status|\bauth\b|connected|logged in|signed in).{0,24}(?:吗|么|没|是否|check|show|status)?/iu.test(
       text
@@ -142,6 +129,19 @@ export function getGitHubReadIntent(
   ) {
     return 'pull_requests'
   }
+  const mentionsRepositories =
+    /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text) ||
+    (/github\s*项目/iu.test(text) && targetsAccountRepositories(text))
+  const explicitlyReadsRepositories =
+    mentionsRepositories &&
+    /(?:查看|看|列出|浏览|获取|读取|阅读|show|list|view|browse|get|read|fetch|inspect)/iu.test(
+      text
+    ) &&
+    !/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)
+  if (explicitlyReadsRepositories) {
+    return 'repositories'
+  }
+
   if (mentionsRepositories) {
     if (/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)) {
       return 'repository_search'
@@ -207,7 +207,9 @@ export function shouldRunGitHubTool(
   messages: ChatCompletionMessage[],
   source: 'oauth' | 'local'
 ): boolean {
-  const request = latestUserText(messages)
+  const request = source === 'oauth'
+    ? browserGitHubReadRequestText(messages)
+    : latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(call.function.name) !== intent) return false
   if (
@@ -311,7 +313,7 @@ export function shouldAdvertiseBrowserGitHubTool(
   messages: ChatCompletionMessage[],
   bridgeConnected: boolean
 ): boolean {
-  const request = latestUserText(messages)
+  const request = browserGitHubReadRequestText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(name) !== intent) return false
   if (
@@ -390,6 +392,40 @@ export function latestUserRequestText(
   messages: ChatCompletionMessage[]
 ): string {
   return latestUserText(messages)
+}
+
+/** Preserve a user's immediate read request, without inheriting device or attachment authorization. */
+export function browserGitHubReadRequestText(messages: ChatCompletionMessage[]): string {
+  const latest = latestUserText(messages)
+  if (getGitHubReadIntent(latest)) return latest
+  const continuesReading =
+    /^(?:请|麻烦)?(?:你(?:自己|来)?|继续|接着)?(?:阅读|读取|查看|读)(?:一下|吧)?[。.!！?？]*$/u.test(latest) ||
+    /^(?:please\s+)?(?:read|check)(?:\s+(?:it|them))?(?:\s+(?:yourself|again))?[.!?]*$/iu.test(latest)
+  if (!continuesReading) return latest
+
+  let foundLatest = false
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.role !== 'user') continue
+    if (!foundLatest) {
+      if (Array.isArray(message.content) && (message.content.length !== 1 || message.content[0]?.type !== 'text')) {
+        return latest
+      }
+      foundLatest = true
+      continue
+    }
+    const previous = latestUserText([message])
+    if (explicitlyTargetsLocalGitHub(previous) || /(?:不要|不用|无需|别|禁止|do not|don't|without)/iu.test(previous)) {
+      return latest
+    }
+    const intent = getGitHubReadIntent(previous)
+    if (intent === 'repositories' && targetsAccountRepositories(previous)) return previous
+    if ((intent === 'issues' || intent === 'pull_requests') && /\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/u.test(previous)) {
+      return previous
+    }
+    return latest
+  }
+  return latest
 }
 
 export function shouldAdvertiseWebAgentTool(

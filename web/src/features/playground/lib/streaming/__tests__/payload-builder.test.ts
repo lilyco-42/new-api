@@ -86,7 +86,7 @@ describe('buildChatCompletionPayload', () => {
     ])
   })
 
-  it('starts a standalone knowledge request without stale GitHub history', () => {
+  it('keeps recent history while placing a new knowledge request last and preserving system roles', () => {
     const messages = [
       message('system', 'system', 'answer the latest request'),
       message('old-user', 'user', '查看我的 GitHub 仓库'),
@@ -104,6 +104,8 @@ describe('buildChatCompletionPayload', () => {
 
     expect(payload.messages).toEqual([
       { role: 'system', content: 'answer the latest request' },
+      { role: 'user', content: '查看我的 GitHub 仓库' },
+      { role: 'assistant', content: '请先登录本机 gh CLI。' },
       { role: 'user', content: 'DeepSeek 是什么？' },
     ])
   })

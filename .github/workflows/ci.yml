@@ -97,6 +97,8 @@ jobs:
           src/features/agent/__tests__/agent-dsh.test.ts
           src/features/agent/__tests__/tool-routing.test.ts
           src/features/agent/__tests__/web-agent-tool-provider.test.ts
+          src/features/playground/lib/streaming/payload-builder.ts
+          src/features/playground/lib/streaming/__tests__/payload-builder.test.ts
 
       - name: Test
         run: bun run test

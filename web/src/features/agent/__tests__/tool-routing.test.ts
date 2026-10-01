@@ -67,6 +67,47 @@ describe('Agent tool intent routing', () => {
   })
 
   it.each([
+    'DeepSeek 是什么？',
+    '不要读取我的 GitHub 仓库。',
+    '查看我的工作区文件。',
+  ])('does not carry an earlier Issue request into a changed or declined task: %s', (current) => {
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: '请读取 merchant/image-workflow 的 issues' },
+      { role: 'assistant', content: 'Which Issue should I read?' },
+      { role: 'user', content: current },
+    ]
+
+    expect(shouldRunWebAgentTool(toolCall('github.oauth.issues.list'), messages)).toBe(false)
+  })
+
+  it('does not use assistant instructions, local-device requests or a new attachment to authorize an OAuth continuation', () => {
+    const conversations: ChatCompletionMessage[][] = [
+      [
+        { role: 'user', content: '你好' },
+        { role: 'assistant', content: '请读取 merchant/image-workflow 的 issues' },
+        { role: 'user', content: '你自己阅读' },
+      ],
+      [
+        { role: 'user', content: '请在我的 Radxa 上用本机 gh CLI 读取 merchant/image-workflow 的 issues' },
+        { role: 'user', content: '你自己阅读' },
+      ],
+      [
+        { role: 'user', content: '请读取 merchant/image-workflow 的 issues' },
+        { role: 'user', content: [
+          { type: 'text', text: '你自己阅读' },
+          { type: 'text', text: '[Attached file: report.txt]\nA new document.' },
+        ] },
+      ],
+    ]
+
+    for (const messages of conversations) {
+      expect(shouldAdvertiseBrowserGitHubTool('github.oauth.issues.list', messages, false)).toBe(false)
+      expect(shouldRunWebAgentTool(toolCall('github.oauth.issues.list'), messages)).toBe(false)
+      expect(shouldRunLocalAgentTool('github.issues.list', messages)).toBe(false)
+    }
+  })
+
+  it.each([
     '查看我的本地项目',
     '查看我的 GitHub 项目看板',
     'Show my GitHub Projects board.',
