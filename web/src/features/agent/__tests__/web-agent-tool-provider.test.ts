@@ -40,6 +40,36 @@ function toolCall(
 
 describe('webAgentToolProvider', () => {
   it.each([
+    ['issues', '/api/agent/github/issues', 'Duplicate export after reconnect'],
+    ['pull requests', '/api/agent/github/pull-requests', 'Fix duplicate exports'],
+  ])('reads explicitly requested %s before asking a model that does not call tools', async (resource, path, title) => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data: {
+      items: [{ number: 17, title, body: 'Export replay needs an idempotency key.',
+        html_url: `https://github.com/merchant/image-workflow/${resource === 'issues' ? 'issues' : 'pull'}/17` }],
+    } } })
+    const request = vi.fn(async (payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
+      expect(api.get).toHaveBeenCalledTimes(1)
+      const evidence = payload.messages.find((entry) => entry.name === 'lain42_github_oauth_context')
+      expect(evidence?.content).toContain(title)
+      expect(evidence?.content).toContain('Export replay needs an idempotency key.')
+      expect(payload.messages.at(-1)?.content).toBe(`请阅读 merchant/image-workflow 的 ${resource}，给出修复建议。`)
+      expect(payload.tools).toEqual([])
+      return { id: 'grounded-activity', object: 'chat.completion', created: 1, model: payload.model,
+        choices: [{ index: 0, message: { role: 'assistant', content: `${title}: add an idempotency key to export replay.` }, finish_reason: 'stop' }] }
+    })
+
+    const response = await runLocalToolLoop({ model: 'test-model', stream: false,
+      messages: [{ role: 'user', content: `请阅读 merchant/image-workflow 的 ${resource}，给出修复建议。` }],
+    }, createBrowserAgentToolProvider(undefined, false), new AbortController().signal, undefined, request)
+
+    expect(api.get).toHaveBeenCalledWith(path, expect.objectContaining({
+      params: expect.objectContaining({ repo: 'merchant/image-workflow' }),
+    }))
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(response.choices[0]?.message.content).toContain(title)
+  })
+
+  it.each([
     'github.oauth.issues.list',
     'github.issues.list',
     'github.oauth.pull_requests.list',
