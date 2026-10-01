@@ -9,6 +9,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,6 +56,55 @@ func TestAgentGitHubActivityReturnsBodyAndKeepsIssuesSeparateFromPulls(t *testin
 			}
 		})
 	}
+}
+
+func TestAgentDSHGitHubActivityUsesTheSameBodyContractAndAccountCredential(t *testing.T) {
+	setupAgentDSHControllerTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.AgentGitHubCredential{}))
+	previousSecret := common.CryptoSecret
+	common.CryptoSecret = "isolated-activity-contract-test-secret"
+	t.Cleanup(func() { common.CryptoSecret = previousSecret })
+	require.NoError(t, model.SaveAgentGitHubCredential(42, "test-provider-id", "test-owner", "repo", "test-owner-credential"))
+	previousTransport := http.DefaultTransport
+	requestCount := 0
+	http.DefaultTransport = agentGitHubRoundTripper(func(request *http.Request) (*http.Response, error) {
+		requestCount++
+		assert.Equal(t, "Bearer test-owner-credential", request.Header.Get("Authorization"))
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`[
+		{"number":17,"title":"Replay export","html_url":"https://github.com/merchant/image-workflow/issues/17","body":"Reconnection repeats the completed export."},
+		{"number":18,"title":"Pull only","html_url":"https://github.com/merchant/image-workflow/pull/18","body":"Persist the export request ID.","pull_request":{}}
+		]`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	for _, tool := range []string{"github_issues", "github_pull_requests"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/agent/dsh/tools", nil)
+		c.Set("id", 42)
+		result, code, _ := executeAgentDSHTool(c, tool, map[string]any{"repo": "merchant/image-workflow", "limit": 3})
+		require.Empty(t, code)
+		data, ok := result.(gin.H)
+		require.True(t, ok)
+		items, ok := data["items"].([]agentGitHubActivity)
+		require.True(t, ok)
+		require.NotEmpty(t, items)
+		assert.Equal(t, "Reconnection repeats the completed export.", items[0].Body)
+		if tool == "github_issues" {
+			assert.Len(t, items, 1)
+		} else {
+			require.Len(t, items, 2)
+			assert.Equal(t, "Persist the export request ID.", items[1].Body)
+		}
+		encoded, err := json.Marshal(result)
+		require.NoError(t, err)
+		assert.NotContains(t, string(encoded), "test-owner-credential")
+	}
+	requestsBefore := requestCount
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/agent/dsh/tools", nil)
+	c.Set("id", 43)
+	_, code, _ := executeAgentDSHTool(c, "github_issues", map[string]any{"repo": "merchant/image-workflow"})
+	assert.Equal(t, "github_not_connected", code)
+	assert.Equal(t, requestsBefore, requestCount, "another account must not inherit the connected account's credential")
 }
 
 func TestAgentGitHubActivityBoundsBodyWithoutBreakingUTF8(t *testing.T) {

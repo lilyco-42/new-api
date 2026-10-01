@@ -70,6 +70,14 @@ describe('hosted Agent with the real browser provider', () => {
           { full_name: 'owner/cad', description: 'Parametric mechanical CAD', updated_at: '2026-09-28', private: true },
         ] } } } as never
       }
+      if (url === '/api/agent/github/issues' || url === '/api/agent/github/pull-requests') {
+        return { data: { success: true, data: { items: [{
+          number: 17, title: 'Duplicate export after reconnect',
+          url: 'https://github.com/merchant/image-workflow/issues/17',
+          body: 'The completed export is delivered twice when the client reconnects.',
+          body_truncated: true,
+        }] } } } as never
+      }
       throw new Error(`Unexpected external request: ${url}`)
     })
     vi.mocked(api.post).mockReset().mockImplementation(async (url, body) => {
@@ -121,6 +129,18 @@ describe('hosted Agent with the real browser provider', () => {
     expect(submitted[0]?.text).toContain('Parametric mechanical CAD')
     expect(submitted[0]?.text).toContain('2026-09-28')
     expect(submitted[0]?.text).toContain('parametric mounting bracket')
+    expect(response?.choices[0]?.message.content).toBe(modelAnswer)
+    expect(api.get).not.toHaveBeenCalledWith('/api/agent/github/status', expect.anything())
+  })
+
+  it.each(['issues', 'pull requests'])('passes actual %s descriptions to hosted admission and presents the final answer', async (resource) => {
+    modelAnswer = 'The duplicate delivery on reconnect suggests export request deduplication; the description is partial.'
+    const response = await send(`请阅读 merchant/image-workflow 的 ${resource}，给出建议。`)
+    expect(submitted).toHaveLength(1)
+    expect(submitted[0]?.text).toContain('The completed export is delivered twice')
+    expect(submitted[0]?.text).toContain('https://github.com/merchant/image-workflow/issues/17')
+    expect(submitted[0]?.text).toContain('body_truncated')
+    expect(submitted[0]?.text).toContain('untrusted data')
     expect(response?.choices[0]?.message.content).toBe(modelAnswer)
     expect(api.get).not.toHaveBeenCalledWith('/api/agent/github/status', expect.anything())
   })
