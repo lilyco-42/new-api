@@ -491,7 +491,7 @@ describe('Lain42 DSH conversation adapter', () => {
       }))
       .mockResolvedValueOnce(success({ session_id: SESSION_ID, request_id: REQUEST_ID, answer: 'Recovered.' }) as never)
     const provider = createAgentDSHConversation({
-      storageNamespace: 'agent-user-42-general-recovery-errors', mode: 'general', storage,
+      storageNamespace: 'agent-user-42-general-chat-90', mode: 'general', storage,
     })
     providers.push(provider)
     const payload = request(prompt)
@@ -512,7 +512,7 @@ describe('Lain42 DSH conversation adapter', () => {
       .mockResolvedValueOnce(success({ session_id: SESSION_ID }) as never)
       .mockRejectedValueOnce(original)
     const provider = createAgentDSHConversation({
-      storageNamespace: 'agent-user-42-general-unknown-error', mode: 'general', storage: storageFixture(),
+      storageNamespace: 'agent-user-42-general-chat-91', mode: 'general', storage: storageFixture(),
     })
     providers.push(provider)
     await expect(provider.send(request('Continue.'), message('unknown-error', 'Continue.'), new AbortController().signal))
