@@ -107,7 +107,8 @@ export function getGitHubReadIntent(
   }
 
   const mentionsRepositories =
-    /(?:github\s*项目|(?:github\s*)?(?:仓库|repositories|repository|repos?\b))/iu.test(text)
+    /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text) ||
+    (/github\s*项目/iu.test(text) && targetsAccountRepositories(text))
   const explicitlyReadsRepositories =
     mentionsRepositories &&
     /(?:查看|看|列出|浏览|获取|读取|阅读|show|list|view|browse|get|read|fetch|inspect)/iu.test(

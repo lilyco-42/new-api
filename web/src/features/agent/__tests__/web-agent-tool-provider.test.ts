@@ -585,8 +585,14 @@ describe('webAgentToolProvider', () => {
       messages: [{ role: 'user', content: 'gh repo 我的项目' }],
       stream: false,
     }
-    const request = vi.fn(async () => {
-      throw new Error('Repository requests must not ask the model to guess.')
+    const request = vi.fn(async (input: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
+      const evidence = input.messages.find((message) => message.name === 'lain42_github_oauth_context')
+      expect(evidence?.content).toContain('"items":[]')
+      expect(evidence?.content).toContain('The connected account was queried without using a local gh CLI.')
+      return {
+        id: 'empty-repository-model-turn', object: 'chat.completion', created: 1, model: input.model,
+        choices: [{ index: 0, message: { role: 'assistant', content: 'GitHub OAuth 读取成功，当前返回的仓库列表为空。' }, finish_reason: 'stop' }],
+      }
     })
 
     const response = await runLocalToolLoop(
@@ -602,7 +608,8 @@ describe('webAgentToolProvider', () => {
       '/api/agent/github/repositories',
       expect.objectContaining({ params: { limit: 10 } })
     )
-    expect(request).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(api.get).toHaveBeenCalledTimes(1)
   })
 
   it('recognizes a numeric text part but preserves image questions for the model', () => {
