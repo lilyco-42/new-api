@@ -213,6 +213,21 @@ export function shouldRunGitHubTool(
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(call.function.name) !== intent) return false
   if (
+    source === 'oauth' && request !== latestUserText(messages) &&
+    (intent === 'issues' || intent === 'pull_requests')
+  ) {
+    const repository = request.match(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/u)?.[0]
+    try {
+      const args: unknown = JSON.parse(call.function.arguments)
+      if (!repository || !args || typeof args !== 'object' || !('repo' in args) ||
+        typeof args.repo !== 'string' || args.repo.toLowerCase() !== repository.toLowerCase()) {
+        return false
+      }
+    } catch {
+      return false
+    }
+  }
+  if (
     intent === 'repository_search' &&
     explicitlyRequestsBrowserWebSearch(request) &&
     !targetsAccountRepositories(request)
