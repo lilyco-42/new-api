@@ -24,10 +24,11 @@ var (
 // public requests must also authenticate as UserId and private relays must
 // arrive with the configured server-to-server signature.
 type AgentDSHSession struct {
-	Id        int64     `json:"id" gorm:"primaryKey"`
-	UserId    int       `json:"-" gorm:"not null;index:idx_agent_dsh_user_created,priority:1"`
-	SessionId string    `json:"session_id" gorm:"type:char(64);not null;uniqueIndex"`
-	CreatedAt time.Time `json:"created_at" gorm:"index:idx_agent_dsh_user_created,priority:2"`
+	Id           int64     `json:"id" gorm:"primaryKey"`
+	UserId       int       `json:"-" gorm:"not null;index:idx_agent_dsh_user_created,priority:1"`
+	SessionId    string    `json:"session_id" gorm:"type:char(64);not null;uniqueIndex"`
+	CreatedAt    time.Time `json:"created_at" gorm:"index:idx_agent_dsh_user_created,priority:2"`
+	RequestCount int       `json:"-" gorm:"not null;default:0"`
 }
 
 func (AgentDSHSession) TableName() string { return "agent_dsh_sessions" }

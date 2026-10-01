@@ -19,7 +19,7 @@ func setupAgentDSHSessionModelTest(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	DB = db
-	require.NoError(t, DB.AutoMigrate(&AgentDSHSession{}))
+	require.NoError(t, DB.AutoMigrate(&AgentDSHSession{}, &AgentDSHRequest{}))
 	t.Cleanup(func() {
 		DB = previousDB
 		_ = sqlDB.Close()
