@@ -447,6 +447,9 @@ export function shouldAdvertiseWebAgentTool(
   name: string,
   messages: ChatCompletionMessage[]
 ): boolean {
+  if (toolIntent(name)) {
+    return shouldAdvertiseBrowserGitHubTool(name, messages, false)
+  }
   return shouldRunWebAgentTool(
     {
       id: 'routing-check',

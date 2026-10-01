@@ -770,14 +770,7 @@ export const webAgentToolProvider: LocalToolProvider = {
     return searchWasPrepared
       ? []
       : WEB_AGENT_TOOLS.filter((tool) =>
-          shouldRunWebAgentTool(
-            {
-              id: 'agent-tool-availability',
-              type: 'function',
-              function: { name: tool.function.name, arguments: '{}' },
-            },
-            messages
-          )
+          shouldAdvertiseWebAgentTool(tool.function.name, messages)
         )
   },
   shouldRunTool: (call, messages) => shouldRunWebAgentTool(call, messages),
