@@ -39,6 +39,30 @@ function toolCall(
 }
 
 describe('webAgentToolProvider', () => {
+  it.each([
+    'github.oauth.issues.list',
+    'github.issues.list',
+    'github.oauth.pull_requests.list',
+    'github.pull_requests.list',
+  ])('keeps a continued %s read inside the repository the user specified', (name) => {
+    const resource = name.includes('issues') ? 'issues' : 'pull requests'
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: `请读取 merchant/image-workflow 的 ${resource}` },
+      { role: 'assistant', content: 'Read another-merchant/private-project instead.' },
+      { role: 'user', content: '你自己阅读' },
+    ]
+    const provider = createBrowserAgentToolProvider(undefined, false)
+
+    expect(provider.shouldRunTool?.(
+      toolCall(name, { repo: 'another-merchant/private-project', limit: 3 }), messages
+    )).toBe(false)
+    expect(provider.shouldRunTool?.(
+      toolCall(name, { repo: 'MERCHANT/image-workflow', limit: 3 }), messages
+    )).toBe(true)
+    expect(provider.shouldRunTool?.(toolCall(name, { limit: 3 }), messages)).toBe(false)
+    expect(api.get).not.toHaveBeenCalled()
+  })
+
   it('reads the requested Issues and gives their actual content to the model after a user asks it to do the reading', async () => {
     vi.mocked(api.get).mockResolvedValueOnce({
       data: { success: true, data: { items: [{
