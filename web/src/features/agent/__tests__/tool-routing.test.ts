@@ -45,6 +45,27 @@ describe('Agent tool intent routing', () => {
     expect(shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)).toBe(false)
   })
 
+  it('keeps an Issue request on the Issue reader even when it also mentions the account GitHub projects', () => {
+    const messages = userMessage('请阅读我的 GitHub 项目的 issue')
+
+    expect(shouldAdvertiseBrowserGitHubTool('github.oauth.issues.list', messages, false)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('github.oauth.issues.list'), messages)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)).toBe(false)
+  })
+
+  it('retains the immediately requested browser Issue read when the user asks the Agent to do the reading', () => {
+    const messages: ChatCompletionMessage[] = [
+      { role: 'user', content: '请读取 merchant/image-workflow 的 issues' },
+      { role: 'assistant', content: 'You can open the Issues page yourself.' },
+      { role: 'user', content: '你自己阅读' },
+    ]
+
+    expect(shouldAdvertiseBrowserGitHubTool('github.oauth.issues.list', messages, false)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('github.oauth.issues.list'), messages)).toBe(true)
+    expect(shouldRunWebAgentTool(toolCall('github.oauth.repositories.list'), messages)).toBe(false)
+    expect(shouldRunLocalAgentTool('github.issues.list', messages)).toBe(false)
+  })
+
   it.each([
     '查看我的本地项目',
     '查看我的 GitHub 项目看板',
