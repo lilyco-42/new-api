@@ -50,7 +50,12 @@ try {
       assert.equal(await send.isEnabled(), true, 'The model/attachment flow must be usable.');
       await send.click();
       await page.getByText('The attached note contains CLIENT_FILE_FACT_42.', { exact: false }).waitFor({ timeout: 45000 });
-      await page.locator('pre').filter({ hasText: 'fn main()' }).first().waitFor({ timeout: 15000 });
+      // The shipped code viewer uses CodeMirror with an accessible textbox,
+      // rather than a pre element. Verify its real language label and content.
+      const rustCode = page.getByRole('textbox', { name: 'rust', exact: true });
+      await rustCode.waitFor({ timeout: 15000 });
+      assert.match(await rustCode.innerText(), /fn main\(\)/);
+      assert.equal(await rustCode.getAttribute('aria-readonly'), 'true');
       assert.equal(postedPaths.filter(path => path === '/api/agent/dsh/turns').length, 1,
         'The attachment answer must come through the hosted DSH turn, not the legacy chat loop.');
       assert.equal(postedPaths.some(path => /^\/(?:pg|v1)\/(?:chat\/completions|responses)$/.test(path)), false,
