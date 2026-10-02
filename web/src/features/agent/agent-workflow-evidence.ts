@@ -43,7 +43,7 @@ export function workflowEvidenceTarget(messages: ChatCompletionMessage[]): Workf
   } else if (!hasWorkflowTopic(latest) || (!repairAction.test(latest) &&
     !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+\/?$/iu.test(latest))) return undefined
   const repo = explicitGitHubRepository(request)
-  const runMatch = request.match(/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/(\d+)\b|\brun[_ -]?id\s*[=:：]?\s*([^\s。！，;]+)/iu)
+  const runMatch = request.match(/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/(\d+)\b|\brun[_ -]?id\s*[=:：]?\s*([^\s。！，,;:：、()（）]+)/iu)
   if (runMatch) {
     const rawRunId = runMatch[1] ?? runMatch[2] ?? ''
     const runId = Number(rawRunId)
