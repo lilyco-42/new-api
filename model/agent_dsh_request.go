@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // AgentDSHSessionRequestLimit bounds durable request identities in one chat.
@@ -67,7 +66,7 @@ func accessOwnedAgentDSHRequest(userID int, sessionID, requestID string, now tim
 		// Lock the owning session, not an absent request row, to serialize first
 		// reservations on PostgreSQL/MySQL. SQLite serializes the write transaction.
 		var session AgentDSHSession
-		err := tx.Select("id").Clauses(clause.Locking{Strength: "UPDATE"}).
+		err := lockForUpdate(tx).Select("id").
 			Where("user_id = ? AND session_id = ?", userID, sessionID).First(&session).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrAgentDSHSessionNotFound
