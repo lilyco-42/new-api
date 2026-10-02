@@ -49,7 +49,7 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
       expect(options?.params).toEqual({ repo: evidence.repo, run_id: evidence.run.id })
       return { data: { success: true, data: evidence } }
     })
-    const user = `请诊断 ${evidence.repo} 的 GitHub Actions run_id=${evidence.run.id}。根据实际失败日志解释原因，指出对应工作流路径和提交，给出最小修复建议及原始运行链接。不要求你修改文件或运行本机 CLI。明确区分已读取证据与未验证的建议。`
+    const user = `请用六行以内诊断 ${evidence.repo} 的 GitHub Actions run_id=${evidence.run.id}：实际失败步骤和具体报错、工作流路径与提交、最小修复建议、原始运行链接、证据限制。不要求你修改文件或运行本机 CLI。不要把未执行步骤或未看到的错误说成事实。`
     const history = [message('system', 'system', `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}`), message('user', 'user', user)]
     const payload = (items: Message[]) => buildChatCompletionPayload(items,
       { ...DEFAULT_CONFIG, model, stream: false, max_tokens: 1200 },
@@ -61,6 +61,7 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
       const context = input.messages.find((item) => item.name === 'lain42_workflow_evidence')
       expect(context?.content).toContain(evidence.run.head_sha)
       expect(context?.content).toContain(evidence.run.path)
+      expect(context?.content).toContain('String#replaceAll')
       stage = 'inference'
       calls++
       const response = await fetch('https://api.lain42.top/v1/chat/completions', {
@@ -85,7 +86,8 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
     expect(answer).not.toMatch(/(?:已经|已)(?:修复|修改|提交|部署)|(?:I have|I've) (?:fixed|modified|committed|deployed)/iu)
     // Fixed historical run failed scoped frontend lint. Require the real issue,
     // not a plausible missing-lockfile or deployment tutorial.
-    expect(answer).toMatch(/(?:lint|oxlint|replaceAll|replace\s*\(|正则|正規|global|全局|全域)/iu)
+    expect(answer).toMatch(/replaceAll/iu)
+    expect(answer).toMatch(/(?:lint|oxlint)/iu)
     const completed = applyChatCompletionResponse(message('answer', 'assistant', ''), first)
     if (!completed) throw new Error('No completed response')
     stage = 'execution-provenance'

@@ -135,4 +135,15 @@ describe('workflow evidence in real browser conversation composition', () => {
     expect(context?.[0]?.content).toContain('"client_text_truncated":true')
     expect(new TextEncoder().encode(String(context?.[0]?.content)).length).toBeLessThan(16000)
   })
+
+  it('preserves the error window when a long log has setup before it and cleanup after it', async () => {
+    const log = `${'Installing packages\n'.repeat(400)}\n##[error]Prefer String#replaceAll over String#replace with global flag.\n${'Removing temporary checkout credentials\n'.repeat(120)}`
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data: {
+      ...evidence, jobs: [{ ...evidence.jobs[0], log, failed_steps: [{ number: 7, name: 'Lint Agent conversation changes', conclusion: 'failure' }] }],
+    } } })
+    const context = await prepareWorkflowEvidence([{ role: 'user', content: '诊断 merchant/project 的 workflow' }], new AbortController().signal)
+    expect(context?.[0]?.content).toContain('Prefer String#replaceAll')
+    expect(context?.[0]?.content).toContain('Lint Agent conversation changes')
+    expect(context?.[0]?.content).toContain('"client_log_truncated":true')
+  })
 })

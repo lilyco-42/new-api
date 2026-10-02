@@ -49,7 +49,7 @@ func TestWorkflowEvidencePinsFileAndJobAttemptAndNeverLeaksCredentialToStorage(t
 			require.Equal(t, workflowTestSHA, req.URL.Query().Get("ref"))
 			return workflowResponse(200, fmt.Sprintf(`{"type":"file","path":".github/workflows/ci.yml","encoding":"base64","size":%d,"content":"%s"}`, len(file), base64.StdEncoding.EncodeToString([]byte(file)))), nil
 		case "/repos/merchant/project/actions/runs/17/attempts/2/jobs":
-			return workflowResponse(200, `{"total_count":1,"jobs":[{"id":23,"run_id":17,"head_sha":"`+workflowTestSHA+`","name":"build","conclusion":"failure"}]}`), nil
+			return workflowResponse(200, `{"total_count":1,"jobs":[{"id":23,"run_id":17,"head_sha":"`+workflowTestSHA+`","name":"build","conclusion":"failure","steps":[{"number":6,"name":"Typecheck","conclusion":"success"},{"number":7,"name":"Lint","conclusion":"failure"}]}]}`), nil
 		case "/repos/merchant/project/actions/jobs/23/logs":
 			response := workflowResponse(302, "")
 			response.Header.Set("Location", "https://logs.blob.core.windows.net/job.txt?sig=private-signed-url")
@@ -64,6 +64,7 @@ func TestWorkflowEvidencePinsFileAndJobAttemptAndNeverLeaksCredentialToStorage(t
 	require.Equal(t, file, evidence.Workflow.Text)
 	require.Equal(t, workflowTestSHA, evidence.Workflow.Ref)
 	require.Len(t, evidence.Jobs, 1)
+	require.Equal(t, []WorkflowStepEvidence{{Number: 7, Name: "Lint", Conclusion: "failure"}}, evidence.Jobs[0].FailedSteps)
 	require.Contains(t, evidence.Jobs[0].Log, "invalid cargo argument")
 	require.NotContains(t, evidence.Jobs[0].Log, "owner-token")
 	require.Contains(t, evidence.Jobs[0].Log, "[redacted]")

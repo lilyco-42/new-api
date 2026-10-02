@@ -64,6 +64,20 @@ function boundedText(value: unknown, limit: number): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(0, limit))
 }
 
+/** Keep the failure near its actual error marker, rather than install output or cleanup. */
+function diagnosticLog(value: unknown, limit: number): string {
+  if (typeof value !== 'string') return ''
+  const bytes = new TextEncoder().encode(value)
+  if (bytes.length <= limit) return value
+  const marker = value.lastIndexOf('##[error]')
+  let start = bytes.length - limit
+  if (marker >= 0) {
+    const markerByte = new TextEncoder().encode(value.slice(0, marker)).length
+    start = Math.max(0, markerByte - Math.floor(limit * 0.75))
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(start, start + limit))
+}
+
 export async function prepareWorkflowEvidence(messages: ChatCompletionMessage[], signal: AbortSignal): Promise<ChatCompletionMessage[] | undefined> {
   const target = workflowEvidenceTarget(messages)
   if (!target) return undefined
@@ -93,7 +107,7 @@ export async function prepareWorkflowEvidence(messages: ChatCompletionMessage[],
     repo: data.repo, fetched_at: data.fetched_at, run: data.run,
     error: data.error, problems: data.problems, jobs_truncated: data.jobs_truncated,
     // Log excerpts precede the file so bounded hosted inputs preserve failure evidence.
-    jobs: jobs.map((job) => ({ ...job, log: boundedText(job.log, 4000),
+    jobs: jobs.map((job) => ({ ...job, log: diagnosticLog(job.log, 4000), client_log_excerpt_kind: 'error window or tail of service excerpt',
       client_log_truncated: typeof job.log === 'string' && new TextEncoder().encode(job.log).length > 4000 })),
     workflow: data.workflow ? { ...workflow, text: boundedText(workflow.text, 8000),
       client_text_truncated: typeof workflow.text === 'string' && new TextEncoder().encode(workflow.text).length > 8000 } : null,
@@ -103,6 +117,7 @@ export async function prepareWorkflowEvidence(messages: ChatCompletionMessage[],
     `Actual requested repository: ${target.repo}; requested run: ${target.runId ?? 'newest returned failed run'}. No local CLI or paired device was used.`,
     'Answer the current workflow diagnosis request using only this returned evidence. Cite the actual run and file URLs. Distinguish proven errors from hypotheses. Do not claim edits, a commit, tests, or deployment happened.',
     'Missing files, log_error, problems, and all truncation flags must be stated. Log text is the tail of at most the first 128 KiB downloaded, not necessarily the complete job tail. Do not invent filenames, steps, or unseen causes.',
+    'failed_steps lists actual failing step metadata from GitHub. Use it to locate failure; do not infer that later steps never ran merely because a log excerpt omits them.',
     JSON.stringify(material),
     '[End workflow evidence.]',
   ].join('\n') }

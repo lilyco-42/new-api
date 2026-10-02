@@ -56,16 +56,24 @@ type WorkflowFileEvidence struct {
 }
 
 type WorkflowJobEvidence struct {
-	ID           int64  `json:"id"`
-	RunID        int64  `json:"run_id"`
-	HeadSHA      string `json:"head_sha"`
-	Name         string `json:"name"`
-	Status       string `json:"status"`
-	Conclusion   string `json:"conclusion"`
-	URL          string `json:"url"`
-	Log          string `json:"log,omitempty"`
-	LogTruncated bool   `json:"log_truncated"`
-	LogError     string `json:"log_error,omitempty"`
+	ID                   int64                  `json:"id"`
+	RunID                int64                  `json:"run_id"`
+	HeadSHA              string                 `json:"head_sha"`
+	Name                 string                 `json:"name"`
+	Status               string                 `json:"status"`
+	Conclusion           string                 `json:"conclusion"`
+	URL                  string                 `json:"url"`
+	Log                  string                 `json:"log,omitempty"`
+	LogTruncated         bool                   `json:"log_truncated"`
+	LogError             string                 `json:"log_error,omitempty"`
+	FailedSteps          []WorkflowStepEvidence `json:"failed_steps,omitempty"`
+	FailedStepsTruncated bool                   `json:"failed_steps_truncated"`
+}
+
+type WorkflowStepEvidence struct {
+	Number     int    `json:"number"`
+	Name       string `json:"name"`
+	Conclusion string `json:"conclusion"`
 }
 
 func ValidWorkflowEvidenceTarget(repo string, runID int64) bool {
@@ -130,8 +138,11 @@ func ReadAgentWorkflowEvidence(ctx context.Context, repo string, runID int64, to
 		evidence.Problems = append(evidence.Problems, "run did not return a supported workflow file path")
 	}
 	var jobs struct {
-		Total int                   `json:"total_count"`
-		Jobs  []WorkflowJobEvidence `json:"jobs"`
+		Total int `json:"total_count"`
+		Jobs  []struct {
+			WorkflowJobEvidence
+			Steps []WorkflowStepEvidence `json:"steps"`
+		} `json:"jobs"`
 	}
 	endpoint := fmt.Sprintf("%s/actions/runs/%d/attempts/%d/jobs?per_page=20&page=1", base, run.ID, run.Attempt)
 	if err := r.readJSON(ctx, endpoint, &jobs); err != nil {
@@ -140,16 +151,32 @@ func ReadAgentWorkflowEvidence(ctx context.Context, repo string, runID int64, to
 	}
 	evidence.JobsTruncated = jobs.Total > 20 || len(jobs.Jobs) > 20
 	logsRead := 0
-	for i, job := range jobs.Jobs {
+	for i, rawJob := range jobs.Jobs {
 		if i >= 20 {
 			break
 		}
+		job := rawJob.WorkflowJobEvidence
 		if job.ID <= 0 || job.RunID != run.ID || job.HeadSHA != run.HeadSHA {
 			evidence.Problems = append(evidence.Problems, "job identity did not match the selected run")
 			continue
 		}
 		// Ignore upstream text and URLs in fields not needed for this contract.
 		job.Log, job.LogError, job.LogTruncated = "", "", false
+		job.FailedSteps, job.FailedStepsTruncated = nil, false
+		for _, step := range rawJob.Steps {
+			if step.Conclusion != "failure" && step.Conclusion != "timed_out" {
+				continue
+			}
+			if step.Number < 1 || step.Number > 10000 {
+				continue
+			}
+			if len(job.FailedSteps) >= 8 {
+				job.FailedStepsTruncated = true
+				break
+			}
+			step.Name = boundedWorkflowText(strings.ReplaceAll(step.Name, token, "[redacted]"), 256)
+			job.FailedSteps = append(job.FailedSteps, step)
+		}
 		job.Status = normalizedWorkflowStatus(job.Status)
 		job.Conclusion = normalizedWorkflowStatus(job.Conclusion)
 		job.Name = boundedWorkflowText(strings.ReplaceAll(job.Name, token, "[redacted]"), 256)
