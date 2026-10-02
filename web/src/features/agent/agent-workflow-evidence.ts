@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 import { explicitGitHubRepository, explicitlyTargetsLocalGitHub, latestUserRequestText } from './agent-tool-routing'
 
 type WorkflowTarget = { repo: string | null; runId?: number }
+type RetainedWorkflowSource = { path: string; ref: string; error_line: number; text: string; scope: 'bounded error window, not full file' }
 type WorkflowReceipt = {
   source: 'website GitHub OAuth'
   resource: 'workflow evidence'
@@ -14,6 +15,7 @@ type WorkflowReceipt = {
   workflow_file_complete: boolean
   logs_read: number
   source_excerpts_read: number
+  retained_sources: RetainedWorkflowSource[]
   fetched_at: string
   outcome: 'evidence returned' | 'read failed or unconfirmed'
   local_gh_used: false
@@ -67,11 +69,11 @@ function boundedText(value: unknown, limit: number): string {
 }
 
 /** Keep the failure near its actual error marker, rather than install output or cleanup. */
-function diagnosticLog(value: unknown, limit: number): string {
+function diagnosticLog(value: unknown, limit: number, markerText = '##[error]'): string {
   if (typeof value !== 'string') return ''
   const bytes = new TextEncoder().encode(value)
   if (bytes.length <= limit) return value
-  const marker = value.lastIndexOf('##[error]')
+  const marker = value.lastIndexOf(markerText)
   let start = bytes.length - limit
   if (marker >= 0) {
     const markerByte = new TextEncoder().encode(value.slice(0, marker)).length
@@ -133,7 +135,13 @@ export async function prepareWorkflowEvidence(messages: ChatCompletionMessage[],
     JSON.stringify(material),
     '[End workflow evidence.]',
   ].join('\n') }
-  receipts.set(message, {
+  const retainedSources: RetainedWorkflowSource[] = confirmed ? sources.filter((source) =>
+    typeof source.path === 'string' && source.path.length <= 512 && typeof source.ref === 'string' &&
+    /^(?:[a-f\d]{40}|[a-f\d]{64})$/iu.test(source.ref) && Number.isSafeInteger(source.error_line) &&
+    Number(source.error_line) > 0 && typeof source.text === 'string' && source.text.length > 0 && !source.error)
+    .map((source) => ({ path: String(source.path), ref: String(source.ref), error_line: Number(source.error_line),
+      text: diagnosticLog(source.text, 600, `${source.error_line}: `), scope: 'bounded error window, not full file' as const })) : []
+  const receipt: WorkflowReceipt = {
     source: 'website GitHub OAuth', resource: 'workflow evidence', repo: target.repo,
     requested_run_id: target.runId ?? null,
     run_id: confirmed && Number.isSafeInteger(run.id) ? Number(run.id) : null,
@@ -142,8 +150,15 @@ export async function prepareWorkflowEvidence(messages: ChatCompletionMessage[],
     workflow_file_complete: workflowComplete,
     logs_read: logsRead,
     source_excerpts_read: sourcesRead,
+    retained_sources: retainedSources,
     fetched_at: new Date().toISOString(), outcome: confirmed ? 'evidence returned' : 'read failed or unconfirmed', local_gh_used: false,
-  })
+  }
+  // Completed-message observations and immutable retry snapshots have a 4 KiB cap.
+  // Drop excess retained data rather than invalidate the execution receipt or invent a full read.
+  while (new TextEncoder().encode(JSON.stringify(receipt)).length > 4096 && retainedSources.length > 0) {
+    retainedSources.pop()
+  }
+  receipts.set(message, receipt)
   return [message]
 }
 

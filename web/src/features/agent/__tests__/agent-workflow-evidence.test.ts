@@ -5,6 +5,10 @@ import type { ChatCompletionMessage, ChatCompletionRequest } from '@/features/pl
 import { createBrowserAgentToolProvider, browserEvidenceExecutionContext } from '../web-agent-tool-provider'
 import { explainPreviousRead } from '../agent-read-observation'
 import { prepareWorkflowEvidence, workflowEvidenceTarget } from '../agent-workflow-evidence'
+import { applyChatCompletionResponse } from '@/features/playground/lib/message/message-streaming-utils'
+import { buildChatCompletionPayload } from '@/features/playground/lib/streaming/payload-builder'
+import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '@/features/playground/constants'
+import type { Message } from '@/features/playground/types'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn() } }))
 vi.mock('../client-crawler/client-crawler', () => ({
@@ -137,6 +141,38 @@ describe('workflow evidence in real browser conversation composition', () => {
     const context = await prepareWorkflowEvidence([{ role: 'user', content: '诊断 merchant/project 的 workflow' }], new AbortController().signal)
     expect(context?.[0]?.content).toContain('GitHub returned HTTP 403')
     expect(browserEvidenceExecutionContext(context ?? [])).toContain('"source_excerpts_read":0')
+  })
+
+  it('keeps actual source evidence in the next inference after a completed response and browser save/load', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data: evidence } })
+    const user: Message = { key: 'source-user', from: 'user', status: 'complete',
+      versions: [{ id: 'source-user', content: '诊断 merchant/project 的 workflow' }] }
+    const payload = (messages: Message[]) => buildChatCompletionPayload(messages,
+      { ...DEFAULT_CONFIG, model: 'external-model', stream: false }, DEFAULT_PARAMETER_ENABLED, true)
+    let inferenceCount = 0
+    const request = vi.fn(async (input: ChatCompletionRequest) => {
+      inferenceCount += 1
+      if (inferenceCount === 2) {
+        const previous = input.messages.find((item) => item.name === 'lain42_execution_record')
+        expect(previous?.content).toContain("value.replace(/foo/g, 'bar')")
+        expect(previous?.content).toContain('web/src/tool.ts')
+        expect(previous?.content).toContain(sha)
+        expect(previous?.content).toContain('not full file')
+      }
+      return { id: 'source-response', object: 'chat.completion', model: input.model, created: 1,
+        choices: [{ index: 0, message: { role: 'assistant' as const, content: 'A lint error was diagnosed; no file was changed.' }, finish_reason: 'stop' }] }
+    })
+    const provider = createBrowserAgentToolProvider(undefined, false)
+    const first = await runLocalToolLoop(payload([user]), provider, new AbortController().signal, undefined, request)
+    const completed = applyChatCompletionResponse({ key: 'source-answer', from: 'assistant', status: 'complete',
+      versions: [{ id: 'source-answer', content: '' }] }, first)
+    expect(completed).toBeTruthy()
+    const stored = JSON.parse(JSON.stringify(completed)) as Message
+    expect(new TextEncoder().encode(stored.versions[0]?.executionContext ?? '').length).toBeLessThanOrEqual(4096)
+    await runLocalToolLoop(payload([user, stored, { key: 'source-followup', from: 'user', status: 'complete',
+      versions: [{ id: 'source-followup', content: '这一处替换会改变匹配次数吗？' }] }]), provider, new AbortController().signal, undefined, request)
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(api.get).toHaveBeenCalledTimes(1)
   })
 
   it('does not resume a cancelled read', async () => {
