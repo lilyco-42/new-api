@@ -16,6 +16,28 @@ const evidence = resolve(process.env.LAIN42_BROWSER_EVIDENCE_DIR ?? '.agents/res
 await mkdir(evidence, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const results = [];
+async function signIn(page, username) {
+  await page.goto(`${origin}/sign-in?redirect=%2Fagent`, { waitUntil: 'domcontentloaded' });
+  await page.getByLabel('Username or Email', { exact: true }).fill(username);
+  await page.getByLabel('Password', { exact: true }).fill('synthetic-browser-password');
+  await Promise.all([
+    page.waitForURL(url => url.pathname !== '/sign-in', { timeout: 30000 }),
+    page.getByRole('button', { name: 'Sign in', exact: true }).click(),
+  ]);
+  await page.goto(`${origin}/agent`, { waitUntil: 'domcontentloaded' });
+  await page.getByPlaceholder('Ask anything', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+}
+async function signOut(page) {
+  await page.goto(`${origin}/profile`, { waitUntil: 'domcontentloaded' });
+  // The fixture usernames both render the existing avatar fallback "C".
+  await page.getByRole('button', { name: 'C', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
+  await Promise.all([
+    page.waitForURL(url => url.pathname === '/sign-in', { timeout: 30000 }),
+    page.getByRole('alertdialog', { name: 'Sign out', exact: true })
+      .getByRole('button', { name: 'Sign out', exact: true }).click(),
+  ]);
+}
 try {
   for (const fixture of [
     { name: 'desktop', username: 'composition-owner', context: { viewport: { width: 1365, height: 900 }, locale: 'en-US' } },
@@ -41,14 +63,7 @@ try {
     try {
       // A user logs in through the actual form. No API response interception,
       // injected auth store or shared browser cookie is used.
-      await page.goto(`${origin}/sign-in?redirect=%2Fagent`, { waitUntil: 'domcontentloaded' });
-      await page.getByLabel('Username or Email', { exact: true }).fill(fixture.username);
-      await page.getByLabel('Password', { exact: true }).fill('synthetic-browser-password');
-      await Promise.all([
-        page.waitForURL(url => url.pathname !== '/sign-in', { timeout: 30000 }),
-        page.getByRole('button', { name: 'Sign in', exact: true }).click(),
-      ]);
-      await page.goto(`${origin}/agent`, { waitUntil: 'domcontentloaded' });
+      await signIn(page, fixture.username);
       const input = page.getByPlaceholder('Ask anything', { exact: true });
       await input.waitFor({ state: 'visible', timeout: 30000 });
       await page.locator('input[type="file"]').first().setInputFiles({
@@ -110,11 +125,26 @@ try {
         'Retry after navigation must retain the accepted request; do not infer or charge again.');
       assert.equal(postedPaths.includes('/api/agent/dsh/turns/cancel'), false,
         'Navigating away is not an explicit Stop.');
+      if (fixture.name === 'desktop') {
+        // Keep this same browser storage and cookie jar. Separate contexts alone
+        // do not establish that signing out hides the previous user's history.
+        await signOut(page);
+        await signIn(page, 'composition-other');
+        await page.getByText('No saved conversations yet', { exact: true }).waitFor({ timeout: 15000 });
+        assert.equal(await page.getByText('Recovered desktop without another inference.', { exact: true }).count(), 0);
+        assert.equal(await page.getByText('The attached note contains CLIENT_FILE_FACT_42.', { exact: false }).count(), 0);
+        assert.equal(await page.getByRole('button', { name: /Recover this browser task for desktop/ }).count(), 0);
+        await page.screenshot({ path: join(evidence, 'account-b-same-browser.png'), fullPage: true });
+        await signOut(page);
+        await signIn(page, 'composition-owner');
+        await page.getByText('Recovered desktop without another inference.', { exact: true }).waitFor({ timeout: 15000 });
+        assert.equal(hostedRequests.length, 4, 'Account switching must not replay any model request.');
+      }
       const layout = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
       assert.ok(layout.scroll <= layout.width + 1, `Horizontal overflow at ${fixture.name}: ${JSON.stringify(layout)}`);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
       await page.screenshot({ path: join(evidence, `${fixture.name}.png`), fullPage: true });
-      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, horizontalOverflow: false });
+      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', horizontalOverflow: false });
     } catch (error) {
       await page.screenshot({ path: join(evidence, `${fixture.name}-failure.png`), fullPage: true });
       await writeFile(join(evidence, `${fixture.name}-failure.txt`), `${String(error)}\n${await page.locator('body').innerText()}`);
