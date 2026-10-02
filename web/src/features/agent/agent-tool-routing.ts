@@ -503,7 +503,9 @@ function selectedRepositoryFromChoices(
     一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
   }
   const explicit = /^(?:https:\/\/github\.com\/)?([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/?$/iu.exec(latest)
-  const choiceNumber = numeric?.[1] ? Number(numeric[1]) : chineseOrdinal?.[1] ? chineseNumbers[chineseOrdinal[1]] : undefined
+  let choiceNumber: number | undefined
+  if (numeric?.[1]) choiceNumber = Number(numeric[1])
+  else if (chineseOrdinal?.[1]) choiceNumber = chineseNumbers[chineseOrdinal[1]]
   const selected = choiceNumber !== undefined
     ? choices.repositories[choiceNumber - 1]
     : choices.repositories.find((repository) => repository.full_name.toLowerCase() === explicit?.[1]?.toLowerCase())

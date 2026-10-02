@@ -430,11 +430,12 @@ export function browserEvidenceResponseAppendix(
   const note = chinese
     ? `读取记录：网站 GitHub OAuth · ${resource} · ${query} · ${outcome} · ${receipt.fetchedAt}。范围仅为本次分页，不代表完整集合。未调用本机 gh。`
     : `Read record: website GitHub OAuth · ${receipt.resource} · ${query} · ${outcome} · ${receipt.fetchedAt}. Scope is this page, not the complete collection. No local gh CLI was used.`
-  const selectionNote = receipt.query.selection === 'most recently updated repository'
-    ? (chinese
+  let selectionNote = ''
+  if (receipt.query.selection === 'most recently updated repository') {
+    selectionNote = chinese
       ? '按你要求我自行选择的指示，从 OAuth 仓库列表中更新时间最新的一项开始。'
-      : 'At your request to choose autonomously, this started with the most recently updated repository in the OAuth list.')
-    : ''
+      : 'At your request to choose autonomously, this started with the most recently updated repository in the OAuth list.'
+  }
   return [note, selectionNote, searchSources].filter(Boolean).join('\n\n')
 }
 
