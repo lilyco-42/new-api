@@ -78,7 +78,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		Group: "default", AuthVersion: 1, Quota: 100000, AffCode: "composition-other-aff", Setting: `{"billing_preference":"wallet_only"}`}
 	owner.SetAccessToken(tokenA)
 	other.SetAccessToken(tokenB)
-	passwordHash, err := common.HashPassword("synthetic-browser-password")
+	passwordHash, err := common.Password2Hash("synthetic-browser-password")
 	require.NoError(t, err)
 	owner.Password, other.Password = passwordHash, passwordHash
 	require.NoError(t, db.Create(&owner).Error)
@@ -268,7 +268,9 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	// the real browser and server. The provider remains the declared fixture.
 	browserScript, err := filepath.Abs("scripts/lain42-browser-acceptance.mjs")
 	require.NoError(t, err)
-	browser := exec.Command("node", browserScript, controlPlane.URL)
+	browserContext, cancelBrowser := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancelBrowser()
+	browser := exec.CommandContext(browserContext, "node", browserScript, controlPlane.URL)
 	browser.Env = os.Environ()
 	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
 	require.NoError(t, browser.Run())
