@@ -124,11 +124,11 @@ export function Playground({
   }
 
   const handleChooseModel = () => {
-    const selector = Array.from(
-      document.querySelectorAll<HTMLButtonElement>(
+    const selector = [
+      ...document.querySelectorAll<HTMLButtonElement>(
         '[data-agent-model-selector-trigger="true"]'
-      )
-    ).find((element) => element.getClientRects().length > 0)
+      ),
+    ].find((element) => element.getClientRects().length > 0)
 
     if (!selector) return
     selector.scrollIntoView({ behavior: 'smooth', block: 'center' })
