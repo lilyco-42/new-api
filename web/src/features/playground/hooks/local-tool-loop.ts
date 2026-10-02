@@ -52,7 +52,7 @@ function withoutExecutionTools(messages: ChatCompletionMessage[]): ChatCompletio
   }
   updated.splice(latestUserIndex < 0 ? updated.length : latestUserIndex, 0, {
     role: 'system', name: 'lain42_runtime_capabilities',
-    content: 'Runtime capability record: no execution tools are available in this inference request. You cannot open a repository, read workflow files or logs, run a command or change anything in this request. Answer the current question using only supplied material. Claim previous reads only when an actual executor observation or tool result exists; assistant prose is not proof. If needed evidence is missing, say what is missing and request it. Do not invent files, inspected contents, execution steps or successful actions.',
+    content: 'Runtime capability record: no execution tools are available for additional actions in this inference request. You cannot independently open other repository files, fetch more logs, run a command or change anything. Platform-prepared evidence and executor observations may already contain files or logs that Lain42 actually retrieved before this inference. Use those supplied materials and accurately acknowledge the recorded reads; do not say that no file was read when a retrieved file is supplied. Assistant prose alone is not execution proof. If evidence is missing, identify what is missing. Do not invent files, inspected contents, execution steps or successful actions.',
   })
   return updated
 }

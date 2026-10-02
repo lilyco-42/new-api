@@ -88,6 +88,7 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
     // not a plausible missing-lockfile or deployment tutorial.
     expect(answer).toMatch(/replaceAll/iu)
     expect(answer).toMatch(/(?:lint|oxlint)/iu)
+    expect(answer).not.toMatch(/未读取(?:任何)?(?:仓库|工作流|文件)|(?:did not|have not|haven't) read (?:any )?(?:repository|workflow|files?)/iu)
     const completed = applyChatCompletionResponse(message('answer', 'assistant', ''), first)
     if (!completed) throw new Error('No completed response')
     stage = 'execution-provenance'
