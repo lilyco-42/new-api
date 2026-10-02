@@ -59,8 +59,10 @@ function boundedText(value: unknown, limit: number): string {
 export async function prepareWorkflowEvidence(messages: ChatCompletionMessage[], signal: AbortSignal): Promise<ChatCompletionMessage[] | undefined> {
   const target = workflowEvidenceTarget(messages)
   if (!target) return undefined
-  if (!target.repo) return [{ role: 'system', name: 'lain42_workflow_target', content:
-    'The current request is to diagnose or repair a GitHub Actions workflow. No repository was specified. Ask only for owner/name or a workflow run URL; do not give a generic GitHub Actions tutorial, guess a workflow filename, or scan account repositories. No workflow read or modification has happened.' }]
+  if (!target.repo) {
+    return [{ role: 'system', name: 'lain42_workflow_target', content:
+      'The current request is to diagnose or repair a GitHub Actions workflow. No repository was specified. Ask only for owner/name or a workflow run URL; do not give a generic GitHub Actions tutorial, guess a workflow filename, or scan account repositories. No workflow read or modification has happened.' }]
+  }
   let data: Record<string, unknown> = {}
   let confirmed = false
   try {

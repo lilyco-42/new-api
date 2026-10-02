@@ -165,3 +165,44 @@ func TestWorkflowEvidenceRejectsInvalidIdentityBeforeReading(t *testing.T) {
 	_, err = ReadAgentWorkflowEvidence(context.Background(), "merchant/project", 17, "")
 	require.Error(t, err)
 }
+
+func TestWorkflowEvidenceBoundsJobsAndRejectsCrossRunData(t *testing.T) {
+	logs := 0
+	installWorkflowTransport(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(req.URL.Path, "/contents/"):
+			return workflowResponse(200, `{"type":"file","path":".github/workflows/ci.yml","encoding":"base64","size":65537,"content":""}`), nil
+		case strings.HasSuffix(req.URL.Path, "/jobs"):
+			jobs := []string{`{"id":999,"run_id":999,"head_sha":"` + workflowTestSHA + `","name":"wrong run","conclusion":"failure"}`}
+			for i := 1; i < 25; i++ {
+				jobs = append(jobs, fmt.Sprintf(`{"id":%d,"run_id":17,"head_sha":"%s","name":"job","conclusion":"failure"}`, i, workflowTestSHA))
+			}
+			return workflowResponse(200, `{"total_count":25,"jobs":[`+strings.Join(jobs, ",")+`]}`), nil
+		case strings.HasSuffix(req.URL.Path, "/logs"):
+			logs++
+			return workflowResponse(403, ""), nil
+		default:
+			return workflowResponse(200, workflowTestRun), nil
+		}
+	})
+	evidence, err := ReadAgentWorkflowEvidence(context.Background(), "merchant/project", 17, "owner-token")
+	require.NoError(t, err)
+	require.Nil(t, evidence.Workflow, "oversized file must not enter model context")
+	require.True(t, evidence.JobsTruncated)
+	require.Len(t, evidence.Jobs, 19)
+	require.Len(t, evidence.Problems, 2)
+	require.Equal(t, 3, logs)
+	for _, job := range evidence.Jobs {
+		require.Equal(t, int64(17), job.RunID)
+		require.Empty(t, job.Log)
+		require.NotEmpty(t, job.LogError)
+	}
+}
+
+func TestWorkflowLogLocationRejectsUntrustedCredentialAndPrivateURLs(t *testing.T) {
+	for _, raw := range []string{"http://logs.blob.core.windows.net/log", "https://localhost/log", "https://127.0.0.1/log", "https://logs.blob.core.windows.net.attacker.invalid/log", "https://user:password@logs.blob.core.windows.net/log", "https://logs.blob.core.windows.net:8443/log", "https://logs.blob.core.windows.net/log#fragment"} {
+		require.False(t, validWorkflowLogLocation(raw), raw)
+	}
+	require.True(t, validWorkflowLogLocation("https://logs.blob.core.windows.net/log?sig=signed"))
+	require.True(t, validWorkflowLogLocation("https://results.actions.githubusercontent.com/log?sig=signed"))
+}
