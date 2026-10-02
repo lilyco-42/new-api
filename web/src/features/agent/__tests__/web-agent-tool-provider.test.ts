@@ -793,11 +793,10 @@ describe('webAgentToolProvider', () => {
   })
 
   it.each(['?', '??', '>??', '> ??', '\\>??', '\\> ??'])(
-    'asks for clarification on punctuation-only input %s instead of repeating the previous answer',
+    'asks for clarification on punctuation-only input %s when there is no previous conversation',
     (input) => {
       const response = webAgentToolProvider.preflight?.([
-        { role: 'user', content: 'DeepSeek 是什么？' },
-        { role: 'assistant', content: '旧话题回复' },
+        { role: 'system', content: '不要复述旧话题回复。' },
         { role: 'user', content: input },
       ])
 
@@ -817,8 +816,7 @@ describe('webAgentToolProvider', () => {
         {
           model: 'test-model',
           messages: [
-            { role: 'user', content: 'DeepSeek 是什么？' },
-            { role: 'assistant', content: '旧话题回复' },
+            { role: 'system', content: '不要复述旧话题回复。' },
             { role: 'user', content: input },
           ],
           stream: false,
@@ -835,15 +833,14 @@ describe('webAgentToolProvider', () => {
     }
   )
 
-  it('acknowledges a correction about a greeting without reusing prior context', () => {
+  it('leaves a contextual greeting correction to the model with its prior conversation', () => {
     const response = webAgentToolProvider.preflight?.([
       { role: 'user', content: 'DeepSeek 是什么？' },
       { role: 'assistant', content: '旧话题回复' },
       { role: 'user', content: '刚才不是只问了个问好' },
     ])
 
-    expect(response?.choices[0]?.message.content).toContain('刚才答偏了')
-    expect(response?.choices[0]?.message.content).not.toContain('旧话题')
+    expect(response).toBeNull()
   })
 
   it('runs local preflight before falling back from an unavailable provider', async () => {

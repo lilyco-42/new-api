@@ -804,12 +804,20 @@ export const webAgentToolProvider: LocalToolProvider = {
   getToolChoice: () => 'auto',
   preflight: (messages) => {
     let latestUserMessage: ChatCompletionMessage | undefined
+    let latestUserIndex = -1
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === 'user') {
         latestUserMessage = messages[index]
+        latestUserIndex = index
         break
       }
     }
+    // The payload builder already excludes failed turns. A brief reply can be
+    // a selection or correction of the preceding completed conversation.
+    const priorMessages = messages.slice(0, Math.max(0, latestUserIndex))
+    const hasPriorConversation = priorMessages.some((message) => message.role === 'user') &&
+      priorMessages.some((message) => message.role === 'assistant' &&
+        typeof message.content === 'string' && message.content.trim() !== '')
     const content = latestUserMessage?.content
     let text = ''
     if (typeof content === 'string') {
@@ -833,7 +841,7 @@ export const webAgentToolProvider: LocalToolProvider = {
       )
     }
 
-    if (/^\p{N}+$/u.test(text)) {
+    if (!hasPriorConversation && /^\p{N}+$/u.test(text)) {
       return localPreflightResponse(
         'local-ambiguous-number',
         `你发来的是一个数字（${text}）。你希望我帮你做什么？可以补充计算、编号查询或相关背景。`
@@ -842,6 +850,7 @@ export const webAgentToolProvider: LocalToolProvider = {
 
     const normalized = text.toLocaleLowerCase().replaceAll(/\s+/gu, ' ')
     if (
+      !hasPriorConversation &&
       normalized.length <= 48 &&
       /(?:刚才|刚刚|之前).{0,18}(?:问候|问好|打招呼)|(?:我只是|我就只是|我刚才只是).{0,18}(?:问候|问好|打招呼)/u.test(
         normalized
@@ -870,6 +879,7 @@ export const webAgentToolProvider: LocalToolProvider = {
     // through to model inference instead of receiving a local clarification.
     const punctuationOnlyText = text.replace(/^(?:\\?>\s*)+/u, '').trim()
     if (
+      !hasPriorConversation &&
       punctuationOnlyText.length > 0 &&
       /^[?？!！.,，。…~～\s]+$/u.test(punctuationOnlyText)
     ) {
@@ -880,6 +890,7 @@ export const webAgentToolProvider: LocalToolProvider = {
     }
 
     if (
+      !hasPriorConversation &&
       normalized.length <= 64 &&
       /(?:你在干嘛|你在干什么|我问你话|答非所问|回答跑题)/u.test(normalized)
     ) {
