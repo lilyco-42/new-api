@@ -84,6 +84,17 @@ describe('hosted Agent with the real browser provider', () => {
           }],
         } } } as never
       }
+      if (url === '/api/agent/github/issue') {
+        return { data: { success: true, data: {
+          repo: 'merchant/image-workflow', items: [{
+            number: 2, title: 'Earlier reconnect regression', state: 'closed',
+            body: 'The completed batch downloads twice after reconnect.',
+            url: 'https://github.com/merchant/image-workflow/issues/2',
+          }],
+          comments: [{ body: 'It still reproduces when the response is lost after export.', author: 'maintainer' }],
+          comments_truncated: false,
+        } } } as never
+      }
       if (url === '/api/agent/github/workflow-evidence') {
         return { data: { success: true, data: {
           repo: 'merchant/project', problems: [], jobs_truncated: false,
@@ -199,6 +210,27 @@ describe('hosted Agent with the real browser provider', () => {
     expect(response?.choices[0]?.message.content).toContain('scope=connected-account open issues')
     expect(response?.choices[0]?.message.content).toContain('https://github.com/lilyco-42/rembg-ui/issues/17')
     expect(response?.choices[0]?.message.content).not.toContain('还没有读取 Issue')
+  })
+
+  it.each([
+    'https://github.com/merchant/image-workflow/issues/2',
+    '请分析 https://github.com/merchant/image-workflow/issues/2 并给出修复建议',
+  ])('reads the exact linked issue and comments rather than the recent open-issue list: %s', async (request) => {
+    modelAnswer = 'The closed issue and follow-up comment describe duplicate export after a lost response; use a durable export request ID to deduplicate completion.'
+    const response = await send(request)
+
+    expect(api.get).toHaveBeenCalledWith('/api/agent/github/issue', expect.objectContaining({
+      params: { repo: 'merchant/image-workflow', number: 2 },
+    }))
+    expect(api.get).not.toHaveBeenCalledWith('/api/agent/github/issues', expect.anything())
+    expect(fetchClientPage).not.toHaveBeenCalled()
+    expect(submitted).toHaveLength(1)
+    expect(submitted[0]?.text).toContain('The completed batch downloads twice after reconnect.')
+    expect(submitted[0]?.text).toContain('It still reproduces when the response is lost after export.')
+    expect(submitted[0]?.text).toContain('closed')
+    expect(response?.choices[0]?.message.content).toContain(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain('number=2')
+    expect(response?.choices[0]?.message.content).toContain('https://github.com/merchant/image-workflow/issues/2')
   })
 
   it.each([
