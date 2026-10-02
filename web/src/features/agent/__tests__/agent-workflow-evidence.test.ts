@@ -47,6 +47,7 @@ describe('workflow evidence in real browser conversation composition', () => {
     expect(response.choices[0]?.message.content).toContain('unsupported cargo argument')
     expect(response.choices[0]?.message.content).toContain('run_id=17')
     expect(response.choices[0]?.message.content).toContain('未修改文件')
+    expect(response.choices[0]?.message.content).toContain('已提供完整工作流文件')
   })
 
   it('continues the immediate repair task after “github action” rather than returning a tutorial', async () => {
@@ -135,6 +136,7 @@ describe('workflow evidence in real browser conversation composition', () => {
     const context = await prepareWorkflowEvidence([{ role: 'user', content: '诊断 merchant/project 的 workflow' }], new AbortController().signal)
     expect(context?.[0]?.content).toContain('"client_log_truncated":true')
     expect(context?.[0]?.content).toContain('"client_text_truncated":true')
+    expect(browserEvidenceExecutionContext(context ?? [])).toContain('"workflow_file_complete":false')
     expect(new TextEncoder().encode(String(context?.[0]?.content)).length).toBeLessThan(16000)
   })
 
