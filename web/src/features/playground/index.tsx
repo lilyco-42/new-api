@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
+import { MESSAGE_ROLES, MESSAGE_STATUS } from './constants'
 import {
   useChatHandler,
   usePlaygroundConversation,
@@ -96,10 +97,17 @@ export function Playground({
     clearMessages()
   }
 
-  const handleRegenerateWithHostedReset = (
+  const handleRegenerateWithHostedRecovery = (
     message: Parameters<typeof handleRegenerateMessage>[0]
   ) => {
-    hostedTurnProvider?.reset()
+    // Retry a failed observation with its accepted identity. Regenerating a
+    // completed answer deliberately starts a new execution instead.
+    if (
+      message.from !== MESSAGE_ROLES.ASSISTANT ||
+      message.status !== MESSAGE_STATUS.ERROR
+    ) {
+      hostedTurnProvider?.reset()
+    }
     handleRegenerateMessage(message)
   }
 
@@ -144,7 +152,7 @@ export function Playground({
           emptyStateTitle={emptyStateTitle}
           messages={messages}
           isLoadingMessages={isLoadingMessages}
-          onRegenerateMessage={handleRegenerateWithHostedReset}
+          onRegenerateMessage={handleRegenerateWithHostedRecovery}
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteWithHostedReset}
           onSelectPrompt={handleSendMessage}

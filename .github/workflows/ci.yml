@@ -118,6 +118,7 @@ jobs:
           src/features/playground/lib/storage/storage.ts
           src/features/playground/lib/storage/storage-schema.ts
           src/features/playground/types.ts
+          src/features/playground/index.tsx
           src/features/playground/hooks/local-tool-loop.ts
           src/features/playground/hooks/use-chat-handler.ts
           src/features/playground/hooks/use-playground-state.ts
