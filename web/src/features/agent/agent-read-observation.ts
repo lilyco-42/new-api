@@ -1,6 +1,7 @@
 import type { ChatCompletionMessage } from '@/features/playground/types'
 
 import { latestUserRequestText } from './agent-tool-routing'
+import { explainWorkflowReceipt } from './agent-workflow-evidence'
 
 /** Explain platform execution from records, never reconstruct it from model prose. */
 export function explainPreviousRead(messages: ChatCompletionMessage[]): { answer: string; executionContext?: string } | undefined {
@@ -22,6 +23,8 @@ export function explainPreviousRead(messages: ChatCompletionMessage[]): { answer
   if (!json || new TextEncoder().encode(json).byteLength > 4096) return { answer: missing }
   try {
     const record = JSON.parse(json) as Record<string, unknown>
+    const workflow = explainWorkflowReceipt(record, chinese)
+    if (workflow) return { answer: workflow, executionContext: json }
     const parameters = record.parameters as Record<string, unknown> | undefined
     if (record.source !== 'website GitHub OAuth' || !['repositories', 'issues', 'pull requests'].includes(String(record.resource)) ||
       record.scope !== 'this page only' || record.local_gh_used !== false ||

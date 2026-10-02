@@ -8,6 +8,7 @@ import type {
 import { api } from '@/lib/api'
 import { retainResponseExecutionContext } from '@/features/playground/lib/message/response-execution-context'
 import { explainPreviousRead } from './agent-read-observation'
+import { prepareWorkflowEvidence, workflowEvidenceAppendix, workflowEvidenceExecutionContext } from './agent-workflow-evidence'
 
 import {
   crawlClientSite,
@@ -378,6 +379,8 @@ function browserSearchResponseAppendix(
 export function browserEvidenceResponseAppendix(
   messages: ChatCompletionMessage[], preparedContext: ChatCompletionMessage[]
 ): string {
+  const workflowNote = workflowEvidenceAppendix(messages, preparedContext)
+  if (workflowNote) return workflowNote
   const receipt = preparedContext.map((message) => githubReadReceiptsByContext.get(message))
     .find((value) => value !== undefined)
   const searchSources = browserSearchResponseAppendix(messages, preparedContext)
@@ -434,6 +437,8 @@ function finalizePreparedBrowserSearch(
 
 /** Only executor-created contexts may carry a read observation into later turns. */
 export function browserEvidenceExecutionContext(preparedContext: ChatCompletionMessage[]): string | undefined {
+  const workflowContext = workflowEvidenceExecutionContext(preparedContext)
+  if (workflowContext) return workflowContext
   const receipt = preparedContext.map((message) => githubReadReceiptsByContext.get(message))
     .find((value) => value !== undefined)
   if (!receipt) return undefined
@@ -969,6 +974,8 @@ export const webAgentToolProvider: LocalToolProvider = {
     return null
   },
   prepareContext: async (messages, signal) => {
+    const workflow = await prepareWorkflowEvidence(messages, signal)
+    if (workflow) return workflow
     const request = browserGitHubReadRequestText(messages)
     const intent = getGitHubReadIntent(request)
     const repository = explicitGitHubRepository(request)

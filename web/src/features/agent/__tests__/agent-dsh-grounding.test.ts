@@ -74,6 +74,14 @@ describe('hosted Agent with the real browser provider', () => {
           { full_name: 'owner/cad', description: 'Parametric mechanical CAD', updated_at: '2026-09-28', private: true },
         ] } } } as never
       }
+      if (url === '/api/agent/github/workflow-evidence') {
+        return { data: { success: true, data: {
+          repo: 'merchant/project', problems: [], jobs_truncated: false,
+          run: { id: 17, path: '.github/workflows/ci.yml', head_sha: 'a'.repeat(40) },
+          workflow: { path: '.github/workflows/ci.yml', ref: 'a'.repeat(40), text: 'run: cargo build --invalid' },
+          jobs: [{ id: 23, log: 'unexpected argument --invalid', conclusion: 'failure' }],
+        } } } as never
+      }
       if (url === '/api/agent/github/issues' || url === '/api/agent/github/pull-requests') {
         return { data: { success: true, data: { items: [{
           number: 17, title: 'Duplicate export after reconnect',
@@ -121,6 +129,19 @@ describe('hosted Agent with the real browser provider', () => {
     expect(submitted[0]?.text).toContain('say hi')
     expect(response?.choices[0]?.message.content).toBe(modelAnswer)
     expect(searchClientSources).not.toHaveBeenCalled()
+  })
+
+  it('sends actual workflow material to hosted admission without a competing CORS page fetch', async () => {
+    modelAnswer = 'The run failed because cargo received an unsupported --invalid argument; remove it and rerun. No change was made.'
+    const response = await send('请诊断 https://github.com/merchant/project/actions/runs/17')
+    expect(submitted).toHaveLength(1)
+    expect(submitted[0]?.text).toContain('cargo build --invalid')
+    expect(submitted[0]?.text).toContain('unexpected argument --invalid')
+    expect(submitted[0]?.text).toContain('a'.repeat(40))
+    expect(response?.choices[0]?.message.content).toContain(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain('run_id=17')
+    expect(fetchClientPage).not.toHaveBeenCalled()
+    expect(api.get).toHaveBeenCalledWith('/api/agent/github/workflow-evidence', expect.objectContaining({ params: { repo: 'merchant/project', run_id: 17 } }))
   })
 
   it('passes OAuth repository metadata and the attached brief to DSH for a recommendation', async () => {

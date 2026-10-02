@@ -3,6 +3,7 @@ import type { ChatCompletionMessage } from '@/features/playground/types'
 import { asRecord } from './agent-dsh-utils'
 import { latestUserRequestText, shouldRunWebAgentTool } from './agent-tool-routing'
 import { webAgentToolProvider } from './web-agent-tool-provider'
+import { workflowEvidenceTarget } from './agent-workflow-evidence'
 
 export type AgentDSHBrowserContext = {
   text: string
@@ -13,6 +14,7 @@ export async function prepareBrowserContext(
   messages: ChatCompletionMessage[],
   signal: AbortSignal
 ): Promise<AgentDSHBrowserContext> {
+  if (workflowEvidenceTarget(messages)) return { text: '' }
   const requestText = latestUserRequestText(messages)
   const url = firstPublicHttpsUrl(requestText)
   let pageContext = ''
