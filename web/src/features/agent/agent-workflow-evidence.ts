@@ -66,7 +66,7 @@ export async function prepareWorkflowEvidence(messages: ChatCompletionMessage[],
     const response = await api.get('/api/agent/github/workflow-evidence', {
       params: { repo: target.repo, ...(target.runId ? { run_id: target.runId } : {}) }, signal,
     })
-    if (signal.aborted) throw new DOMException('Cancelled', 'AbortError')
+    if (signal.aborted) { throw new DOMException('Cancelled', 'AbortError') }
     const envelope = record(response.data)
     data = record(envelope.data)
     confirmed = envelope.success === true && data.repo === target.repo && Array.isArray(data.jobs) && Array.isArray(data.problems)
@@ -125,8 +125,10 @@ export function explainWorkflowReceipt(value: unknown, chinese: boolean): string
   if (r.workflow_ref !== null && (typeof r.workflow_ref !== 'string' || !/^(?:[a-f\d]{40}|[a-f\d]{64})$/iu.test(r.workflow_ref))) return undefined
   if (r.workflow_read && (!r.run_id || !r.workflow_ref)) return undefined
   if (r.outcome === 'read failed or unconfirmed' && (r.run_id !== null || r.workflow_read || Number(r.logs_read) !== 0 || r.workflow_ref !== null)) return undefined
-  const selected = r.run_id ?? (chinese ? '未确认' : 'unconfirmed')
-  const file = r.workflow_read ? r.workflow_ref : (chinese ? '未读取' : 'not read')
+  const unconfirmed = chinese ? '未确认' : 'unconfirmed'
+  const notRead = chinese ? '未读取' : 'not read'
+  const selected = r.run_id ?? unconfirmed
+  const file = r.workflow_read ? r.workflow_ref : notRead
   return chinese
     ? `读取记录：网站 GitHub OAuth · repo=${r.repo} · run_id=${selected} · workflow_ref=${file} · 实际读取 ${r.logs_read} 份日志 · ${r.outcome} · ${r.fetched_at}。仅为有大小限制的诊断证据；未调用本机 gh，未修改文件。`
     : `Read record: website GitHub OAuth · repo=${r.repo} · run_id=${selected} · workflow_ref=${file} · ${r.logs_read} logs read · ${r.outcome} · ${r.fetched_at}. Bounded diagnostic evidence only; no local gh or file modification.`

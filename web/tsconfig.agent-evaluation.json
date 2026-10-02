@@ -5,5 +5,5 @@
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.agent-evaluation.tsbuildinfo"
   },
-  "include": ["scripts/evaluate-agent-context.ts", "scripts/agent-live-grounding.evaluation.ts", "vitest.agent-live.config.ts"]
+  "include": ["scripts/evaluate-agent-context.ts", "scripts/agent-live-grounding.evaluation.ts", "scripts/agent-workflow-live.evaluation.ts", "vitest.agent-live.config.ts"]
 }
