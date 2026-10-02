@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,6 +48,8 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	const issueURL = "https://github.com/owner/project/issues/2"
 	const answer = "Persist an export request ID before retrying after a lost response. Source: " + issueURL
 	const otherAnswer = "Hello from the second account."
+	const recoveryPrompt = "Keep working if the browser loses this response."
+	const recoveryAnswer = "The original task completed after its observer disconnected."
 	common.IsMasterNode = true
 	common.SQLitePath = filepath.Join(t.TempDir(), "composition.db")
 	t.Setenv("SQL_DSN", "local")
@@ -94,6 +97,11 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	require.NoError(t, model.SaveAgentGitHubCredential(owner.Id, "provider-owner", "owner", "repo", "synthetic-owner-github-token"))
 
 	var githubCalls, providerCalls atomic.Int32
+	recoveryStarted := make(chan struct{}, 1)
+	recoveryReleased := make(chan struct{})
+	var releaseRecoveryOnce sync.Once
+	releaseRecovery := func() { releaseRecoveryOnce.Do(func() { close(recoveryReleased) }) }
+	defer releaseRecovery()
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		githubCalls.Add(1)
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer synthetic-owner-github-token" {
@@ -126,15 +134,48 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 			http.Error(w, "account credentials leaked into inference", http.StatusBadRequest)
 			return
 		}
+		var inference struct {
+			Messages []struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		if json.Unmarshal(body, &inference) != nil {
+			http.Error(w, "invalid model messages", http.StatusBadRequest)
+			return
+		}
+		var latestUser string
+		for _, message := range inference.Messages {
+			if message.Role == "user" {
+				latestUser = string(message.Content)
+			}
+		}
 		var delta any
 		finish := "stop"
-		if strings.Contains(string(body), "Explain my attached browser note") {
+		if strings.Contains(latestUser, recoveryPrompt) {
+			select {
+			case recoveryStarted <- struct{}{}:
+			default:
+			}
+			select {
+			case <-recoveryReleased:
+				delta = map[string]any{"role": "assistant", "content": recoveryAnswer}
+			case <-r.Context().Done():
+				return
+			}
+		} else if strings.Contains(latestUser, "What does that Rust code print?") {
+			if !strings.Contains(string(body), "fn main()") || !strings.Contains(string(body), "The attached note contains CLIENT_FILE_FACT_42.") {
+				http.Error(w, "the previous code answer did not reach follow-up inference", http.StatusBadRequest)
+				return
+			}
+			delta = map[string]any{"role": "assistant", "content": "That Rust code prints CLIENT_FILE_FACT_42."}
+		} else if strings.Contains(latestUser, "Explain my attached browser note") {
 			if !strings.Contains(string(body), "CLIENT_FILE_FACT_42") {
 				http.Error(w, "client attachment did not reach inference", http.StatusBadRequest)
 				return
 			}
 			delta = map[string]any{"role": "assistant", "content": "The attached note contains CLIENT_FILE_FACT_42.\n\n```rust\nfn main() { println!(\"CLIENT_FILE_FACT_42\"); }\n```"}
-		} else if strings.Contains(string(body), "Say hello for the second account") {
+		} else if strings.Contains(latestUser, "Say hello for the second account") {
 			if strings.Contains(string(body), "lost response") || strings.Contains(string(body), issueURL) {
 				http.Error(w, "another account's context leaked", http.StatusBadRequest)
 				return
@@ -271,6 +312,48 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	var tokenCount int64
 	require.NoError(t, db.Model(&model.Token{}).Count(&tokenCount).Error)
 	require.Zero(t, tokenCount)
+	// Lose the browser observer while the real runtime is still awaiting its
+	// external model. This is transport loss, not an explicit Stop command.
+	recoveryTurn := dto.AgentDSHTurnRequest{SessionID: sessionA,
+		RequestID: "55555555-5555-4555-8555-555555555555", Model: turnA.Model, Text: recoveryPrompt}
+	recoveryBody, err := json.Marshal(recoveryTurn)
+	require.NoError(t, err)
+	observerContext, disconnectObserver := context.WithCancel(context.Background())
+	defer disconnectObserver()
+	observerRequest, err := http.NewRequestWithContext(observerContext, http.MethodPost,
+		controlPlane.URL+"/api/agent/dsh/turns", strings.NewReader(string(recoveryBody)))
+	require.NoError(t, err)
+	observerRequest.Header.Set("Authorization", "Bearer "+tokenA)
+	observerRequest.Header.Set("Content-Type", "application/json")
+	observerResult := make(chan error, 1)
+	go func() {
+		response, requestErr := (&http.Client{Timeout: 140 * time.Second}).Do(observerRequest)
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		observerResult <- requestErr
+	}()
+	select {
+	case <-recoveryStarted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the original inference did not start before disconnect")
+	}
+	disconnectObserver()
+	select {
+	case requestErr := <-observerResult:
+		require.ErrorIs(t, requestErr, context.Canceled)
+	case <-time.After(15 * time.Second):
+		t.Fatal("the original observer did not disconnect")
+	}
+	releaseRecovery()
+	status, body = post(tokenA, "/api/agent/dsh/turns", recoveryTurn)
+	require.Equal(t, http.StatusOK, status, body)
+	require.Contains(t, body, recoveryAnswer)
+	require.EqualValues(t, 4, providerCalls.Load(), "a lost response must recover the original inference, not start another")
+	require.EqualValues(t, 2, githubCalls.Load(), "observer recovery must not repeat tool reads")
+	var cancellationCount int64
+	require.NoError(t, db.Model(&model.AgentDSHRequest{}).Where("cancel_requested = ?", true).Count(&cancellationCount).Error)
+	require.Zero(t, cancellationCount, "transport loss must not create an explicit Stop intent")
 	// Run the production build, not a DOM fixture or a route-intercepted UI.
 	// Password login, refresh cookie, Agent turns and attachment conversion use
 	// the real browser and server. The provider remains the declared fixture.
@@ -282,12 +365,12 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	browser.Env = os.Environ()
 	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
 	require.NoError(t, browser.Run())
-	require.EqualValues(t, 5, providerCalls.Load(), "each viewport sends one real attachment turn")
+	require.EqualValues(t, 8, providerCalls.Load(), "each viewport sends an attachment turn and a contextual follow-up")
 	require.EqualValues(t, 2, githubCalls.Load(), "attachment chat has no unrelated GitHub request")
 	for _, account := range []struct {
 		user  model.User
 		calls int
-	}{{owner, 3}, {other, 2}} {
+	}{{owner, 5}, {other, 3}} {
 		var updated model.User
 		require.NoError(t, db.First(&updated, account.user.Id).Error)
 		require.Equal(t, account.user.Quota-account.calls*40, updated.Quota,

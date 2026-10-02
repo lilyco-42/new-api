@@ -120,6 +120,8 @@ jobs:
           src/features/playground/types.ts
           src/features/playground/hooks/local-tool-loop.ts
           src/features/playground/hooks/use-chat-handler.ts
+          src/features/playground/hooks/use-playground-state.ts
+          src/features/playground/hooks/__tests__/use-playground-state-persistence.test.tsx
           src/features/playground/hooks/__tests__/use-chat-handler-stop.test.tsx
           src/features/playground/components/message/playground-message-content.tsx
 

@@ -2,6 +2,12 @@
 
 日期：2026-09-22。基线：`1dcadfc`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
 
+## 浏览器对话保存与恢复（2026-10-03，候选未部署）
+
+浏览器将已完成的回答、错误和 Stop 状态立即写入当前账号的对话存储，再更新最近对话。未完成的流式更新仍合并保存；`pagehide` 会提交待保存的消息，避免刷新依赖 React 卸载回调。真正未完成且没有答复内容的消息在恢复时显示中断状态，不会自动重新执行。此保证要求浏览器本地存储可用并且写入成功，不能把被浏览器禁用或容量不足的存储当作已保存。
+
+DSH 对已完成回答的响应等待 SessionStore 持久化检查点；网站保存的请求身份用于断线后的不可变重试。浏览器刷新、丢失响应和显式 Stop 是不同操作：响应丢失不会自动形成取消意图，重复请求不得再次调用模型或工具、重复扣费。验证由 Actions 的真实 New API/DSH 组合和浏览器流程执行，外部 HTTP 模型 fixture 不证明真实模型回答质量。
+
 ## 1.2 ZeroStack 轻量本地代码运行时评估（2026-09-24）
 
 - 需求是降低个人设备上的常驻占用，同时保留 Lain42 Web/手机入口、网站模型网关和每用户私有节点。ZeroStack 是本地 Rust coding agent，不是跨平台产品 UI；项目 README 自报 26 MB 二进制、平均约 16 MB / 峰值约 24 MB RAM，这些数据尚未由 Lain42 的 CI 和真实设备复测。来源：[ZeroStack README](https://github.com/gi-dellav/zerostack#performance)。

@@ -23,9 +23,17 @@ try {
     const page = await context.newPage();
     const errors = [];
     const postedPaths = [];
+    const hostedRequests = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('request', request => {
-      if (request.method() === 'POST') postedPaths.push(new URL(request.url()).pathname);
+      if (request.method() !== 'POST') return;
+      const path = new URL(request.url()).pathname;
+      postedPaths.push(path);
+      if (path === '/api/agent/dsh/turns') {
+        const submitted = request.postDataJSON();
+        // Observe only identities; do not retain credentials or attachment bodies.
+        hostedRequests.push({ session: submitted.session_id, request: submitted.request_id });
+      }
     });
     await context.tracing.start({ screenshots: true, snapshots: true });
     try {
@@ -63,11 +71,24 @@ try {
       // The browser must preserve the current conversation after a real reload.
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByText('The attached note contains CLIENT_FILE_FACT_42.', { exact: false }).waitFor({ timeout: 30000 });
+      await input.fill('What does that Rust code print?');
+      await send.click();
+      await page.getByText('That Rust code prints CLIENT_FILE_FACT_42.', { exact: true }).waitFor({ timeout: 45000 });
+      assert.equal(postedPaths.filter(path => path === '/api/agent/dsh/turns').length, 2,
+        'The follow-up must reuse the hosted conversation after reload.');
+      assert.equal(hostedRequests.length, 2);
+      assert.match(hostedRequests[0].session, /^[A-Za-z0-9]{64}$/);
+      assert.equal(hostedRequests[1].session, hostedRequests[0].session,
+        'Reload must retain the actual hosted session, not rebuild context in a new one.');
+      assert.notEqual(hostedRequests[1].request, hostedRequests[0].request,
+        'A new user message must have its own request identity.');
+      assert.equal(postedPaths.some(path => /^\/(?:pg|v1)\/(?:chat\/completions|responses)$/.test(path)), false,
+        'Follow-up inference must also remain in the DSH conversation.');
       const layout = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
       assert.ok(layout.scroll <= layout.width + 1, `Horizontal overflow at ${fixture.name}: ${JSON.stringify(layout)}`);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
       await page.screenshot({ path: join(evidence, `${fixture.name}.png`), fullPage: true });
-      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, horizontalOverflow: false });
+      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, contextualFollowUp: true, horizontalOverflow: false });
     } catch (error) {
       await page.screenshot({ path: join(evidence, `${fixture.name}-failure.png`), fullPage: true });
       await writeFile(join(evidence, `${fixture.name}-failure.txt`), `${String(error)}\n${await page.locator('body').innerText()}`);

@@ -26,6 +26,7 @@ import {
   applyMessageStateUpdate,
   getInitialParameterEnabled,
   getInitialPlaygroundConfig,
+  isAssistantMessagePending,
   loadMessages,
   reconcileSystemPrompt,
   type MessageStateUpdater,
@@ -84,27 +85,35 @@ export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
   const [models, setModels] = useState<ModelOption[]>([])
   const [groups, setGroups] = useState<GroupOption[]>([])
 
+  const flushMessages = useCallback(() => {
+    if (messagesSaveTimerRef.current !== null) {
+      window.clearTimeout(messagesSaveTimerRef.current)
+      messagesSaveTimerRef.current = null
+    }
+    if (!hasLoadedMessagesRef.current) return
+    saveMessages(latestMessagesRef.current, storageNamespace)
+    if (storageNamespace.startsWith('agent-')) {
+      window.dispatchEvent(new Event('lain42:agent-chat-updated'))
+    }
+  }, [storageNamespace])
+
   const persistMessages = useCallback(
     (messagesToSave: Message[]) => {
       latestMessagesRef.current = messagesToSave
-
-      if (!hasLoadedMessagesRef.current) {
+      if (!hasLoadedMessagesRef.current) return
+      const latestMessage = messagesToSave.at(-1)
+      // Debounce only unfinished generation; commit a visible final outcome
+      // before rendering it so an immediate reload retains that outcome.
+      if (!latestMessage || !isAssistantMessagePending(latestMessage)) {
+        flushMessages()
         return
       }
-
       if (messagesSaveTimerRef.current !== null) {
         window.clearTimeout(messagesSaveTimerRef.current)
       }
-
-      messagesSaveTimerRef.current = window.setTimeout(() => {
-        messagesSaveTimerRef.current = null
-        saveMessages(latestMessagesRef.current, storageNamespace)
-      }, MESSAGE_SAVE_DEBOUNCE_MS)
-      if (storageNamespace.startsWith('agent-')) {
-        window.dispatchEvent(new Event('lain42:agent-chat-updated'))
-      }
+      messagesSaveTimerRef.current = window.setTimeout(flushMessages, MESSAGE_SAVE_DEBOUNCE_MS)
     },
-    [storageNamespace]
+    [flushMessages]
   )
 
   useEffect(() => {
@@ -131,15 +140,16 @@ export function usePlaygroundState(options: UsePlaygroundStateOptions = {}) {
     }
   }, [storageNamespace, systemMessage])
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Reload/navigation does not reliably run React unmount cleanup.
+    window.addEventListener('pagehide', flushMessages)
+    return () => {
+      window.removeEventListener('pagehide', flushMessages)
       if (messagesSaveTimerRef.current !== null) {
-        window.clearTimeout(messagesSaveTimerRef.current)
-        saveMessages(latestMessagesRef.current, storageNamespace)
+        flushMessages()
       }
-    },
-    [storageNamespace]
-  )
+    }
+  }, [flushMessages])
 
   // Update config with automatic save
   const updateConfig = useCallback(
