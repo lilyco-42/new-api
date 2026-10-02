@@ -142,7 +142,8 @@ it.each([
       ], { ...DEFAULT_CONFIG, model: model ?? '', stream: false, max_tokens: 1024 },
       { ...DEFAULT_PARAMETER_ENABLED, max_tokens: true, temperature: false,
         top_p: false, frequency_penalty: false, presence_penalty: false }, true)
-      await runLocalToolLoop(followup, provider, AbortSignal.timeout(90_000), undefined, request)
+      const explanation = await runLocalToolLoop(followup, provider, AbortSignal.timeout(90_000), undefined, request)
+      answer = String(explanation.choices[0]?.message.content ?? '')
       stage = 'follow-up-grounding'
       expect(answer).toMatch(/oauth/iu)
       expect(answer).toMatch(/网站|本站|浏览器|website|site|browser/iu)
@@ -152,8 +153,8 @@ it.each([
       expect(answer).toMatch(/limit(?:\*\*|[`"'])?\s*[:：=]\s*(?:\*\*|[`"'])?10\b|(?:上限|最多|至多).{0,8}10/iu)
       expect(lookups).toBe(1)
       results.push({ resource: 'query-method-follow-up', passed: true, elapsed_ms: Date.now() - started,
-        inference_calls: 1, lookup_calls: lookups, actual_previous_answer: String(actualAnswer).slice(0, 8000),
-        answer: answer.slice(0, 8000), usage })
+        inference_calls: 0, runtime_record_reply: true, lookup_calls: lookups, actual_previous_answer: String(actualAnswer).slice(0, 8000),
+        answer: answer.slice(0, 8000) })
     }
   } catch {
     results.push({ resource, passed: false, elapsed_ms: Date.now() - started, source: source.slice(0, 2),
@@ -166,7 +167,7 @@ afterAll(async () => {
   await mkdir('evaluation-results', { recursive: true })
   await writeFile('evaluation-results/agent-grounding.json', JSON.stringify({
     candidate_sha: process.env.GITHUB_SHA, model, created_at: new Date().toISOString(),
-    scope: 'Actual candidate payload builder, provider and tool loop; real public GitHub data via an external HTTP test adapter, real website model, and a follow-up using the actual previous answer and read record. NOT website OAuth, DSH, browser, mobile or two-user E2E.',
+    scope: 'Actual candidate payload builder/provider/tool loop; two real public GitHub data reads via an external HTTP adapter and live website model; query-method follow-up rendered by the runtime from the actual previous executor observation. NOT website OAuth, DSH, browser, mobile or two-user E2E.',
     max_inference_requests: 3, max_output_tokens_per_request: 1024, inferenceCalls, results,
   }, null, 2))
 })

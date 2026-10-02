@@ -335,7 +335,7 @@ describe('hosted Agent with the real browser provider', () => {
     memoryStorage.clear()
     const restored = loadMessages('agent-user-42-general-chat-29')
     expect(restored?.[0]?.versions[0]?.executionContext).toContain('"repo":"merchant/image-workflow"')
-    const followup: Message = { key: 'method-followup', from: 'user', versions: [{ id: 'method-followup', content: '你怎么查询的?' }], status: 'complete' }
+    const followup: Message = { key: 'analysis-followup', from: 'user', versions: [{ id: 'analysis-followup', content: '刚才的第17条有哪些风险?' }], status: 'complete' }
     const messages = [...(restored ?? []), followup]
     const provider = createAgentDSHConversation({ storageNamespace: 'agent-user-42-general-chat-29', mode: 'general' })
     providers.push(provider)
@@ -347,10 +347,17 @@ describe('hosted Agent with the real browser provider', () => {
     expect(submitted[2]?.session_id).toBe(submitted[0]?.session_id)
     expect(submitted[2]?.text).toContain('"limit":10')
     expect(submitted[2]?.text).toContain('"repo":"merchant/image-workflow"')
-    expect(submitted[2]?.text).toContain('Current user request:\n你怎么查询的?')
+    expect(submitted[2]?.text).toContain('Current user request:\n刚才的第17条有哪些风险?')
     expect(api.get).toHaveBeenCalledWith('/api/agent/github/issues', expect.anything())
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/api/agent/github/issues')).toHaveLength(1)
     expect(vi.mocked(api.post).mock.calls.filter(([url]) => url === '/api/agent/dsh/sessions')).toHaveLength(1)
+    const method = { ...followup, key: 'method-followup', versions: [{ id: 'method-followup', content: '你怎么查询的?' }] }
+    const methodMessages = [...(restored ?? []), method]
+    const explanation = await provider.send(buildChatCompletionPayload(methodMessages, { ...DEFAULT_CONFIG, model: 'site-model' },
+      DEFAULT_PARAMETER_ENABLED, true), methodMessages, new AbortController().signal)
+    expect(explanation?.choices[0]?.message.content).toContain('repo=merchant/image-workflow')
+    expect(explanation?.choices[0]?.message.content).toContain('limit=10')
+    expect(submitted).toHaveLength(3)
   })
 
   it('creates a distinct admitted request when the selected model changes during retry', async () => {

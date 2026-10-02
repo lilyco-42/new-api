@@ -457,12 +457,9 @@ function parseTextWebSearchToolCall(
 
   const args: Record<string, unknown> = { query: query.trim() }
   if (raw.limit !== undefined) {
-    const limit =
-      typeof raw.limit === 'number'
-        ? raw.limit
-        : typeof raw.limit === 'string' && /^\d+$/u.test(raw.limit.trim())
-          ? Number(raw.limit)
-          : Number.NaN
+    let limit = Number.NaN
+    if (typeof raw.limit === 'number') limit = raw.limit
+    else if (typeof raw.limit === 'string' && /^\d+$/u.test(raw.limit.trim())) limit = Number(raw.limit)
     if (!Number.isSafeInteger(limit)) return null
     args.limit = Math.max(1, Math.min(8, limit))
   }
@@ -520,8 +517,10 @@ export async function runLocalToolLoop(
   )
   assertSignal(signal)
   if (beforeModelResponse) return beforeModelResponse
-  if (!provider.isAvailable()) return request({ ...initialPayload, messages: withoutExecutionTools(initialPayload.messages),
-    tools: [], tool_choice: undefined }, signal)
+  if (!provider.isAvailable()) {
+    return request({ ...initialPayload, messages: withoutExecutionTools(initialPayload.messages),
+      tools: [], tool_choice: undefined }, signal)
+  }
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
   const preparedContext = await provider.prepareContext?.(

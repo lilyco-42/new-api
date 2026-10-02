@@ -98,6 +98,8 @@ jobs:
           src/features/agent/agent-dsh-browser-context.ts
           src/features/agent/agent-tool-routing.ts
           src/features/agent/agent-prompts.ts
+          src/features/agent/agent-read-observation.ts
+          src/features/agent/__tests__/agent-read-observation.test.ts
           src/features/agent/web-agent-tool-provider.ts
           src/features/agent/__tests__/agent-dsh-grounding.test.ts
           src/features/agent/__tests__/agent-dsh.test.ts

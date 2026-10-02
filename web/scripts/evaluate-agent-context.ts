@@ -60,10 +60,8 @@ const cases = [
     initial: '查看我的 GitHub 仓库',
     previous: '本轮通过本站 GitHub OAuth 接口读取了 merchant/image-workflow。没有调用本机 gh。',
     current: '你怎么查询的?',
-    accepts: (answer: string) => /oauth/iu.test(answer) &&
-      !/(?:需要|必须|请先).{0,15}(?:gh auth login|登录.{0,8}(?:CLI|gh))/iu.test(answer) &&
-      !/(?:拥有的|您的|你的|授权用户的).{0,5}全部仓库|(?:按|按照)创建时间/iu.test(answer),
-    criterion: 'Explain only the available previous source claim, without pretending prose is a complete executor observation.',
+    accepts: (answer: string) => /没有可核验的查询执行记录/u.test(answer) && !/owner\s*[:=]|默认|全部仓库/iu.test(answer),
+    criterion: 'The runtime explains that model prose is not an execution record; it must not reconstruct missing parameters.',
   },
   {
     id: 'latest-question-after-old-topic',
@@ -118,7 +116,7 @@ it.each(cases)('$id', async (entry) => {
     if (typeof content !== 'string') throw new Error('Expected a completed text response.')
     answer = content
     expect(api.get).not.toHaveBeenCalled()
-    expect(requests).toBe(1)
+    expect(requests).toBe(entry.id === 'query-source-follow-up' ? 0 : 1)
     expect(entry.accepts(answer)).toBe(true)
     results.push({ id: entry.id, passed: true, criterion: entry.criterion, answer: answer.slice(0, 8000),
       elapsed_ms: Date.now() - started, inference_calls: requests, finish_reason: finishReason, usage })
@@ -134,7 +132,7 @@ afterAll(async () => {
   await mkdir('evaluation-results', { recursive: true })
   await writeFile('evaluation-results/agent-context.json', JSON.stringify({
     candidate_sha: process.env.GITHUB_SHA, model, created_at: new Date().toISOString(),
-    scope: 'Actual candidate prompt, payload builder, browser provider and tool loop, live website model, synthetic prior conversation. No DSH, OAuth, executed tool, mobile or isolation E2E claim.',
+    scope: 'Actual prompt/payload/browser provider/tool loop; two live-model continuity cases and one runtime missing-provenance reply; synthetic prior conversation. No DSH, OAuth, executed tool, mobile or isolation E2E claim.',
     max_requests: 3, inferenceCalls: totalRequests, max_output_tokens_per_request: 1024, results,
   }, null, 2))
 })

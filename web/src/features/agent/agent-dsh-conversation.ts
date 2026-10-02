@@ -9,6 +9,7 @@ import { api } from '@/lib/api'
 import { retainResponseExecutionContext } from '@/features/playground/lib/message/response-execution-context'
 
 import { latestUserRequestText, shouldRunLocalAgentTool } from './agent-tool-routing'
+import { explainPreviousRead } from './agent-read-observation'
 import { prepareBrowserContext } from './agent-dsh-browser-context'
 import { buildTurnInput } from './agent-dsh-input-budget'
 import { browserEvidenceExecutionContext, browserEvidenceResponseAppendix, webAgentToolProvider } from './web-agent-tool-provider'
@@ -143,6 +144,8 @@ export function createAgentDSHConversation(options: {
     if (signal.aborted) {
       throw new DOMException('The request was canceled.', 'AbortError')
     }
+    const observation = explainPreviousRead(payload.messages)
+    if (observation) return localCompletion(payload.model, observation)
     const requestText = latestUserRequestText(payload.messages)
     if (payload.model.trim() === '') {
       return localCompletion(

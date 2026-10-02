@@ -7,6 +7,7 @@ import type {
 } from '@/features/playground/types'
 import { api } from '@/lib/api'
 import { retainResponseExecutionContext } from '@/features/playground/lib/message/response-execution-context'
+import { explainPreviousRead } from './agent-read-observation'
 
 import {
   crawlClientSite,
@@ -863,6 +864,8 @@ export const webAgentToolProvider: LocalToolProvider = {
   shouldRunTool: (call, messages) => shouldRunWebAgentTool(call, messages),
   getToolChoice: () => 'auto',
   preflight: (messages) => {
+    const observation = explainPreviousRead(messages)
+    if (observation) return localPreflightResponse('local-read-observation', observation)
     let latestUserMessage: ChatCompletionMessage | undefined
     let latestUserIndex = -1
     for (let index = messages.length - 1; index >= 0; index -= 1) {

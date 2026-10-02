@@ -60,17 +60,14 @@ describe('GitHub read method recorded with the answer', () => {
       completed,
       message('followup', 'user', '你怎么查询的?'),
     ], { ...DEFAULT_CONFIG, model: 'external-test-model', stream: false }, DEFAULT_PARAMETER_ENABLED, true)
-    const request = vi.fn(async (input: ChatCompletionRequest) => {
-      expect(input.messages.find((entry) => entry.role === 'assistant')?.content).toContain('网站 GitHub OAuth')
-      expect(input.messages.find((entry) => entry.name === 'lain42_execution_record')?.content).toContain('"limit":10')
-      expect(input.messages.at(-1)?.content).toBe('你怎么查询的?')
-      expect(input.tools).toEqual([])
-      return completion('The follow-up reached inference with the actual read record.')
-    })
+    expect(payload.messages.find((entry) => entry.name === 'lain42_execution_record')?.content).toContain('"limit":10')
+    const request = vi.fn(async (_input: ChatCompletionRequest) => completion('Should not generate runtime facts.'))
 
-    await runLocalToolLoop(payload, provider, new AbortController().signal, undefined, request)
+    const explanation = await runLocalToolLoop(payload, provider, new AbortController().signal, undefined, request)
 
-    expect(request).toHaveBeenCalledTimes(1)
+    expect(request).not.toHaveBeenCalled()
+    expect(explanation.choices[0]?.message.content).toContain('实际参数：limit=10')
+    expect(explanation.choices[0]?.message.content).toContain('本次实际返回 0 条')
     expect(api.get).toHaveBeenCalledTimes(1)
   })
 
