@@ -6,11 +6,12 @@ import type {
   Message,
 } from '@/features/playground/types'
 import { api } from '@/lib/api'
+import { retainResponseExecutionContext } from '@/features/playground/lib/message/response-execution-context'
 
 import { latestUserRequestText, shouldRunLocalAgentTool } from './agent-tool-routing'
 import { prepareBrowserContext } from './agent-dsh-browser-context'
 import { buildTurnInput } from './agent-dsh-input-budget'
-import { browserEvidenceResponseAppendix, webAgentToolProvider } from './web-agent-tool-provider'
+import { browserEvidenceExecutionContext, browserEvidenceResponseAppendix, webAgentToolProvider } from './web-agent-tool-provider'
 import {
   MAX_TURN_BODY_BYTES,
   MAX_TURN_TEXT_BYTES,
@@ -285,6 +286,7 @@ export function createAgentDSHConversation(options: {
       pending = {
         version: 2, requestId: createRequestId(), fingerprint: requestFingerprint,
         sessionId: activeSessionId, model: payload.model, mode, text: input.text, appendix,
+        executionContext: browserEvidenceExecutionContext(preparedContext),
       }
     }
 
@@ -359,9 +361,12 @@ export function createAgentDSHConversation(options: {
       messageKey: latestMessageKey,
       fingerprint: requestFingerprint,
     }))
-    return localCompletion(pending.model, pending.appendix
+    const completion = localCompletion(pending.model, pending.appendix
       ? `${result.answer}\n\n${pending.appendix}`
       : result.answer)
+    return pending.executionContext
+      ? retainResponseExecutionContext(completion, pending.executionContext)
+      : completion
   }
 
   return { send, reset }

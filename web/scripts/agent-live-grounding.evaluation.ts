@@ -149,7 +149,7 @@ it.each([
       expect(answer).not.toMatch(/lyco-skill|(?:需要|必须|请先).{0,15}(?:gh auth login|登录.{0,8}(?:CLI|gh))/iu)
       expect(answer).not.toMatch(/\bowner\s*[:=]|\bname\s*[:=]|未传入\s*[`"']?limit|(?:按|按照)创建时间|(?:仓库|返回|获取).{0,12}全部(?:公开)?\s*issue|默认分页/iu)
       expect(answer).toMatch(/repo\s*[:=]\s*[`"']?ast-grep\/ast-grep|ast-grep\/ast-grep/iu)
-      expect(answer).toMatch(/limit\s*[:=]\s*[`"']?10|(?:上限|最多|至多).{0,8}10/iu)
+      expect(answer).toMatch(/limit(?:\*\*|[`"'])?\s*[:：=]\s*(?:\*\*|[`"'])?10\b|(?:上限|最多|至多).{0,8}10/iu)
       expect(lookups).toBe(1)
       results.push({ resource: 'query-method-follow-up', passed: true, elapsed_ms: Date.now() - started,
         inference_calls: 1, lookup_calls: lookups, actual_previous_answer: String(actualAnswer).slice(0, 8000),

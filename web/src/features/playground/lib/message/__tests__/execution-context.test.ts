@@ -37,7 +37,7 @@ describe('executor context alongside generated answers', () => {
     ], DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED, true)
     expect(payload.messages.find((entry) => entry.name === 'lain42_execution_record')?.content).toContain(record)
     expect(payload.messages.at(-1)?.content).toBe('你怎么查询的?')
-    expect(payload.messages.filter((entry) => entry.role === 'assistant')[0]?.content).toBe('Repository answer.')
+    expect(payload.messages.find((entry) => entry.role === 'assistant')?.content).toBe('Repository answer.')
   })
 
   it('does not promote a model JSON field or generated text into an executor record', () => {

@@ -191,12 +191,9 @@ export function applyChatCompletionChoice(
   choice: ChatCompletionChoice
 ): Message {
   const content = choice.message?.content
-  const textContent =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? getTextContent(content)
-        : ''
+  let textContent = ''
+  if (typeof content === 'string') textContent = content
+  else if (Array.isArray(content)) textContent = getTextContent(content)
 
   return completeAssistantTiming({
     ...finalizeMessage(

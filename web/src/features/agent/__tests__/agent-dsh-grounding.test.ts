@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ChatCompletionMessage, ChatCompletionRequest, Message } from '@/features/playground/types'
+import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '@/features/playground/constants'
+import { applyChatCompletionResponse } from '@/features/playground/lib/message/message-streaming-utils'
+import { loadMessages, saveMessages } from '@/features/playground/lib/storage/storage'
+import { buildChatCompletionPayload } from '@/features/playground/lib/streaming/payload-builder'
 import { api } from '@/lib/api'
 
 import { createAgentDSHConversation, type AgentDSHMode } from '../agent-dsh'
@@ -316,6 +320,37 @@ describe('hosted Agent with the real browser provider', () => {
     expect(searchClientSources).toHaveBeenCalledOnce()
     expect(response?.choices[0]?.message.content).toContain('https://huggingface.co/deepseek-ai')
     expect(response?.choices[0]?.message.content).not.toContain('changed-after-admission')
+  })
+
+  it('restores a completed OAuth read observation after a lost hosted response and supplies it to an existing DSH session', async () => {
+    const task = '请阅读 merchant/image-workflow 的 issues，给出建议。'
+    loseNextTurnResponse = true
+    await expect(send(task)).rejects.toThrow('Response lost after admission')
+    memoryStorage.clear()
+    const response = await send(task)
+    if (!response) throw new Error('Expected a hosted completion.')
+    const completed = applyChatCompletionResponse({ key: 'answer', from: 'assistant', versions: [{ id: 'answer', content: '' }] }, response)
+    if (!completed) throw new Error('Expected a completed hosted answer.')
+    saveMessages([completed], 'agent-user-42-general-chat-29')
+    memoryStorage.clear()
+    const restored = loadMessages('agent-user-42-general-chat-29')
+    expect(restored?.[0]?.versions[0]?.executionContext).toContain('"repo":"merchant/image-workflow"')
+    const followup: Message = { key: 'method-followup', from: 'user', versions: [{ id: 'method-followup', content: '你怎么查询的?' }], status: 'complete' }
+    const messages = [...(restored ?? []), followup]
+    const provider = createAgentDSHConversation({ storageNamespace: 'agent-user-42-general-chat-29', mode: 'general' })
+    providers.push(provider)
+    await provider.send(buildChatCompletionPayload(messages, { ...DEFAULT_CONFIG, model: 'site-model', stream: false },
+      DEFAULT_PARAMETER_ENABLED, true), messages, new AbortController().signal)
+
+    expect(submitted).toHaveLength(3)
+    expect(submitted[1]).toEqual(submitted[0])
+    expect(submitted[2]?.session_id).toBe(submitted[0]?.session_id)
+    expect(submitted[2]?.text).toContain('"limit":10')
+    expect(submitted[2]?.text).toContain('"repo":"merchant/image-workflow"')
+    expect(submitted[2]?.text).toContain('Current user request:\n你怎么查询的?')
+    expect(api.get).toHaveBeenCalledWith('/api/agent/github/issues', expect.anything())
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/api/agent/github/issues')).toHaveLength(1)
+    expect(vi.mocked(api.post).mock.calls.filter(([url]) => url === '/api/agent/dsh/sessions')).toHaveLength(1)
   })
 
   it('creates a distinct admitted request when the selected model changes during retry', async () => {

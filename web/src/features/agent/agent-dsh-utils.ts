@@ -62,12 +62,13 @@ export type AgentDSHRequestRecord = {
   mode: 'general' | 'coding' | 'research' | 'content'
   text: string
   appendix: string
+  executionContext?: string
 }
 
 export function parseRequestRecord(value: string | null): AgentDSHRequestRecord | null {
   if (!value) return null
   // JSON may escape each text byte as six ASCII bytes (for example, U+0000).
-  if (byteLength(value) > 6 * (MAX_TURN_TEXT_BYTES + 8 * 1024) + 4096) return null
+  if (byteLength(value) > 6 * (MAX_TURN_TEXT_BYTES + 12 * 1024) + 4096) return null
   try {
     const record = asRecord(JSON.parse(value))
     if (
@@ -79,12 +80,15 @@ export function parseRequestRecord(value: string | null): AgentDSHRequestRecord 
       typeof record.model === 'string' && record.model.length > 0 && record.model.length <= 256 &&
       (record.mode === 'general' || record.mode === 'coding' || record.mode === 'research' || record.mode === 'content') &&
       typeof record.text === 'string' && record.text.trim().length > 0 && byteLength(record.text) <= MAX_TURN_TEXT_BYTES &&
-      typeof record.appendix === 'string' && byteLength(record.appendix) <= 8 * 1024
+      typeof record.appendix === 'string' && byteLength(record.appendix) <= 8 * 1024 &&
+      (record.executionContext === undefined ||
+        (typeof record.executionContext === 'string' && byteLength(record.executionContext) <= 4096))
     ) {
       return {
         version: 2, requestId: record.requestId, fingerprint: record.fingerprint,
         sessionId: record.sessionId, model: record.model, mode: record.mode,
         text: record.text, appendix: record.appendix,
+        ...(typeof record.executionContext === 'string' ? { executionContext: record.executionContext } : {}),
       }
     }
   } catch {

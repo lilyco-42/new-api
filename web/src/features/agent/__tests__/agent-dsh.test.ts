@@ -14,6 +14,7 @@ import { browserEvidenceResponseAppendix, webAgentToolProvider } from '../web-ag
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 vi.mock('../web-agent-tool-provider', () => ({
+  browserEvidenceExecutionContext: vi.fn(() => undefined),
   browserEvidenceResponseAppendix: vi.fn(() => ''),
   webAgentToolProvider: {
     tools: [],

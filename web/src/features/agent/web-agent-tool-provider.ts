@@ -427,14 +427,20 @@ function finalizePreparedBrowserSearch(
       ...response.choices.slice(1),
     ],
   }
+  const context = browserEvidenceExecutionContext(preparedContext)
+  return context ? retainResponseExecutionContext(finalized, context) : finalized
+}
+
+/** Only executor-created contexts may carry a read observation into later turns. */
+export function browserEvidenceExecutionContext(preparedContext: ChatCompletionMessage[]): string | undefined {
   const receipt = preparedContext.map((message) => githubReadReceiptsByContext.get(message))
     .find((value) => value !== undefined)
-  if (!receipt) return finalized
-  return retainResponseExecutionContext(finalized, JSON.stringify({
+  if (!receipt) return undefined
+  return JSON.stringify({
     source: 'website GitHub OAuth', resource: receipt.resource, parameters: receipt.query,
     returned_count: receipt.count, fetched_at: receipt.fetchedAt, scope: 'this page only',
     outcome: receipt.count === null ? 'read failed or unconfirmed' : 'read completed', local_gh_used: false,
-  }))
+  })
 }
 
 function localPreflightResponse(
