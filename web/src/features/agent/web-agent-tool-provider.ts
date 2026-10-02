@@ -227,10 +227,12 @@ const githubReadReceiptsByContext = new WeakMap<ChatCompletionMessage, {
   resource: 'repositories' | 'issues' | 'pull requests'
   count: number | null
   fetchedAt: string
+  query: { limit: number; repo?: string; state?: 'open'; sort?: 'updated' }
 }>()
 
 function githubReadContext(content: string, result: string,
-  resource: 'repositories' | 'issues' | 'pull requests'): ChatCompletionMessage {
+  resource: 'repositories' | 'issues' | 'pull requests',
+  query: { limit: number; repo?: string; state?: 'open'; sort?: 'updated' }): ChatCompletionMessage {
   const message: ChatCompletionMessage = { role: 'system', name: 'lain42_github_oauth_context', content }
   let count: number | null = null
   try {
@@ -239,7 +241,7 @@ function githubReadContext(content: string, result: string,
   } catch {
     // Malformed responses are never recorded as successful empty collections.
   }
-  githubReadReceiptsByContext.set(message, { resource, count, fetchedAt: new Date().toISOString() })
+  githubReadReceiptsByContext.set(message, { resource, count, fetchedAt: new Date().toISOString(), query })
   return message
 }
 
@@ -386,9 +388,15 @@ export function browserEvidenceResponseAppendix(
   } else {
     outcome = chinese ? `本次返回 ${receipt.count} 条` : `${receipt.count} items returned on this page`
   }
+  const query = [
+    receipt.query.repo ? `repo=${receipt.query.repo}` : '',
+    receipt.query.state ? `state=${receipt.query.state}` : '',
+    receipt.query.sort ? `sort=${receipt.query.sort}` : '',
+    `limit=${receipt.query.limit}`,
+  ].filter(Boolean).join(' · ')
   const note = chinese
-    ? `读取记录：网站 GitHub OAuth · ${resource} · ${outcome} · ${receipt.fetchedAt}。未调用本机 gh。`
-    : `Read record: website GitHub OAuth · ${receipt.resource} · ${outcome} · ${receipt.fetchedAt}. No local gh CLI was used.`
+    ? `读取记录：网站 GitHub OAuth · ${resource} · ${query} · ${outcome} · ${receipt.fetchedAt}。范围仅为本次分页，不代表完整集合。未调用本机 gh。`
+    : `Read record: website GitHub OAuth · ${receipt.resource} · ${query} · ${outcome} · ${receipt.fetchedAt}. Scope is this page, not the complete collection. No local gh CLI was used.`
   return [note, searchSources].filter(Boolean).join('\n\n')
 }
 
@@ -439,11 +447,7 @@ function localPreflightResponse(
   }
 }
 
-async function readAccountRepositories(request: string, signal: AbortSignal): Promise<string> {
-  const requestedLimitMatch = request.match(/(?:前|top|first)\s*(\d{1,2})/iu)
-  const limit = requestedLimitMatch
-    ? boundedLimit(Number(requestedLimitMatch[1]), 10, 20)
-    : 10
+async function readAccountRepositories(limit: number, signal: AbortSignal): Promise<string> {
   return webAgentToolProvider.invoke({
     id: 'github-repository-read',
     type: 'function',
@@ -972,7 +976,8 @@ export const webAgentToolProvider: LocalToolProvider = {
         'This read was already attempted without using local gh. Answer the current user request from its actual result, with source links. Do not ask the user to execute an internal tool name, repeat this read, or claim a workflow was changed. An error is not an empty successful result or a CLI login requirement.',
         result,
         '[End website GitHub OAuth evidence.]',
-      ].join('\n'), result, intent === 'issues' ? 'issues' : 'pull requests')]
+      ].join('\n'), result, intent === 'issues' ? 'issues' : 'pull requests',
+      { repo: repository, limit: 10, state: 'open', sort: 'updated' })]
     }
     if (
       getGitHubReadIntent(request) === 'repositories' &&
@@ -980,8 +985,10 @@ export const webAgentToolProvider: LocalToolProvider = {
       !explicitlyTargetsLocalGitHub(request)
     ) {
       let result: string
+      const requestedLimitMatch = request.match(/(?:前|top|first)\s*(\d{1,2})/iu)
+      const limit = requestedLimitMatch ? boundedLimit(Number(requestedLimitMatch[1]), 10, 20) : 10
       try {
-        result = await readAccountRepositories(request, signal)
+        result = await readAccountRepositories(limit, signal)
       } catch (error) {
         if (signal.aborted) throw error
         result = JSON.stringify({ error: safeErrorMessage(error) })
@@ -991,7 +998,7 @@ export const webAgentToolProvider: LocalToolProvider = {
           'The connected account was queried without using a local gh CLI. Use the returned metadata to answer the current request, including any comparison with attached files. Do not substitute authentication status or a bare list for requested analysis. A lookup error does not imply that local gh must be logged in. Do not repeat this repository listing.',
           result,
           '[End website GitHub OAuth evidence.]',
-        ].join('\n'), result, 'repositories')]
+        ].join('\n'), result, 'repositories', { limit })]
     }
     const query = browserSearchQuery(request)
     const searchCall: ChatCompletionToolCall = {
