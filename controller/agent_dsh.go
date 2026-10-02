@@ -294,6 +294,11 @@ type agentDSHToolActivityArgs struct {
 	Limit int    `json:"limit"`
 }
 
+type agentDSHToolIssueArgs struct {
+	Repo   string `json:"repo"`
+	Number int    `json:"number"`
+}
+
 // AgentDSHToolRelay executes only the read-only tool names advertised by the
 // Lain42 DSH preset. Middleware has verified the HMAC, one-use nonce, session
 // owner, and enabled New API account before this handler runs.
@@ -391,6 +396,23 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 			return nil, "github_request_failed", "GitHub repository search failed."
 		}
 		return gin.H{"items": result.Items, "query": query}, "", ""
+	case "github_issue":
+		if !agentDSHGitHubConnected(c.GetInt("id")) {
+			return nil, "github_not_connected", "Connect GitHub to use account issue tools."
+		}
+		var args agentDSHToolIssueArgs
+		if !decodeAgentDSHToolArgs(arguments, &args) {
+			return nil, "invalid_arguments", "Provide owner/name and a positive issue number."
+		}
+		args.Repo = strings.TrimSpace(args.Repo)
+		if !validAgentGitHubIssueTarget(args.Repo, args.Number) {
+			return nil, "invalid_arguments", "Provide owner/name and a positive issue number."
+		}
+		result, err := readAgentGitHubIssue(c, args.Repo, args.Number)
+		if err != nil {
+			return nil, "github_request_failed", "GitHub issue read failed; no issue content was confirmed."
+		}
+		return result, "", ""
 	case "github_issues", "github_pull_requests":
 		if !agentDSHGitHubConnected(c.GetInt("id")) {
 			return nil, "github_not_connected", "Connect GitHub to use account repository tools."

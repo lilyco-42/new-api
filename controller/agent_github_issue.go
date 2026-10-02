@@ -21,6 +21,21 @@ type agentGitHubIssueComment struct {
 	Author        string `json:"author"`
 }
 
+type agentGitHubIssueResult struct {
+	Repo              string                    `json:"repo"`
+	Items             []agentGitHubActivity     `json:"items"`
+	Comments          []agentGitHubIssueComment `json:"comments"`
+	CommentsOrder     string                    `json:"comments_order"`
+	CommentsTruncated bool                      `json:"comments_truncated"`
+	CommentsError     string                    `json:"comments_error"`
+}
+
+func validAgentGitHubIssueTarget(repo string, number int) bool {
+	parts := strings.Split(repo, "/")
+	return number > 0 && number <= 2147483647 && agentGitHubRepoPattern.MatchString(repo) &&
+		len(parts) == 2 && agentGitHubLoginPattern.MatchString(parts[0]) && parts[1] != "." && parts[1] != ".."
+}
+
 // boundedAgentGitHubText keeps the byte limit without splitting a UTF-8 character.
 func boundedAgentGitHubText(text string, limit int) (string, bool) {
 	if len(text) <= limit {
@@ -37,10 +52,8 @@ func boundedAgentGitHubText(text string, limit int) (string, bool) {
 // issues, with at most three oldest comments. All content uses this account's OAuth grant.
 func AgentGitHubIssueRead(c *gin.Context) {
 	repo := strings.TrimSpace(c.Query("repo"))
-	parts := strings.Split(repo, "/")
 	number, err := strconv.Atoi(c.Query("number"))
-	if err != nil || number < 1 || number > 2147483647 || !agentGitHubRepoPattern.MatchString(repo) ||
-		len(parts) != 2 || !agentGitHubLoginPattern.MatchString(parts[0]) || parts[1] == "." || parts[1] == ".." {
+	if err != nil || !validAgentGitHubIssueTarget(repo, number) {
 		writeAgentError(c, http.StatusBadRequest, "AGENT_GITHUB_INVALID", "provide owner/name and a positive issue number")
 		return
 	}
@@ -53,9 +66,8 @@ func AgentGitHubIssueRead(c *gin.Context) {
 		writeAgentError(c, http.StatusInternalServerError, "AGENT_GITHUB_STATUS_FAILED", "GitHub authorization status is unavailable")
 		return
 	}
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", repo, number)
-	var raw map[string]any
-	if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &raw); err != nil {
+	result, err := readAgentGitHubIssue(c, repo, number)
+	if err != nil {
 		status := http.StatusBadGateway
 		var upstream *agentGitHubHTTPError
 		if errors.As(err, &upstream) && (upstream.StatusCode == http.StatusUnauthorized || upstream.StatusCode == http.StatusForbidden || upstream.StatusCode == http.StatusNotFound || upstream.StatusCode == http.StatusTooManyRequests) {
@@ -64,10 +76,19 @@ func AgentGitHubIssueRead(c *gin.Context) {
 		writeAgentError(c, status, "AGENT_GITHUB_REQUEST_FAILED", "GitHub issue read failed")
 		return
 	}
+	common.ApiSuccess(c, result)
+}
+
+// readAgentGitHubIssue is shared by browser reads and the account-scoped DSH tool relay.
+func readAgentGitHubIssue(c *gin.Context, repo string, number int) (agentGitHubIssueResult, error) {
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", repo, number)
+	var raw map[string]any
+	if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &raw); err != nil {
+		return agentGitHubIssueResult{}, err
+	}
 	items := normalizeAgentGitHubActivity([]map[string]any{raw}, false)
 	if len(items) != 1 || items[0].Number != number {
-		writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", "GitHub did not return the requested issue")
-		return
+		return agentGitHubIssueResult{}, errors.New("GitHub did not return the requested issue")
 	}
 	body, _ := raw["body"].(string)
 	items[0].Body, items[0].BodyTruncated = boundedAgentGitHubText(body, 12*1024)
@@ -98,6 +119,6 @@ func AgentGitHubIssueRead(c *gin.Context) {
 			commentsTruncated = commentCount > float64(len(comments))
 		}
 	}
-	common.ApiSuccess(c, gin.H{"repo": repo, "items": items, "comments": comments,
-		"comments_order": "oldest first", "comments_truncated": commentsTruncated, "comments_error": commentError})
+	return agentGitHubIssueResult{Repo: repo, Items: items, Comments: comments,
+		CommentsOrder: "oldest first", CommentsTruncated: commentsTruncated, CommentsError: commentError}, nil
 }
