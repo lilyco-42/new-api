@@ -92,7 +92,7 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
     expect(answer).toMatch(/replaceAll/iu)
     expect(answer).toMatch(/(?:lint|oxlint)/iu)
     expect(answer).not.toMatch(/未读取(?:任何)?(?:仓库|工作流|文件)|(?:did not|have not|haven't) read (?:any )?(?:repository|workflow|files?)/iu)
-    expect(answer).not.toMatch(/未见.{0,12}完整文件|(?:删[去除]|移除).{0,8}[`'“]?g[`'”]?.{0,4}标志/iu)
+    expect(answer).not.toMatch(/未见.{0,12}完整文件|(?:删[去除]|移除).{0,8}[`'“]?g[`'”]?.{0,4}标志|\b(?:drop|remove|delete)\s+(?:the\s+)?(?:global|[`'“]?g[`'”]?)\s+(?:regex\s+)?flag\b/iu)
     const completed = applyChatCompletionResponse(message('answer', 'assistant', ''), first)
     if (!completed) throw new Error('No completed response')
     stage = 'execution-provenance'
