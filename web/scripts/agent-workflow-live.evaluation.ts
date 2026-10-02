@@ -31,6 +31,7 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
   let finalAnswer = ''
   let stage = 'configuration'
   let usage: unknown
+  let finishReason: string | null = null
   try {
     if (!key || !model || !process.env.LAIN42_WORKFLOW_EVIDENCE_FILE) throw new Error('Missing manual evaluation configuration')
     if (!['nvidia/nemotron-3-super-120b-a12b', 'meta/llama-3.2-11b-vision-instruct'].includes(model)) throw new Error('Model not allowlisted')
@@ -52,7 +53,7 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
     const user = `请用六行以内诊断 ${evidence.repo} 的 GitHub Actions run_id=${evidence.run.id}：实际失败步骤和具体报错、工作流路径与提交、最小修复建议、原始运行链接、证据限制。不要求你修改文件或运行本机 CLI。不要把未执行步骤或未看到的错误说成事实。`
     const history = [message('system', 'system', `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}`), message('user', 'user', user)]
     const payload = (items: Message[]) => buildChatCompletionPayload(items,
-      { ...DEFAULT_CONFIG, model, stream: false, max_tokens: 1200 },
+      { ...DEFAULT_CONFIG, model, stream: false, max_tokens: 2048 },
       { ...DEFAULT_PARAMETER_ENABLED, max_tokens: true, temperature: false, top_p: false,
         frequency_penalty: false, presence_penalty: false }, true)
     const request = async (input: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResponse> => {
@@ -74,6 +75,8 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
       if (typeof text !== 'string' || !text.trim() || text.includes(key)) throw new Error('Missing or unsafe answer')
       answer = text
       usage = body.usage
+      finishReason = body.choices[0]?.finish_reason ?? null
+      if (finishReason !== 'stop') throw new Error(`Incomplete model response: finish_reason=${finishReason}`)
       return body
     }
     const provider = createBrowserAgentToolProvider(undefined, false)
@@ -100,9 +103,9 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
     expect(calls).toBe(1)
     expect(reads).toBe(1)
     results.push({ passed: true, inference_calls: calls, evidence, answer, final_answer: finalAnswer,
-      query_method: explanation.choices[0]?.message.content, usage })
+      query_method: explanation.choices[0]?.message.content, usage, finish_reason: finishReason })
   } catch (error) {
-    results.push({ passed: false, stage, inference_calls: calls, answer, final_answer: finalAnswer, usage,
+    results.push({ passed: false, stage, inference_calls: calls, answer, final_answer: finalAnswer, usage, finish_reason: finishReason,
       error: error instanceof Error ? error.message : 'Evaluation failed' })
     throw error
   }

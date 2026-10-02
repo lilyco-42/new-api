@@ -23,6 +23,18 @@ function completion(content: string): ChatCompletionResponse {
 describe('GitHub read method recorded with the answer', () => {
   afterEach(() => vi.mocked(api.get).mockReset())
 
+  it('does not turn a truncated model answer into a successful stop when adding evidence', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data: { items: [] } } })
+    const truncated = completion('Analysis cut off before the conclusion')
+    truncated.choices[0].finish_reason = 'length'
+    const response = await runLocalToolLoop({ model: 'external-test-model', stream: false,
+      messages: [{ role: 'user', content: '查看我的 GitHub 项目' }] }, createBrowserAgentToolProvider(),
+      new AbortController().signal, undefined, async () => truncated)
+    expect(response.choices[0]?.finish_reason).toBe('length')
+    expect(response.choices[0]?.message.content).toContain('Analysis cut off')
+    expect(response.choices[0]?.message.content).toContain('读取记录')
+  })
+
   it.each([
     [{ items: [{ full_name: 'merchant/images' }] }, '本次返回 1 条'],
     [{ items: [] }, '本次返回 0 条'],

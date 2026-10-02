@@ -426,7 +426,7 @@ function finalizePreparedBrowserSearch(
           role: 'assistant',
           content: answer ? `${answer}\n\n${sourceBlock}` : sourceBlock,
         },
-        finish_reason: 'stop',
+        finish_reason: firstChoice.finish_reason,
       },
       ...response.choices.slice(1),
     ],
