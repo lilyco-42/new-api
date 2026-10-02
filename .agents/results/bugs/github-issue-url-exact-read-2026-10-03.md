@@ -12,4 +12,6 @@ The execution receipt records the actual issue number and selected-issue scope, 
 
 ## Validation and remaining work
 
+Run [37034792690](https://github.com/lilyco-42/new-api/actions/runs/37034792690) passed backend validation but exposed another routing gap in four hosted-flow tests: generic page preparation requested browser approval before the OAuth adapter ran. The fix skips this competing CORS path for exact, non-local Issue reads; unrelated webpage reading keeps its existing approval behavior.
+
 Product tests and builds run only in GitHub Actions. Added hosted-flow regressions use the real browser adapter and DSH request preparation while mocking external GitHub and inference boundaries; backend tests protect exact addressing, credential isolation, UTF-8 limits and partial comment failure. The fix's CI result is pending at commit preparation. Actual production OAuth/model behavior, full discussion paging, and source-code-based repairs remain unverified. No merge or deployment occurred.

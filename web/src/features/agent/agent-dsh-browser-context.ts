@@ -1,7 +1,7 @@
 import type { ChatCompletionMessage } from '@/features/playground/types'
 
 import { asRecord } from './agent-dsh-utils'
-import { latestUserRequestText, shouldRunWebAgentTool } from './agent-tool-routing'
+import { explicitGitHubIssueTarget, explicitlyTargetsLocalGitHub, latestUserRequestText, shouldRunWebAgentTool } from './agent-tool-routing'
 import { webAgentToolProvider } from './web-agent-tool-provider'
 import { workflowEvidenceTarget } from './agent-workflow-evidence'
 
@@ -16,6 +16,11 @@ export async function prepareBrowserContext(
 ): Promise<AgentDSHBrowserContext> {
   if (workflowEvidenceTarget(messages)) return { text: '' }
   const requestText = latestUserRequestText(messages)
+  // Exact Issue links are read by the account OAuth adapter in prepareContext.
+  // A generic page approval here would cancel the turn before that read runs.
+  if (explicitGitHubIssueTarget(requestText) && !explicitlyTargetsLocalGitHub(requestText)) {
+    return { text: '' }
+  }
   const url = firstPublicHttpsUrl(requestText)
   let pageContext = ''
   if (url) {
