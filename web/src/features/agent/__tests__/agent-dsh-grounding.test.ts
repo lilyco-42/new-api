@@ -74,6 +74,16 @@ describe('hosted Agent with the real browser provider', () => {
           { full_name: 'owner/cad', description: 'Parametric mechanical CAD', updated_at: '2026-09-28', private: true },
         ] } } } as never
       }
+      if (url === '/api/agent/github/issues/search') {
+        return { data: { success: true, data: {
+          login: 'lilyco-42', query: 'user:lilyco-42 is:issue is:open', total_count: 1, incomplete_results: false,
+          items: [{
+            number: 17, repository: 'lilyco-42/rembg-ui', title: 'Keep batch progress after reconnect',
+            body: 'Reloading the workspace loses the current batch state.', state: 'open',
+            updated_at: '2026-10-01T12:00:00Z', url: 'https://github.com/lilyco-42/rembg-ui/issues/17',
+          }],
+        } } } as never
+      }
       if (url === '/api/agent/github/workflow-evidence') {
         return { data: { success: true, data: {
           repo: 'merchant/project', problems: [], jobs_truncated: false,
@@ -172,6 +182,23 @@ describe('hosted Agent with the real browser provider', () => {
     expect(response?.choices[0]?.message.content).toContain('本次返回 1 条')
     expect(response?.choices[0]?.message.content).toContain('未调用本机 gh')
     expect(api.get).not.toHaveBeenCalledWith('/api/agent/github/status', expect.anything())
+  })
+
+  it('automatically reads OAuth-owned open issues and sends their real contents to hosted DSH in the same turn', async () => {
+    modelAnswer = 'Issue #17 describes lost batch state. Persist a manifest and completed item IDs after every image, then reload the manifest and skip completed items after reconnect.'
+    const response = await send('请阅读我的项目 issue 并尝试解决')
+
+    expect(api.get).toHaveBeenCalledWith('/api/agent/github/issues/search', expect.objectContaining({ params: { limit: 10 } }))
+    expect(api.get).not.toHaveBeenCalledWith('/api/agent/github/repositories', expect.anything())
+    expect(submitted).toHaveLength(1)
+    expect(submitted[0]?.text).toContain('lilyco-42/rembg-ui')
+    expect(submitted[0]?.text).toContain('Keep batch progress after reconnect')
+    expect(submitted[0]?.text).toContain('Reloading the workspace loses the current batch state.')
+    expect(submitted[0]?.text).toContain('https://github.com/lilyco-42/rembg-ui/issues/17')
+    expect(response?.choices[0]?.message.content).toContain('Persist a manifest')
+    expect(response?.choices[0]?.message.content).toContain('scope=connected-account open issues')
+    expect(response?.choices[0]?.message.content).toContain('https://github.com/lilyco-42/rembg-ui/issues/17')
+    expect(response?.choices[0]?.message.content).not.toContain('还没有读取 Issue')
   })
 
   it.each([
