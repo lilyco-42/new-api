@@ -21,6 +21,14 @@ const repairAction = /(?:修复|排查|诊断|阅读|读取|查看|检查|分析
 const workflowTopic = /(?:workflow|github\s+actions?|github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/|工作流|ci\s*(?:失败|报错|failure))/iu
 const declinesRead = /(?:不要|不用|无需|别|禁止|不许).{0,8}(?:读取|阅读|访问|查看|查询)|\b(?:do not|don't|don’t|without)\s+(?:read|fetch|access|inspect|query)/iu
 
+function hasWorkflowTopic(text: string): boolean {
+  if (/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\//iu.test(text)) return true
+  // Repository names such as image-workflow are targets, not task intent.
+  const prose = text.replaceAll(/https?:\/\/[^\s<>]+/giu, ' ')
+    .replaceAll(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/gu, ' ')
+  return workflowTopic.test(prose)
+}
+
 /** Inherit only an immediate user workflow request, never assistant guesses or attachments. */
 export function workflowEvidenceTarget(messages: ChatCompletionMessage[]): WorkflowTarget | undefined {
   const latest = latestUserRequestText(messages)
@@ -29,10 +37,10 @@ export function workflowEvidenceTarget(messages: ChatCompletionMessage[]): Workf
   if (/^github\s+actions?[.!?。！？\s]*$/iu.test(latest)) {
     const users = messages.filter((message) => message.role === 'user')
     const previous = users.at(-2)
-    if (typeof previous?.content !== 'string' || !workflowTopic.test(previous.content) ||
+    if (typeof previous?.content !== 'string' || !hasWorkflowTopic(previous.content) ||
       !repairAction.test(previous.content) || explicitlyTargetsLocalGitHub(previous.content) || declinesRead.test(previous.content)) return undefined
     request = previous.content
-  } else if (!workflowTopic.test(latest) || (!repairAction.test(latest) &&
+  } else if (!hasWorkflowTopic(latest) || (!repairAction.test(latest) &&
     !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+\/?$/iu.test(latest))) return undefined
   const repo = explicitGitHubRepository(request)
   const runMatch = request.match(/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/(\d+)\b|\brun[_ -]?id\s*[=:：]?\s*([^\s。！，;]+)/iu)

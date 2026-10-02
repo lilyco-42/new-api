@@ -175,7 +175,7 @@ export function explicitGitHubRepository(text: string): string | null {
 
 export function explicitlyTargetsLocalGitHub(text: string): boolean {
   const targetPattern =
-    /(?:在|使用|通过|让|调用|运行|交给|use|via|run|on).{0,24}(?:本机|本地|我的设备|配对设备|Radxa|A7A|gh\s*CLI|GitHub\s*CLI|terminal|local\s+(?:device|cli|gh)|paired\s+device|desktop)/giu
+    /(?:在|使用|通过|让|调用|运行|交给|use|via|run|on)[^。.!?！？;；\n]{0,24}(?:本机|本地|我的设备|配对设备|Radxa|A7A|gh\s*CLI|GitHub\s*CLI|terminal|local\s+(?:device|cli|gh)|paired\s+device|desktop)/giu
   for (const match of text.matchAll(targetPattern)) {
     const prefixStart = Math.max(0, (match.index ?? 0) - 16)
     const prefix = text.slice(prefixStart, match.index)

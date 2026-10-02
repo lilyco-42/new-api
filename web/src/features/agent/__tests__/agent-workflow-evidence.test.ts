@@ -86,6 +86,8 @@ describe('workflow evidence in real browser conversation composition', () => {
   it.each([
     'github action', 'GitHub Actions 是什么', '不要读取 merchant/project 的 workflow',
     '在本机 gh CLI 修复 merchant/project 的 workflow', '你好',
+    '请阅读 merchant/image-workflow 的 issues，给出建议。',
+    '请阅读 merchant/image-workflow 的 pull requests，给出建议。',
   ])('does not turn unrelated, declined or explicitly local requests into a website read: %s', async (text) => {
     expect(await prepareWorkflowEvidence([{ role: 'user', content: text }], new AbortController().signal)).toBeUndefined()
     expect(api.get).not.toHaveBeenCalled()
@@ -105,6 +107,7 @@ describe('workflow evidence in real browser conversation composition', () => {
     expect(workflowEvidenceTarget([{ role: 'user', content: '请诊断 https://github.com/merchant/project/actions/runs/17' }])).toEqual({ repo: 'merchant/project', runId: 17 })
     expect(workflowEvidenceTarget([{ role: 'user', content: 'https://github.com/merchant/project/actions/runs/17' }])).toEqual({ repo: 'merchant/project', runId: 17 })
     expect(workflowEvidenceTarget([{ role: 'user', content: '请诊断 merchant/project 的 workflow。不要求你修改文件或运行本机 CLI。' }])).toEqual({ repo: 'merchant/project' })
+    expect(workflowEvidenceTarget([{ role: 'user', content: '请诊断 merchant/project 的 GitHub Actions run_id=17。给出最小修复建议及原始运行链接。不要求你修改文件或运行本机 CLI。' }])).toEqual({ repo: 'merchant/project', runId: 17 })
     expect(workflowEvidenceTarget([{ role: 'user', content: '请诊断 merchant/project 的 workflow run_id=9007199254740993' }])).toEqual({ repo: null })
   })
 
