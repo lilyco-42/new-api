@@ -335,14 +335,15 @@ function githubReadContext(content: string, result: string,
   } catch {
     // Malformed responses are never recorded as successful empty collections.
   }
+  let sources: Array<{ label: string; url: string }> | undefined
+  if (resource === 'issues' || resource === 'pull requests') {
+    if (query.accountWide) sources = safeAccountGitHubIssueSources(result)
+    else if (query.repo) sources = safeGitHubActivitySources(result, resource, query.repo)
+  }
   githubReadReceiptsByContext.set(message, {
     resource, count, fetchedAt: new Date().toISOString(), query,
     ...(resource === 'repositories' ? { repositoryChoices: safeRepositoryChoices(result) } : {}),
-    ...((resource === 'issues' || resource === 'pull requests') && query.accountWide
-      ? { sources: safeAccountGitHubIssueSources(result) }
-      : (resource === 'issues' || resource === 'pull requests') && query.repo
-        ? { sources: safeGitHubActivitySources(result, resource, query.repo) }
-      : {}),
+    ...(sources ? { sources } : {}),
   })
   return message
 }
