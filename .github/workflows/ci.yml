@@ -128,3 +128,53 @@ jobs:
 
       - name: Build frontend production bundle
         run: bun run build
+
+  hosted-dsh-composition:
+    name: Built DSH and New API Issue read, answer, and replay
+    if: github.event.action != 'closed' || github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GOWORK: 'off'
+      DSH_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout New API candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.action == 'closed' && github.event.pull_request.base.ref || github.ref }}
+      - name: Checkout reviewed DSH composition revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: lilyco-42/deepseek-harness
+          ref: 80fef0f899828e4c05dd1939fca83c20650aa1b4
+          path: .ci-dsh
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Set up DSH package manager
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: .ci-dsh/package.json
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .ci-dsh/pnpm-lock.yaml
+      - name: Install native compiler
+        run: sudo apt-get update -qq && sudo apt-get install -y musl-tools
+      - name: Install immutable DSH dependencies
+        working-directory: .ci-dsh
+        run: pnpm install --frozen-lockfile
+      - name: Build actual DSH runtime and Web assets
+        working-directory: .ci-dsh
+        run: pnpm run build
+      - name: Verify account-owned Issue tool continuation and durable replay
+        env:
+          LAIN42_COMPOSITION_DSH_ROOT: ${{ github.workspace }}/.ci-dsh
+        run: |
+          mkdir -p web/dist
+          touch web/dist/index.html
+          go test -tags lain42composition ./router -run '^TestBuiltDSHNewAPIReadAnswerAndReplay$' -count=1 -v -timeout=8m
