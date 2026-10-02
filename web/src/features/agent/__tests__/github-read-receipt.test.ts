@@ -133,6 +133,38 @@ describe('GitHub read method recorded with the answer', () => {
     expect(response.choices[0]?.message.content).not.toContain('your-username')
   })
 
+  it('uses the selected model to assess repository data when the user asks how their repos are doing', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data: { items: [{
+      full_name: 'lilyco-42/rembg-ui',
+      html_url: 'https://github.com/lilyco-42/rembg-ui',
+      private: false,
+      stargazers_count: 7,
+      description: 'Local product-image background removal and batch delivery.',
+      updated_at: '2026-10-01T12:00:00Z',
+    }] } } } as never)
+    const request = vi.fn(async (payload: ChatCompletionRequest) => {
+      const evidence = payload.messages.find((entry) => entry.name === 'lain42_github_oauth_context')
+      expect(evidence?.content).toContain('lilyco-42/rembg-ui')
+      expect(evidence?.content).toContain('Local product-image background removal and batch delivery.')
+      expect(evidence?.content).toContain('2026-10-01T12:00:00Z')
+      expect(payload.messages.at(-1)?.content).toBe('我的github 仓库怎么样了')
+      return completion('本页有 1 个可访问仓库，rembg-ui 有 7 stars；仅凭这页元数据不能判断近期维护质量。')
+    })
+
+    const response = await runLocalToolLoop({ model: 'external-test-model', stream: false,
+      messages: [{ role: 'user', content: '我的github 仓库怎么样了' }] }, createBrowserAgentToolProvider(),
+    new AbortController().signal, undefined, request)
+
+    expect(api.get).toHaveBeenCalledWith('/api/agent/github/repositories', expect.objectContaining({
+      params: { limit: 10 },
+    }))
+    expect(request).toHaveBeenCalledOnce()
+    expect(response.choices[0]?.message.content).toContain('不能判断近期维护质量')
+    expect(response.choices[0]?.message.content).toContain('读取记录：网站 GitHub OAuth')
+    expect(response.choices[0]?.message.content).not.toContain('github.oauth.repositories.list')
+    expect(response.choices[0]?.message.content).not.toContain('your-username')
+  })
+
   it('turns an account-wide Issue request into verified repo choices, then reads only the selected repo', async () => {
     const initialRequest = '请阅读我的项目的 issues 并尝试解决'
     vi.mocked(api.get)
