@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,6 +48,12 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 			previousRateLimit, previousCountToken := setting.ModelRequestRateLimitEnabled, constant.CountToken
 			previousPerformance, previousMode := common.GetPerformanceMonitorConfig(), gin.Mode()
 			previousMaster, previousSQLitePath := common.IsMasterNode, common.SQLitePath
+			previousModelRatios, err := common.Marshal(ratio_setting.GetModelRatioCopy())
+			require.NoError(t, err)
+			previousGroupRatios, err := common.Marshal(ratio_setting.GetGroupRatioCopy())
+			require.NoError(t, err)
+			require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-3.5-turbo":1}`))
+			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
 			common.IsMasterNode = false
 			common.SQLitePath = fmt.Sprintf("file:agent_model_%d?mode=memory&cache=shared", index)
 			t.Setenv("SQL_DSN", "local")
@@ -75,6 +82,8 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 				setting.ModelRequestRateLimitEnabled, constant.CountToken = previousRateLimit, previousCountToken
 				common.SetPerformanceMonitorConfig(previousPerformance)
 				common.IsMasterNode, common.SQLitePath = previousMaster, previousSQLitePath
+				require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(string(previousModelRatios)))
+				require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(string(previousGroupRatios)))
 				gin.SetMode(previousMode)
 				_ = sqlDB.Close()
 			})
