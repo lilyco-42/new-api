@@ -63,6 +63,7 @@ export type AgentDSHRequestRecord = {
   text: string
   appendix: string
   executionContext?: string
+  cancelRequested?: true
 }
 
 export function parseRequestRecord(value: string | null): AgentDSHRequestRecord | null {
@@ -81,6 +82,7 @@ export function parseRequestRecord(value: string | null): AgentDSHRequestRecord 
       (record.mode === 'general' || record.mode === 'coding' || record.mode === 'research' || record.mode === 'content') &&
       typeof record.text === 'string' && record.text.trim().length > 0 && byteLength(record.text) <= MAX_TURN_TEXT_BYTES &&
       typeof record.appendix === 'string' && byteLength(record.appendix) <= 8 * 1024 &&
+      (record.cancelRequested === undefined || record.cancelRequested === true) &&
       (record.executionContext === undefined ||
         (typeof record.executionContext === 'string' && byteLength(record.executionContext) <= 4096))
     ) {
@@ -88,6 +90,7 @@ export function parseRequestRecord(value: string | null): AgentDSHRequestRecord 
         version: 2, requestId: record.requestId, fingerprint: record.fingerprint,
         sessionId: record.sessionId, model: record.model, mode: record.mode,
         text: record.text, appendix: record.appendix,
+        ...(record.cancelRequested === true ? { cancelRequested: true as const } : {}),
         ...(typeof record.executionContext === 'string' ? { executionContext: record.executionContext } : {}),
       }
     }

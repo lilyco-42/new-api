@@ -118,6 +118,7 @@ export function useChatHandler({
   const { sendStreamRequest, stopStream, isStreaming } = useStreamRequest()
   const [isRequesting, setIsRequesting] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const hostedRequestProviderRef = useRef<{ controller: AbortController; provider: HostedTurnProvider } | null>(null)
   const requestGenerationRef = useRef(0)
   const pendingStreamChunksRef = useRef<PendingStreamChunks>({
     generation: 0,
@@ -390,9 +391,15 @@ export function useChatHandler({
           hostedTurnProvider?.reset()
           response = localPreflight
         } else {
+          if (hostedTurnProvider) {
+            hostedRequestProviderRef.current = { controller: abortController, provider: hostedTurnProvider }
+          }
           const hostedResponse = hostedTurnProvider
             ? await hostedTurnProvider.send(payload, messages, abortController.signal)
             : null
+          if (abortController.signal.aborted || requestGenerationRef.current !== generation) {
+            return
+          }
           if (hostedResponse) {
             response = hostedResponse
           } else {
@@ -443,6 +450,7 @@ export function useChatHandler({
       } finally {
         if (requestGenerationRef.current === generation) {
           abortControllerRef.current = null
+          hostedRequestProviderRef.current = null
           setIsRequesting(false)
         }
       }
@@ -489,6 +497,13 @@ export function useChatHandler({
   // Stop generation
   const stopGeneration = useCallback(() => {
     const stoppedGeneration = requestGenerationRef.current
+    const stoppedController = abortControllerRef.current
+    // Request cancellation before aborting observation, retaining the original identity.
+    const originalProvider = hostedRequestProviderRef.current
+    const cancellation = stoppedController && originalProvider?.controller === stoppedController && originalProvider.provider.cancel
+      ? originalProvider.provider.cancel(stoppedController.signal)
+      : undefined
+    hostedRequestProviderRef.current = null
     flushStreamUpdates(stoppedGeneration)
     const idleGeneration = stoppedGeneration + 1
     requestGenerationRef.current = idleGeneration
@@ -501,10 +516,23 @@ export function useChatHandler({
       if (requestGenerationRef.current !== idleGeneration) return prev
       return updateLastAssistantMessage(prev, (message) =>
         isAssistantMessagePending(message)
-          ? completeAssistantMessage(message)
+          ? { ...completeAssistantMessage(message), ...(cancellation ? { stopState: 'requested' as const } : {}) }
           : message
       )
     })
+    if (cancellation) {
+      void cancellation.then((stopState) => {
+        onMessageUpdate((prev) => {
+          if (requestGenerationRef.current !== idleGeneration) return prev
+          return updateLastAssistantMessage(prev, (message) => ({ ...message, stopState }))
+        })
+      }).catch(() => {
+        onMessageUpdate((prev) => {
+          if (requestGenerationRef.current !== idleGeneration) return prev
+          return updateLastAssistantMessage(prev, (message) => ({ ...message, stopState: 'unconfirmed' }))
+        })
+      })
+    }
   }, [
     stopStream,
     flushStreamUpdates,

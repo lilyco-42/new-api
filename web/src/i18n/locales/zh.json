@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Stop requested. Background settlement is not confirmed.": "已请求停止，后台任务是否结束仍待确认。",
+    "Stop delivery could not be confirmed. This message will not be resubmitted.": "停止请求尚未确认送达；这条消息不会重新执行。",
+    "Stopped before a hosted task was submitted.": "已停止；尚未提交网站任务。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

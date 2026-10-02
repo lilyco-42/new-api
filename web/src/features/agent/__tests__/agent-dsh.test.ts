@@ -89,6 +89,75 @@ describe('Lain42 DSH conversation adapter', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(['pending', 'received', 'invalid', 'lost'] as const)(
+    'persists explicit Stop and never replays that prompt after %s delivery', async (delivery) => {
+      const storage = storageFixture()
+      const admitted = Promise.withResolvers<void>()
+      const turn = Promise.withResolvers<unknown>()
+      vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+      vi.mocked(api.post).mockImplementation(async (url) => {
+        if (url === '/api/agent/dsh/sessions') return success({ session_id: SESSION_ID }) as never
+        if (url === '/api/agent/dsh/turns') {
+          admitted.resolve()
+          return await turn.promise as never
+        }
+        if (url === '/api/agent/dsh/turns/cancel') {
+          if (delivery === 'lost') throw new Error('connection lost')
+          return { status: 202, ...success({
+            session_id: SESSION_ID,
+            request_id: delivery === 'invalid' ? 'wrong-request' : REQUEST_ID,
+            cancel_requested: true,
+            delivery: delivery === 'received' ? 'received' : 'pending',
+          }) } as never
+        }
+        throw new Error('Unexpected request')
+      })
+      const options = { storageNamespace: `agent-user-42-general-stop-${delivery}`, mode: 'general' as const, storage }
+      const provider = createAgentDSHConversation(options)
+      providers.push(provider)
+      const controller = new AbortController()
+      const result = provider.send(request('read my repository'), message('stop-message', 'read my repository'), controller.signal)
+        .catch((error: unknown) => error)
+      await admitted.promise
+      const stopping = provider.cancel(controller.signal)
+      controller.abort()
+      if (delivery === 'lost' || delivery === 'invalid') await expect(stopping).rejects.toThrow()
+      else await expect(stopping).resolves.toBe('requested')
+      expect(api.post).toHaveBeenCalledWith('/api/agent/dsh/turns/cancel', {
+        session_id: SESSION_ID, request_id: REQUEST_ID,
+      }, expect.not.objectContaining({ signal: controller.signal }))
+      turn.resolve(success({ session_id: SESSION_ID, request_id: REQUEST_ID, answer: 'late reply' }))
+      expect(await result).toMatchObject({ name: 'AbortError' })
+      const reloaded = createAgentDSHConversation(options)
+      providers.push(reloaded)
+      await expect(reloaded.send(request('read my repository'), message('stop-message', 'read my repository'), new AbortController().signal))
+        .rejects.toThrow('saved Stop request')
+      expect(vi.mocked(api.post).mock.calls.filter(([url]) => url === '/api/agent/dsh/turns')).toHaveLength(1)
+    },
+  )
+
+  it('does not admit a turn when Stop happens during session creation', async () => {
+    const creating = Promise.withResolvers<void>()
+    const session = Promise.withResolvers<unknown>()
+    vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+    vi.mocked(api.post).mockImplementation(async (url) => {
+      if (url !== '/api/agent/dsh/sessions') throw new Error('Turn must not be admitted')
+      creating.resolve()
+      return await session.promise as never
+    })
+    const provider = createAgentDSHConversation({ storageNamespace: 'agent-user-42-general-stop-preparation', mode: 'general', storage: storageFixture() })
+    providers.push(provider)
+    const controller = new AbortController()
+    const result = provider.send(request('read my repository'), message('preparation', 'read my repository'), controller.signal)
+      .catch((error: unknown) => error)
+    await creating.promise
+    await expect(provider.cancel(controller.signal)).resolves.toBe('not-submitted')
+    controller.abort()
+    session.resolve(success({ session_id: SESSION_ID }))
+    expect(await result).toMatchObject({ name: 'AbortError' })
+    expect(api.post).toHaveBeenCalledTimes(1)
+  })
+
   it('sends an authenticated research turn to DSH and returns its answer', async () => {
     const storage = storageFixture()
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)

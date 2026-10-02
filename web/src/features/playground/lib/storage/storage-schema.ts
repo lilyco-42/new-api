@@ -86,6 +86,7 @@ const messageSchema = z.object({
   isReasoningComplete: z.boolean().optional(),
   isContentComplete: z.boolean().optional(),
   status: messageStatusSchema.optional(),
+  stopState: z.enum(['requested', 'unconfirmed', 'not-submitted']).optional(),
   errorCode: z.string().nullable().optional(),
 })
 

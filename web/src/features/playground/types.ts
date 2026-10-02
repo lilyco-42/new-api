@@ -58,6 +58,8 @@ export interface Message {
   isContentComplete?: boolean
   status?: MessageStatus
   errorCode?: string | null
+  /** Stop delivery state; never evidence that background execution settled. */
+  stopState?: 'requested' | 'unconfirmed' | 'not-submitted'
 }
 
 // API payload types
@@ -136,6 +138,8 @@ export interface LocalToolProvider {
 
 /** Optional authenticated turn service used by a focused Agent workspace. */
 export interface HostedTurnProvider {
+  /** Explicit Stop for this observer's original request; independent of socket abort. */
+  cancel?: (signal: AbortSignal) => Promise<'requested' | 'not-submitted'>
   send: (
     payload: ChatCompletionRequest,
     messages: Message[],

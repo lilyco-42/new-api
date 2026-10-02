@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Stop requested. Background settlement is not confirmed.": "Stop requested. Background settlement is not confirmed.",
+    "Stop delivery could not be confirmed. This message will not be resubmitted.": "Stop delivery could not be confirmed. This message will not be resubmitted.",
+    "Stopped before a hosted task was submitted.": "Stopped before a hosted task was submitted.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

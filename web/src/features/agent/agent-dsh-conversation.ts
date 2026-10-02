@@ -49,6 +49,7 @@ type AgentDSHTurnData = {
 }
 
 export type AgentDSHConversation = {
+  cancel: (signal: AbortSignal) => Promise<'requested' | 'not-submitted'>
   send: (
     payload: ChatCompletionRequest,
     messages: Message[],
@@ -66,6 +67,7 @@ export function createAgentDSHConversation(options: {
   const { storageNamespace, mode, localToolProvider, storage } = options
   const sessionStorageKey = `${storageNamespace}${DSH_SESSION_KEY_SUFFIX}`
   const lastTurnStorageKey = `${storageNamespace}${DSH_LAST_TURN_KEY_SUFFIX}`
+  const activeRequests = new WeakMap<AbortSignal, { key: string; request: AgentDSHRequestRecord }>()
 
   const getStorage = () => {
     if (storage) return storage
@@ -103,6 +105,25 @@ export function createAgentDSHConversation(options: {
     } catch {
       // The in-memory entry is removed even when browser storage is blocked.
     }
+  }
+
+  const cancel = async (signal: AbortSignal): Promise<'requested' | 'not-submitted'> => {
+    const active = activeRequests.get(signal)
+    if (!active) return 'not-submitted'
+    // Persist first; a lost Stop response must not turn retry into a new execution.
+    active.request.cancelRequested = true
+    write(active.key, JSON.stringify(active.request))
+    const response = await api.post('/api/agent/dsh/turns/cancel', {
+      session_id: active.request.sessionId,
+      request_id: active.request.requestId,
+    }, { timeout: 6000, skipBusinessError: true, skipErrorHandler: true })
+    const data = readEnvelopeData<Record<string, unknown>>(response.data)
+    if (response.status !== 202 || data.session_id !== active.request.sessionId ||
+      data.request_id !== active.request.requestId || data.cancel_requested !== true ||
+      (data.delivery !== 'pending' && data.delivery !== 'received')) {
+      throw new Error('The hosted Agent could not confirm receipt of the Stop request.')
+    }
+    return 'requested'
   }
 
   const reset = () => {
@@ -237,6 +258,12 @@ export function createAgentDSHConversation(options: {
         'The previous request cannot be safely resumed. Start a new turn; the old task was not automatically rerun.'))
     }
 
+    if (pending?.cancelRequested) {
+      throw new Error(localizedMessage(requestText,
+        '这条消息已记录停止请求，不会重新执行。停止结果仍须确认；请新建消息继续。',
+        'This message has a saved Stop request and will not be resubmitted. Settlement is not confirmed; start a new message.'))
+    }
+
     if (!pending) {
       // Validate the instruction before network work; only supporting material may be cut.
       try {
@@ -288,6 +315,7 @@ export function createAgentDSHConversation(options: {
         browserEvidenceResponseAppendix(payload.messages, preparedContext),
       ].filter(Boolean).join('\n\n')
       const activeSessionId = sessionId ?? await createAgentDSHSession(signal)
+      if (signal.aborted) throw new DOMException('The request was canceled.', 'AbortError')
       write(sessionStorageKey, activeSessionId)
       pending = {
         version: 2, requestId: createRequestId(), fingerprint: requestFingerprint,
@@ -322,6 +350,8 @@ export function createAgentDSHConversation(options: {
     // Store bounded turn text and source presentation, not raw images or OAuth keys.
     // A failed/lost response retains this exact snapshot for page reload and retry.
     write(requestKey, JSON.stringify(pending))
+    if (signal.aborted) throw new DOMException('The request was canceled.', 'AbortError')
+    activeRequests.set(signal, { key: requestKey, request: pending })
 
     const response = await api.post(
       '/api/agent/dsh/turns',
@@ -352,7 +382,10 @@ export function createAgentDSHConversation(options: {
           'The previous turn\'s result is unavailable. Start a new message; the old task was not automatically rerun.'))
       }
       throw error
-    })
+    }).finally(() => { activeRequests.delete(signal) })
+    if (pending.cancelRequested || signal.aborted) {
+      throw new DOMException('The request was canceled.', 'AbortError')
+    }
     const result = readEnvelopeData<AgentDSHTurnData>(response.data)
     if (
       result.session_id !== pending.sessionId ||
@@ -375,7 +408,7 @@ export function createAgentDSHConversation(options: {
       : completion
   }
 
-  return { send, reset }
+  return { send, reset, cancel }
 }
 
 async function isAgentDSHConfigured(signal: AbortSignal): Promise<boolean> {
