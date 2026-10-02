@@ -168,7 +168,11 @@ export function explicitGitHubRepository(text: string): string | null {
   }
   const withoutURLs = text.replaceAll(/https?:\/\/[^\s<>]+/giu, ' ')
   for (const match of withoutURLs.matchAll(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/gu)) {
-    repositories.add(match[0].toLowerCase())
+    const candidate = match[0].toLowerCase()
+    // Common requested output formats are not an additional repository grant.
+    // A real repository with one of these names can still use its explicit URL.
+    if (['before/after', 'owner/name', 'ci/cd'].includes(candidate)) continue
+    repositories.add(candidate)
   }
   return repositories.size === 1 ? [...repositories][0] ?? null : null
 }

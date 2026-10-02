@@ -67,7 +67,7 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
       expect(context?.content).toContain(evidence.run.path)
       expect(context?.content).toContain('String#replaceAll')
       expect(context?.content).toContain('"sources":')
-      expect(context?.content).toContain(evidence.sources[0]?.text ?? 'MISSING_SOURCE')
+      expect(context?.content).toContain(JSON.stringify(evidence.sources[0]?.text ?? 'MISSING_SOURCE'))
       stage = 'inference'
       calls++
       const response = await fetch('https://api.lain42.top/v1/chat/completions', {

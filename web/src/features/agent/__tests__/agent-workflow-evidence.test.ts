@@ -113,6 +113,8 @@ describe('workflow evidence in real browser conversation composition', () => {
   it('uses explicit run URLs and does not silently round unsafe run IDs', () => {
     expect(workflowEvidenceTarget([{ role: 'user', content: '请诊断 https://github.com/merchant/project/actions/runs/17' }])).toEqual({ repo: 'merchant/project', runId: 17 })
     expect(workflowEvidenceTarget([{ role: 'user', content: 'https://github.com/merchant/project/actions/runs/17' }])).toEqual({ repo: 'merchant/project', runId: 17 })
+    expect(workflowEvidenceTarget([{ role: 'user', content: '请诊断 merchant/project 的 GitHub Actions run_id=17，给出 before/after 最小修改。' }])).toEqual({ repo: 'merchant/project', runId: 17 })
+    expect(workflowEvidenceTarget([{ role: 'user', content: '诊断 https://github.com/before/after 的 workflow' }])).toEqual({ repo: 'before/after' })
     expect(workflowEvidenceTarget([{ role: 'user', content: '请诊断 merchant/project 的 workflow。不要求你修改文件或运行本机 CLI。' }])).toEqual({ repo: 'merchant/project' })
     expect(workflowEvidenceTarget([{ role: 'user', content: '请诊断 merchant/project 的 GitHub Actions run_id=17。给出最小修复建议及原始运行链接。不要求你修改文件或运行本机 CLI。' }])).toEqual({ repo: 'merchant/project', runId: 17 })
     expect(workflowEvidenceTarget([{ role: 'user', content: '请用六行以内诊断 merchant/project 的 GitHub Actions run_id=17：实际失败步骤和具体报错、工作流路径与提交、最小修复建议、原始运行链接、证据限制。不要求你修改文件或运行本机 CLI。不要把未执行步骤或未看到的错误说成事实。' }])).toEqual({ repo: 'merchant/project', runId: 17 })
