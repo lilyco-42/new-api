@@ -199,7 +199,7 @@ function formatBrowserSearchResults(result: string): string | null {
       }
       if (url.protocol !== 'https:' || url.username || url.password) continue
 
-      const title = item.title.trim().slice(0, 240).replace(/[\[\]\\]/gu, '\\$&')
+      const title = item.title.trim().slice(0, 240).replaceAll(/[\[\]\\]/gu, '\\$&')
       if (!title) continue
       const source =
         typeof item.source === 'string' ? item.source.trim().slice(0, 60) : ''
@@ -417,7 +417,7 @@ function parseTextWebSearchToolCall(
   const trimmed = content.trim()
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/iu)
   const serialized = (fenced?.[1] ?? trimmed)
-    .replace(/[“”]/gu, '"')
+    .replaceAll(/[“”]/gu, '"')
     .replaceAll('：', ':')
   let parsed: unknown
   try {
@@ -467,7 +467,7 @@ function parseTextWebSearchToolCall(
   const rawScope = raw.scope ?? raw.source
   if (rawScope !== undefined) {
     if (typeof rawScope !== 'string') return null
-    const scope = rawScope.trim().toLocaleLowerCase().replace(/[ _-]+/gu, '')
+    const scope = rawScope.trim().toLocaleLowerCase().replaceAll(/[ _-]+/gu, '')
     const normalizedScope: Record<string, string> = {
       auto: 'auto',
       github: 'github',

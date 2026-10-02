@@ -865,7 +865,10 @@ export const webAgentToolProvider: LocalToolProvider = {
   getToolChoice: () => 'auto',
   preflight: (messages) => {
     const observation = explainPreviousRead(messages)
-    if (observation) return localPreflightResponse('local-read-observation', observation)
+    if (observation) {
+      const response = localPreflightResponse('local-read-observation', observation.answer)
+      return observation.executionContext ? retainResponseExecutionContext(response, observation.executionContext) : response
+    }
     let latestUserMessage: ChatCompletionMessage | undefined
     let latestUserIndex = -1
     for (let index = messages.length - 1; index >= 0; index -= 1) {

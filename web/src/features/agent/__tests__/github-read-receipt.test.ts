@@ -68,6 +68,13 @@ describe('GitHub read method recorded with the answer', () => {
     expect(request).not.toHaveBeenCalled()
     expect(explanation.choices[0]?.message.content).toContain('实际参数：limit=10')
     expect(explanation.choices[0]?.message.content).toContain('本次实际返回 0 条')
+    const rendered = applyChatCompletionResponse(message('explanation', 'assistant', ''), explanation)
+    if (!rendered) throw new Error('Expected the runtime explanation to form a completed message.')
+    const repeated = buildChatCompletionPayload([rendered, message('again', 'user', '你怎么查询的?')],
+      { ...DEFAULT_CONFIG, model: 'external-test-model' }, DEFAULT_PARAMETER_ENABLED, true)
+    const repeatResponse = await runLocalToolLoop(repeated, provider, new AbortController().signal, undefined, request)
+    expect(repeatResponse.choices[0]?.message.content).toContain('本次实际返回 0 条')
+    expect(request).not.toHaveBeenCalled()
     expect(api.get).toHaveBeenCalledTimes(1)
   })
 

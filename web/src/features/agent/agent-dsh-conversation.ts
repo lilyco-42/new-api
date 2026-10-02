@@ -145,7 +145,10 @@ export function createAgentDSHConversation(options: {
       throw new DOMException('The request was canceled.', 'AbortError')
     }
     const observation = explainPreviousRead(payload.messages)
-    if (observation) return localCompletion(payload.model, observation)
+    if (observation) {
+      const response = localCompletion(payload.model, observation.answer)
+      return observation.executionContext ? retainResponseExecutionContext(response, observation.executionContext) : response
+    }
     const requestText = latestUserRequestText(payload.messages)
     if (payload.model.trim() === '') {
       return localCompletion(
