@@ -8,6 +8,8 @@ const origin = process.argv[2];
 assert.match(origin ?? '', /^http:\/\/127\.0\.0\.1:\d+$/);
 const dshRoot = process.env.LAIN42_COMPOSITION_DSH_ROOT;
 assert.ok(dshRoot, 'The reviewed DSH checkout is required; never skip this gate.');
+const modelFixture = process.env.LAIN42_BROWSER_MODEL_FIXTURE;
+assert.match(modelFixture ?? '', /^http:\/\/127\.0\.0\.1:\d+$/);
 const require = createRequire(join(dshRoot, 'apps/web/package.json'));
 const { chromium, devices } = require('playwright');
 const evidence = resolve(process.env.LAIN42_BROWSER_EVIDENCE_DIR ?? '.agents/results/browser-acceptance');
@@ -84,11 +86,35 @@ try {
         'A new user message must have its own request identity.');
       assert.equal(postedPaths.some(path => /^\/(?:pg|v1)\/(?:chat\/completions|responses)$/.test(path)), false,
         'Follow-up inference must also remain in the DSH conversation.');
+      // Hold only the external provider, then actually navigate away from the
+      // in-flight website request. No website response or auth is intercepted.
+      await input.fill(`Recover this browser task for ${fixture.name}.`);
+      await send.click();
+      const started = await fetch(`${modelFixture}/fixture/browser/${fixture.name}/started`, {
+        signal: AbortSignal.timeout(15000),
+      });
+      assert.equal(started.status, 204, 'The original browser inference must start before navigation.');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const retry = page.getByRole('button', { name: 'Retry', exact: true });
+      await retry.waitFor({ state: 'visible', timeout: 15000 });
+      const released = await fetch(`${modelFixture}/fixture/browser/${fixture.name}/release`, {
+        signal: AbortSignal.timeout(15000),
+      });
+      assert.equal(released.status, 204);
+      await retry.click();
+      await page.getByText(`Recovered ${fixture.name} without another inference.`, { exact: true }).waitFor({ timeout: 45000 });
+      assert.equal(hostedRequests.length, 4, 'Retry must use the hosted original request.');
+      assert.equal(hostedRequests[3].session, hostedRequests[2].session,
+        'Retry after navigation must retain the accepted session.');
+      assert.equal(hostedRequests[3].request, hostedRequests[2].request,
+        'Retry after navigation must retain the accepted request; do not infer or charge again.');
+      assert.equal(postedPaths.includes('/api/agent/dsh/turns/cancel'), false,
+        'Navigating away is not an explicit Stop.');
       const layout = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
       assert.ok(layout.scroll <= layout.width + 1, `Horizontal overflow at ${fixture.name}: ${JSON.stringify(layout)}`);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
       await page.screenshot({ path: join(evidence, `${fixture.name}.png`), fullPage: true });
-      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, contextualFollowUp: true, horizontalOverflow: false });
+      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, horizontalOverflow: false });
     } catch (error) {
       await page.screenshot({ path: join(evidence, `${fixture.name}-failure.png`), fullPage: true });
       await writeFile(join(evidence, `${fixture.name}-failure.txt`), `${String(error)}\n${await page.locator('body').innerText()}`);

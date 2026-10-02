@@ -102,6 +102,18 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	var releaseRecoveryOnce sync.Once
 	releaseRecovery := func() { releaseRecoveryOnce.Do(func() { close(recoveryReleased) }) }
 	defer releaseRecovery()
+	// Synchronize real browser navigation with the external model fixture.
+	// These controls never replace website auth, turn responses or billing.
+	type browserRecoveryGate struct {
+		started, released      chan struct{}
+		startOnce, releaseOnce sync.Once
+	}
+	browserRecovery := map[string]*browserRecoveryGate{}
+	for _, viewport := range []string{"desktop", "mobile"} {
+		gate := &browserRecoveryGate{started: make(chan struct{}), released: make(chan struct{})}
+		browserRecovery[viewport] = gate
+		defer gate.releaseOnce.Do(func() { close(gate.released) })
+	}
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		githubCalls.Add(1)
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer synthetic-owner-github-token" {
@@ -124,6 +136,29 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/fixture/browser/") {
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/fixture/browser/"), "/")
+			if len(parts) != 2 || browserRecovery[parts[0]] == nil {
+				http.Error(w, "unknown browser fixture control", http.StatusNotFound)
+				return
+			}
+			gate := browserRecovery[parts[0]]
+			switch parts[1] {
+			case "started":
+				select {
+				case <-gate.started:
+				case <-r.Context().Done():
+					return
+				}
+			case "release":
+				gate.releaseOnce.Do(func() { close(gate.released) })
+			default:
+				http.Error(w, "unknown browser fixture action", http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		providerCalls.Add(1)
 		body, readErr := io.ReadAll(r.Body)
 		if readErr != nil || r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer synthetic-upstream-only-key" {
@@ -152,7 +187,23 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		}
 		var delta any
 		finish := "stop"
-		if strings.Contains(latestUser, recoveryPrompt) {
+		var browserGate *browserRecoveryGate
+		var browserViewport string
+		for viewport, gate := range browserRecovery {
+			if strings.Contains(latestUser, "Recover this browser task for "+viewport+".") {
+				browserGate, browserViewport = gate, viewport
+				break
+			}
+		}
+		if browserGate != nil {
+			browserGate.startOnce.Do(func() { close(browserGate.started) })
+			select {
+			case <-browserGate.released:
+				delta = map[string]any{"role": "assistant", "content": "Recovered " + browserViewport + " without another inference."}
+			case <-r.Context().Done():
+				return
+			}
+		} else if strings.Contains(latestUser, recoveryPrompt) {
 			select {
 			case recoveryStarted <- struct{}{}:
 			default:
@@ -362,15 +413,17 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	browserContext, cancelBrowser := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancelBrowser()
 	browser := exec.CommandContext(browserContext, "node", browserScript, controlPlane.URL)
-	browser.Env = os.Environ()
+	browser.Env = append(os.Environ(), "LAIN42_BROWSER_MODEL_FIXTURE="+provider.URL)
 	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
 	require.NoError(t, browser.Run())
-	require.EqualValues(t, 8, providerCalls.Load(), "each viewport sends an attachment turn and a contextual follow-up")
+	require.EqualValues(t, 10, providerCalls.Load(), "each viewport recovers its pending turn without a second inference")
 	require.EqualValues(t, 2, githubCalls.Load(), "attachment chat has no unrelated GitHub request")
+	require.NoError(t, db.Model(&model.AgentDSHRequest{}).Where("cancel_requested = ?", true).Count(&cancellationCount).Error)
+	require.Zero(t, cancellationCount, "browser navigation must not create an explicit Stop intent")
 	for _, account := range []struct {
 		user  model.User
 		calls int
-	}{{owner, 5}, {other, 3}} {
+	}{{owner, 6}, {other, 4}} {
 		var updated model.User
 		require.NoError(t, db.First(&updated, account.user.Id).Error)
 		require.Equal(t, account.user.Quota-account.calls*40, updated.Quota,
