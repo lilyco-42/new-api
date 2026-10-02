@@ -49,14 +49,18 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 			previousRedis, previousMemory, previousBatch := common.RedisEnabled, common.MemoryCacheEnabled, common.BatchUpdateEnabled
 			previousLogs, previousExport := common.LogConsumeEnabled, common.DataExportEnabled
 			previousRateLimit, previousCountToken := setting.ModelRequestRateLimitEnabled, constant.CountToken
+			previousStreamingTimeout := constant.StreamingTimeout
 			previousPerformance, previousMode := common.GetPerformanceMonitorConfig(), gin.Mode()
 			previousMaster, previousSQLitePath := common.IsMasterNode, common.SQLitePath
 			previousModelRatios, err := common.Marshal(ratio_setting.GetModelRatioCopy())
 			require.NoError(t, err)
 			previousGroupRatios, err := common.Marshal(ratio_setting.GetGroupRatioCopy())
 			require.NoError(t, err)
+			previousCompletionRatios, err := common.Marshal(ratio_setting.GetCompletionRatioCopy())
+			require.NoError(t, err)
 			require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-3.5-turbo":1}`))
 			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+			require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(`{"gpt-3.5-turbo":2}`))
 			common.IsMasterNode = false
 			common.SQLitePath = fmt.Sprintf("file:agent_model_%d?mode=memory&cache=shared", index)
 			t.Setenv("SQL_DSN", "local")
@@ -73,6 +77,7 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 			common.RedisEnabled, common.MemoryCacheEnabled, common.BatchUpdateEnabled = false, false, false
 			common.LogConsumeEnabled, common.DataExportEnabled = true, false
 			setting.ModelRequestRateLimitEnabled, constant.CountToken = false, false
+			constant.StreamingTimeout = 10
 			// No machine performance sampler runs in this deterministic fixture.
 			common.SetPerformanceMonitorConfig(common.PerformanceMonitorConfig{})
 			gin.SetMode(gin.TestMode)
@@ -83,10 +88,12 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 				common.RedisEnabled, common.MemoryCacheEnabled, common.BatchUpdateEnabled = previousRedis, previousMemory, previousBatch
 				common.LogConsumeEnabled, common.DataExportEnabled = previousLogs, previousExport
 				setting.ModelRequestRateLimitEnabled, constant.CountToken = previousRateLimit, previousCountToken
+				constant.StreamingTimeout = previousStreamingTimeout
 				common.SetPerformanceMonitorConfig(previousPerformance)
 				common.IsMasterNode, common.SQLitePath = previousMaster, previousSQLitePath
 				require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(string(previousModelRatios)))
 				require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(string(previousGroupRatios)))
+				require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(string(previousCompletionRatios)))
 				gin.SetMode(previousMode)
 				_ = sqlDB.Close()
 			})
@@ -194,7 +201,7 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 			assert.Equal(t, owner.Id, logs[0].UserId)
 			assert.Equal(t, channel.Id, logs[0].ChannelId)
 			assert.Zero(t, logs[0].TokenId)
-			assert.Equal(t, 50, logs[0].Quota, "20 prompt tokens and 10 completion tokens at configured ratio 1, completion ratio 3")
+			assert.Equal(t, 40, logs[0].Quota, "20 prompt tokens and 10 completion tokens at configured ratio 1, completion ratio 2")
 			assert.Equal(t, owner.Quota-logs[0].Quota, updatedOwner.Quota)
 			assert.Equal(t, logs[0].Quota, updatedOwner.UsedQuota)
 		})
