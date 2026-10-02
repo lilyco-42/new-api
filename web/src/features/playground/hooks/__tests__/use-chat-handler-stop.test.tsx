@@ -13,10 +13,16 @@ vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() }, getFreshAuth
 
 afterEach(() => { localStorage.clear() })
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((complete) => { resolve = complete })
+  return { promise, resolve }
+}
+
 it.each(['received', 'lost'] as const)('keeps %s Stop visible after reload using the actual conversation and hook', async (delivery) => {
   const sessionId = 'A'.repeat(64)
-  const admitted = Promise.withResolvers<void>()
-  const turn = Promise.withResolvers<unknown>()
+  const admitted = deferred<void>()
+  const turn = deferred<unknown>()
   vi.mocked(api.get).mockResolvedValue({ data: { success: true, data: { configured: true } } } as never)
   vi.mocked(api.post).mockImplementation(async (url, body) => {
     if (url === '/api/agent/dsh/sessions') return { data: { success: true, data: { session_id: sessionId } } } as never
@@ -26,7 +32,8 @@ it.each(['received', 'lost'] as const)('keeps %s Stop visible after reload using
     }
     if (url === '/api/agent/dsh/turns/cancel') {
       if (delivery === 'lost') throw new Error('lost response')
-      return { status: 202, data: { success: true, data: { ...body, cancel_requested: true, delivery: 'received' } } } as never
+      const identity = body as { session_id: string; request_id: string }
+      return { status: 202, data: { success: true, data: { ...identity, cancel_requested: true, delivery: 'received' } } } as never
     }
     throw new Error('Unexpected network operation')
   })
@@ -69,8 +76,8 @@ it.each(['received', 'lost'] as const)('keeps %s Stop visible after reload using
 })
 
 it('keeps Stop bound to the original provider after the workspace provider changes', async () => {
-  const entered = Promise.withResolvers<void>()
-  const response = Promise.withResolvers<null>()
+  const entered = deferred<void>()
+  const response = deferred<null>()
   const original: HostedTurnProvider = {
     reset: vi.fn(),
     send: async () => { entered.resolve(); return await response.promise },

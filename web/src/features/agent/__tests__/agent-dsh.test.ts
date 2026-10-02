@@ -36,6 +36,12 @@ const browserHooks = webAgentToolProvider as LocalToolProvider & Required<Pick<
   'beforeModel' | 'preflight' | 'prepareContext' | 'finalizeResponse' | 'requiresApproval'
 >>
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((complete) => { resolve = complete })
+  return { promise, resolve }
+}
+
 function storageFixture() {
   const values = new Map<string, string>()
   return {
@@ -92,8 +98,8 @@ describe('Lain42 DSH conversation adapter', () => {
   it.each(['pending', 'received', 'invalid', 'lost'] as const)(
     'persists explicit Stop and never replays that prompt after %s delivery', async (delivery) => {
       const storage = storageFixture()
-      const admitted = Promise.withResolvers<void>()
-      const turn = Promise.withResolvers<unknown>()
+      const admitted = deferred<void>()
+      const turn = deferred<unknown>()
       vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
       vi.mocked(api.post).mockImplementation(async (url) => {
         if (url === '/api/agent/dsh/sessions') return success({ session_id: SESSION_ID }) as never
@@ -137,8 +143,8 @@ describe('Lain42 DSH conversation adapter', () => {
   )
 
   it('does not admit a turn when Stop happens during session creation', async () => {
-    const creating = Promise.withResolvers<void>()
-    const session = Promise.withResolvers<unknown>()
+    const creating = deferred<void>()
+    const session = deferred<unknown>()
     vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
     vi.mocked(api.post).mockImplementation(async (url) => {
       if (url !== '/api/agent/dsh/sessions') throw new Error('Turn must not be admitted')
