@@ -31,13 +31,16 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 		quota         int
 		body          string
 		badSignature  bool
+		stream        bool
 		wantStatus    int
 		wantUpstreams int32
 	}{
 		{name: "account-owned answer without API token", quota: 100000, wantStatus: http.StatusOK, wantUpstreams: 1},
+		{name: "streamed answer and usage without API token", quota: 100000, stream: true, wantStatus: http.StatusOK, wantUpstreams: 1},
 		{name: "empty wallet", wantStatus: http.StatusForbidden},
 		{name: "invalid signature", quota: 100000, badSignature: true, wantStatus: http.StatusUnauthorized},
 		{name: "missing chat messages", quota: 100000, body: `{"model":"gpt-3.5-turbo"}`, wantStatus: http.StatusBadRequest},
+		{name: "unavailable billing group", quota: 100000, body: `{"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"Explain the Issue."}],"group":"another-account-only"}`, wantStatus: http.StatusForbidden},
 	}
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -115,6 +118,18 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 					return
 				}
 				observations <- upstreamObservation{path: r.URL.Path, authorization: r.Header.Get("Authorization"), body: string(body)}
+				if test.stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					for _, chunk := range []string{
+						`{"id":"chatcmpl-owner-wallet","object":"chat.completion.chunk","created":1,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"role":"assistant","content":"The Issue needs a persistence error check."},"finish_reason":null}]}`,
+						`{"id":"chatcmpl-owner-wallet","object":"chat.completion.chunk","created":1,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+						`{"id":"chatcmpl-owner-wallet","object":"chat.completion.chunk","created":1,"model":"gpt-3.5-turbo","choices":[],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}`,
+						`[DONE]`,
+					} {
+						_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+					}
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(w, `{"id":"chatcmpl-owner-wallet","object":"chat.completion","created":1,"model":"gpt-3.5-turbo","choices":[{"index":0,"message":{"role":"assistant","content":"The Issue needs a persistence error check."},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}`)
 			}))
@@ -129,7 +144,7 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 			SetRelayRouter(engine)
 			body := test.body
 			if body == "" {
-				body = `{"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"Explain the Issue."}],"max_tokens":32,"stream":false}`
+				body = fmt.Sprintf(`{"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"Explain the Issue."}],"max_tokens":32,"stream":%t,"stream_options":{"include_usage":true}}`, test.stream)
 			}
 			timestamp := fmt.Sprintf("%d", time.Now().UTC().Unix())
 			nonce := fmt.Sprintf("%032x", index+1)
@@ -171,11 +186,15 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 			assert.Equal(t, "Bearer synthetic-upstream-only-key", observation.authorization)
 			assert.Contains(t, observation.body, "Explain the Issue.")
 			assert.Contains(t, response.Body.String(), "The Issue needs a persistence error check.")
+			if test.stream {
+				assert.Contains(t, response.Header().Get("Content-Type"), "text/event-stream")
+				assert.Contains(t, response.Body.String(), "data: [DONE]")
+			}
 			require.Len(t, logs, 1, "a completed answer must have an account-owned usage entry")
 			assert.Equal(t, owner.Id, logs[0].UserId)
 			assert.Equal(t, channel.Id, logs[0].ChannelId)
 			assert.Zero(t, logs[0].TokenId)
-			assert.Greater(t, logs[0].Quota, 0)
+			assert.Equal(t, 50, logs[0].Quota, "20 prompt tokens and 10 completion tokens at configured ratio 1, completion ratio 3")
 			assert.Equal(t, owner.Quota-logs[0].Quota, updatedOwner.Quota)
 			assert.Equal(t, logs[0].Quota, updatedOwner.UsedQuota)
 		})
