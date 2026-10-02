@@ -134,3 +134,25 @@ func TestWorkflowDiagnosticSourcesBoundReadsAndKeepActualErrorLine(t *testing.T)
 		require.True(t, source.Truncated)
 	}
 }
+
+func TestWorkflowSourcesDoNotChooseBetweenTwoExistingRelativePaths(t *testing.T) {
+	installWorkflowTransport(t, func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/repos/m/p/check-runs/99":
+			return workflowResponse(200, `{"id":99,"head_sha":"`+workflowTestSHA+`","details_url":"https://github.com/m/p/actions/runs/17/job/23","output":{"annotations_count":1}}`), nil
+		case "/repos/m/p/check-runs/99/annotations":
+			return workflowResponse(200, `[{"path":"src/a.ts","start_line":1,"end_line":1,"annotation_level":"failure"}]`), nil
+		default:
+			filePath := strings.TrimPrefix(req.URL.Path, "/repos/m/p/contents/")
+			require.Contains(t, []string{"src/a.ts", "web/src/a.ts"}, filePath)
+			return workflowResponse(200, fmt.Sprintf(`{"type":"file","path":"%s","size":1,"encoding":"base64","content":"YQ=="}`, filePath)), nil
+		}
+	})
+	r := workflowEvidenceReader{token: "token", client: &http.Client{}}
+	job := WorkflowJobEvidence{ID: 23, Name: "Frontend", URL: "https://github.com/m/p/actions/runs/17/job/23"}
+	evidence := &WorkflowEvidence{Workflow: &WorkflowFileEvidence{Text: "jobs:\n  frontend:\n    name: Frontend\n    defaults:\n      run:\n        working-directory: web\n"}}
+	r.readFailureSources(context.Background(), "/repos/m/p", "m/p", WorkflowRunEvidence{HeadSHA: workflowTestSHA}, "https://api.github.com/repos/m/p/check-runs/99", &job, evidence)
+	require.Len(t, evidence.Sources, 1)
+	require.Empty(t, evidence.Sources[0].Text)
+	require.Contains(t, evidence.Sources[0].Error, "ambiguous")
+}

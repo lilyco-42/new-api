@@ -177,6 +177,13 @@ func (r workflowEvidenceReader) readFailureSources(ctx context.Context, base, re
 		if errors.Is(err, errWorkflowSourceNotFound) && directory != "" {
 			source.Path = directory + "/" + a.Path
 			text, err = r.readDiagnosticSource(ctx, base, source.Path, run.HeadSHA)
+		} else if err == nil && directory != "" && !strings.HasPrefix(a.Path, directory+"/") {
+			// An annotation may be relative to the checkout OR the configured cwd.
+			// If both contain the name, selecting either without proof reads the wrong code.
+			_, alternateError := r.readDiagnosticSource(ctx, base, directory+"/"+a.Path, run.HeadSHA)
+			if !errors.Is(alternateError, errWorkflowSourceNotFound) {
+				err = errors.New("diagnostic path ambiguous between checkout and working directory, or alternate path unconfirmed")
+			}
 		}
 		if err != nil {
 			source.Error = err.Error()
