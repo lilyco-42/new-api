@@ -83,6 +83,14 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	owner.Password, other.Password = passwordHash, passwordHash
 	require.NoError(t, db.Create(&owner).Error)
 	require.NoError(t, db.Create(&other).Error)
+	// Serve an initialized site, as production does before accepting logins.
+	// Keep the real frontend setup guard; do not intercept its API response.
+	require.NoError(t, db.Create(&model.User{Username: "fixture-root", Password: passwordHash,
+		Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default",
+		AuthVersion: 1, AffCode: "composition-root-aff"}).Error)
+	model.CheckSetup()
+	require.True(t, constant.Setup)
+	require.NotNil(t, model.GetSetup())
 	require.NoError(t, model.SaveAgentGitHubCredential(owner.Id, "provider-owner", "owner", "repo", "synthetic-owner-github-token"))
 
 	var githubCalls, providerCalls atomic.Int32
