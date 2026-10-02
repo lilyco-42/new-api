@@ -105,12 +105,12 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	// Synchronize real browser navigation with the external model fixture.
 	// These controls never replace website auth, turn responses or billing.
 	type browserRecoveryGate struct {
-		started, released      chan struct{}
-		startOnce, releaseOnce sync.Once
+		started, released, canceled        chan struct{}
+		startOnce, releaseOnce, cancelOnce sync.Once
 	}
 	browserRecovery := map[string]*browserRecoveryGate{}
-	for _, viewport := range []string{"desktop", "mobile"} {
-		gate := &browserRecoveryGate{started: make(chan struct{}), released: make(chan struct{})}
+	for _, viewport := range []string{"desktop", "mobile", "desktop-stop", "mobile-stop"} {
+		gate := &browserRecoveryGate{started: make(chan struct{}), released: make(chan struct{}), canceled: make(chan struct{})}
 		browserRecovery[viewport] = gate
 		defer gate.releaseOnce.Do(func() { close(gate.released) })
 	}
@@ -152,6 +152,12 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 				}
 			case "release":
 				gate.releaseOnce.Do(func() { close(gate.released) })
+			case "canceled":
+				select {
+				case <-gate.canceled:
+				case <-r.Context().Done():
+					return
+				}
 			default:
 				http.Error(w, "unknown browser fixture action", http.StatusNotFound)
 				return
@@ -190,7 +196,8 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		var browserGate *browserRecoveryGate
 		var browserViewport string
 		for viewport, gate := range browserRecovery {
-			if strings.Contains(latestUser, "Recover this browser task for "+viewport+".") {
+			if strings.Contains(latestUser, "Recover this browser task for "+viewport+".") ||
+				(strings.HasSuffix(viewport, "-stop") && strings.Contains(latestUser, "Stop this browser task for "+strings.TrimSuffix(viewport, "-stop")+".")) {
 				browserGate, browserViewport = gate, viewport
 				break
 			}
@@ -201,8 +208,13 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 			case <-browserGate.released:
 				delta = map[string]any{"role": "assistant", "content": "Recovered " + browserViewport + " without another inference."}
 			case <-r.Context().Done():
+				browserGate.cancelOnce.Do(func() { close(browserGate.canceled) })
 				return
 			}
+		} else if strings.Contains(latestUser, "Continue after stopping this browser task for desktop.") {
+			delta = map[string]any{"role": "assistant", "content": "New desktop task completed after Stop."}
+		} else if strings.Contains(latestUser, "Continue after stopping this browser task for mobile.") {
+			delta = map[string]any{"role": "assistant", "content": "New mobile task completed after Stop."}
 		} else if strings.Contains(latestUser, recoveryPrompt) {
 			select {
 			case recoveryStarted <- struct{}{}:
@@ -416,18 +428,18 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	browser.Env = append(os.Environ(), "LAIN42_BROWSER_MODEL_FIXTURE="+provider.URL)
 	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
 	require.NoError(t, browser.Run())
-	require.EqualValues(t, 10, providerCalls.Load(), "each viewport recovers its pending turn without a second inference")
+	require.EqualValues(t, 14, providerCalls.Load(), "each viewport recovers once, stops one inference, then runs a new task")
 	require.EqualValues(t, 2, githubCalls.Load(), "attachment chat has no unrelated GitHub request")
 	require.NoError(t, db.Model(&model.AgentDSHRequest{}).Where("cancel_requested = ?", true).Count(&cancellationCount).Error)
-	require.Zero(t, cancellationCount, "browser navigation must not create an explicit Stop intent")
+	require.EqualValues(t, 2, cancellationCount, "only the two explicit browser Stops create cancellation intent")
 	for _, account := range []struct {
 		user  model.User
 		calls int
-	}{{owner, 6}, {other, 4}} {
+	}{{owner, 7}, {other, 5}} {
 		var updated model.User
 		require.NoError(t, db.First(&updated, account.user.Id).Error)
 		require.Equal(t, account.user.Quota-account.calls*40, updated.Quota,
-			"browser attachment and refresh must charge only the owning account, once")
+			"completed work charges its owner once; Stop before provider output refunds its reservation")
 		var logs []model.Log
 		require.NoError(t, db.Where("user_id = ? AND type = ?", account.user.Id, model.LogTypeConsume).Find(&logs).Error)
 		require.Len(t, logs, account.calls)

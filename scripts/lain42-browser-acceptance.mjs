@@ -140,11 +140,45 @@ try {
         await page.getByText('Recovered desktop without another inference.', { exact: true }).waitFor({ timeout: 15000 });
         assert.equal(hostedRequests.length, 4, 'Account switching must not replay any model request.');
       }
+      // A real Stop must target the accepted identity and cancel the actual
+      // upstream request. Its UI receipt must not claim terminal settlement.
+      await input.fill(`Stop this browser task for ${fixture.name}.`);
+      await send.click();
+      const stopStarted = await fetch(`${modelFixture}/fixture/browser/${fixture.name}-stop/started`, {
+        signal: AbortSignal.timeout(15000),
+      });
+      assert.equal(stopStarted.status, 204);
+      const [stopResponse] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === '/api/agent/dsh/turns/cancel', { timeout: 15000 }),
+        page.getByRole('button', { name: 'Stop', exact: true }).click(),
+      ]);
+      assert.equal(stopResponse.status(), 202);
+      const stopReceipt = (await stopResponse.json()).data;
+      assert.equal(stopReceipt.delivery, 'received');
+      assert.equal(stopReceipt.session_id, hostedRequests[4].session);
+      assert.equal(stopReceipt.request_id, hostedRequests[4].request);
+      assert.equal(stopReceipt.cancel_requested, true);
+      await page.getByText('Stop requested. Background settlement is not confirmed.', { exact: true }).waitFor();
+      const canceled = await fetch(`${modelFixture}/fixture/browser/${fixture.name}-stop/canceled`, {
+        signal: AbortSignal.timeout(15000),
+      });
+      assert.equal(canceled.status, 204, 'Stop must cancel the actual provider request before its output.');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByText('Stop requested. Background settlement is not confirmed.', { exact: true }).waitFor({ timeout: 15000 });
+      assert.equal(hostedRequests.length, 5, 'Reload must not resubmit the stopped task.');
+      await input.fill(`Continue after stopping this browser task for ${fixture.name}.`);
+      await send.click();
+      await page.getByText(`New ${fixture.name} task completed after Stop.`, { exact: true }).waitFor({ timeout: 45000 });
+      assert.equal(hostedRequests.length, 6);
+      assert.equal(hostedRequests[5].session, hostedRequests[4].session);
+      assert.notEqual(hostedRequests[5].request, hostedRequests[4].request,
+        'The stopped request must not prevent a new message with its own identity.');
+      assert.equal(postedPaths.filter(path => path === '/api/agent/dsh/turns/cancel').length, 1);
       const layout = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
       assert.ok(layout.scroll <= layout.width + 1, `Horizontal overflow at ${fixture.name}: ${JSON.stringify(layout)}`);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
       await page.screenshot({ path: join(evidence, `${fixture.name}.png`), fullPage: true });
-      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', horizontalOverflow: false });
+      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', explicitStopBeforeOutput: true, newTaskAfterStop: true, horizontalOverflow: false });
     } catch (error) {
       await page.screenshot({ path: join(evidence, `${fixture.name}-failure.png`), fullPage: true });
       await writeFile(join(evidence, `${fixture.name}-failure.txt`), `${String(error)}\n${await page.locator('body').innerText()}`);
