@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '@/lib/api'
 import { runLocalToolLoop } from '@/features/playground/hooks/local-tool-loop'
-import type { ChatCompletionMessage, ChatCompletionRequest } from '@/features/playground/types'
+import type { ChatCompletionMessage, ChatCompletionRequest, Message } from '@/features/playground/types'
 import { createBrowserAgentToolProvider, browserEvidenceExecutionContext } from '../web-agent-tool-provider'
 import { explainPreviousRead } from '../agent-read-observation'
 import { prepareWorkflowEvidence, workflowEvidenceTarget } from '../agent-workflow-evidence'
 import { applyChatCompletionResponse } from '@/features/playground/lib/message/message-streaming-utils'
 import { buildChatCompletionPayload } from '@/features/playground/lib/streaming/payload-builder'
 import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '@/features/playground/constants'
-import type { Message } from '@/features/playground/types'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn() } }))
 vi.mock('../client-crawler/client-crawler', () => ({
