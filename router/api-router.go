@@ -93,6 +93,7 @@ func SetApiRouter(router *gin.Engine) {
 			browserAgentRoute.GET("/github/repositories", controller.AgentGitHubRepositoriesList)
 			browserAgentRoute.GET("/github/repositories/search", controller.AgentGitHubRepositoriesSearch)
 		browserAgentRoute.GET("/github/issues", controller.AgentGitHubIssues)
+		browserAgentRoute.GET("/github/issues/search", controller.AgentGitHubIssuesSearch)
 		browserAgentRoute.GET("/github/workflow-evidence", controller.AgentGitHubWorkflowEvidence)
 			browserAgentRoute.GET("/github/pull-requests", controller.AgentGitHubPullRequests)
 			browserAgentMutationRoute := agentRoute.Group("")

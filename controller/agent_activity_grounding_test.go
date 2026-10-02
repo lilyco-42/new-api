@@ -58,6 +58,75 @@ func TestAgentGitHubActivityReturnsBodyAndKeepsIssuesSeparateFromPulls(t *testin
 	}
 }
 
+func TestAgentGitHubIssueSearchUsesConnectedIdentityAndReturnsOnlyIssues(t *testing.T) {
+	setupAgentDSHControllerTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.AgentGitHubCredential{}))
+	previousSecret := common.CryptoSecret
+	common.CryptoSecret = "isolated-account-issue-search-test-secret"
+	t.Cleanup(func() { common.CryptoSecret = previousSecret })
+	require.NoError(t, model.SaveAgentGitHubCredential(42, "provider-42", "lilyco-42", "repo", "account-42-token"))
+
+	previousTransport := http.DefaultTransport
+	requestCount := 0
+	http.DefaultTransport = agentGitHubRoundTripper(func(request *http.Request) (*http.Response, error) {
+		requestCount++
+		assert.Equal(t, "/search/issues", request.URL.Path)
+		assert.Equal(t, "user:lilyco-42 is:issue is:open", request.URL.Query().Get("q"))
+		assert.Equal(t, "updated", request.URL.Query().Get("sort"))
+		assert.Equal(t, "desc", request.URL.Query().Get("order"))
+		assert.Equal(t, "3", request.URL.Query().Get("per_page"))
+		assert.Equal(t, "Bearer account-42-token", request.Header.Get("Authorization"))
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{
+		"total_count":2,"incomplete_results":false,"items":[
+			{"number":17,"title":"Recover batch state","html_url":"https://github.com/lilyco-42/rembg-ui/issues/17","repository_url":"https://api.github.com/repos/lilyco-42/rembg-ui","body":"Restore the batch checkpoint after reconnect.","state":"open"},
+			{"number":18,"title":"This is a pull request","html_url":"https://github.com/lilyco-42/rembg-ui/pull/18","repository_url":"https://api.github.com/repos/lilyco-42/rembg-ui","body":"Must be excluded.","state":"open","pull_request":{}}
+		]}`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/agent/github/issues/search?limit=3", nil)
+	c.Set("id", 42)
+	AgentGitHubIssuesSearch(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Data struct {
+			Login             string                `json:"login"`
+			Query             string                `json:"query"`
+			TotalCount        int                   `json:"total_count"`
+			IncompleteResults bool                  `json:"incomplete_results"`
+			Items             []agentGitHubActivity `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, "lilyco-42", response.Data.Login)
+	assert.Equal(t, "user:lilyco-42 is:issue is:open", response.Data.Query)
+	assert.Equal(t, 2, response.Data.TotalCount)
+	assert.False(t, response.Data.IncompleteResults)
+	require.Len(t, response.Data.Items, 1)
+	assert.Equal(t, "lilyco-42/rembg-ui", response.Data.Items[0].Repository)
+	assert.Equal(t, "Restore the batch checkpoint after reconnect.", response.Data.Items[0].Body)
+
+	unauthorizedRecorder := httptest.NewRecorder()
+	unauthorized, _ := gin.CreateTestContext(unauthorizedRecorder)
+	unauthorized.Request = httptest.NewRequest(http.MethodGet, "/api/agent/github/issues/search", nil)
+	unauthorized.Set("id", 43)
+	AgentGitHubIssuesSearch(unauthorized)
+	assert.Equal(t, http.StatusUnauthorized, unauthorizedRecorder.Code)
+	assert.Equal(t, 1, requestCount, "an account without its own GitHub grant must not call GitHub")
+
+	require.NoError(t, model.SaveAgentGitHubCredential(43, "provider-43", "lilyco-42 OR repo:private", "repo", "account-43-token"))
+	invalidLoginRecorder := httptest.NewRecorder()
+	invalidLogin, _ := gin.CreateTestContext(invalidLoginRecorder)
+	invalidLogin.Request = httptest.NewRequest(http.MethodGet, "/api/agent/github/issues/search", nil)
+	invalidLogin.Set("id", 43)
+	AgentGitHubIssuesSearch(invalidLogin)
+	assert.Equal(t, http.StatusUnauthorized, invalidLoginRecorder.Code)
+	assert.Equal(t, 1, requestCount, "an untrusted stored account login must not inject extra search qualifiers")
+}
+
 func TestAgentDSHGitHubActivityUsesTheSameBodyContractAndAccountCredential(t *testing.T) {
 	setupAgentDSHControllerTest(t)
 	require.NoError(t, model.DB.AutoMigrate(&model.AgentGitHubCredential{}))
