@@ -7,7 +7,7 @@ export default defineConfig({
   ...baseConfig,
   test: {
     ...baseConfig.test,
-    include: ['scripts/agent-live-grounding.evaluation.ts'],
+    include: ['scripts/agent-live-grounding.evaluation.ts', 'scripts/evaluate-agent-context.ts'],
     testTimeout: 120_000,
     hookTimeout: 15_000,
   },

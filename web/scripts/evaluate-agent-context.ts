@@ -16,13 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-// This is a bounded, opt-in real-model evaluation, not browser/DSH/OAuth E2E.
+// Bounded live inference through the actual browser provider and payload loop.
+// Prior conversation is synthetic; no website OAuth, DSH or browser E2E claim.
 import { mkdir, writeFile } from 'node:fs/promises'
+import { afterAll, expect, it, vi } from 'vitest'
 
 import { AGENT_TOOL_PROMPT, LYCO_DEFAULT_SYSTEM_PROMPT } from '../src/features/agent/agent-prompts'
+import { createBrowserAgentToolProvider } from '../src/features/agent/web-agent-tool-provider'
 import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '../src/features/playground/constants'
+import { runLocalToolLoop } from '../src/features/playground/hooks/local-tool-loop'
 import { buildChatCompletionPayload } from '../src/features/playground/lib/streaming/payload-builder'
 import type { ChatCompletionResponse, Message } from '../src/features/playground/types'
+import { api } from '../src/lib/api'
+
+// Unexpected tool reads must fail rather than fabricate a successful result.
+vi.mock('../src/lib/api', () => ({ api: { get: vi.fn(async () => { throw new Error('No external read was authorized by this case.') }) } }))
 
 const key = process.env.LAIN42_AGENT_EVAL_API_KEY?.trim()
 const model = process.env.LAIN42_AGENT_EVAL_MODEL?.trim()
@@ -42,8 +50,10 @@ const cases = [
     previous: '你说的是哪种 workflow 服务？',
     current: 'github action',
     accepts: (answer: string) => /merchant\/image-workflow/iu.test(answer) &&
-      /(?:修复|失败|错误|报错|诊断|日志|排查)/u.test(answer),
-    criterion: 'Continue the repository repair task rather than give only an Actions encyclopedia entry.',
+      /workflow|actions/iu.test(answer) &&
+      /无法|不能|没有|缺少|尚未|not available|cannot|unable|missing|not have/iu.test(answer) &&
+      !/我(?:已经|已).{0,8}(?:检查|读取|查看)|已获取|I(?:'ve| have) (?:checked|read|fetched)|Observed Issues|Current Workflow Structure|```(?:ya?ml)/iu.test(answer),
+    criterion: 'Retain the workflow-repair task and explain missing execution evidence; do not invent inspected files or logs.',
   },
   {
     id: 'query-source-follow-up',
@@ -51,8 +61,9 @@ const cases = [
     previous: '本轮通过本站 GitHub OAuth 接口读取了 merchant/image-workflow。没有调用本机 gh。',
     current: '你怎么查询的?',
     accepts: (answer: string) => /oauth/iu.test(answer) &&
-      !/(?:需要|必须|请先).{0,15}(?:gh auth login|登录.{0,8}(?:CLI|gh))/iu.test(answer),
-    criterion: 'Explain the recorded OAuth source without demanding CLI login or summarizing the system prompt.',
+      !/(?:需要|必须|请先).{0,15}(?:gh auth login|登录.{0,8}(?:CLI|gh))/iu.test(answer) &&
+      !/(?:拥有的|您的|你的|授权用户的).{0,5}全部仓库|(?:按|按照)创建时间/iu.test(answer),
+    criterion: 'Explain only the available previous source claim, without pretending prose is a complete executor observation.',
   },
   {
     id: 'latest-question-after-old-topic',
@@ -66,44 +77,64 @@ const cases = [
 ]
 
 const results: Array<Record<string, unknown>> = []
-for (const entry of cases) {
+let totalRequests = 0
+it.each(cases)('$id', async (entry) => {
+  vi.mocked(api.get).mockClear()
   const payload = buildChatCompletionPayload([
     message('system', 'system', `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}`),
     message('initial', 'user', entry.initial),
     message('previous', 'assistant', entry.previous),
     message('current', 'user', entry.current),
-  ], { ...DEFAULT_CONFIG, model, stream: false, max_tokens: 1024 },
+  ], { ...DEFAULT_CONFIG, model: model ?? '', stream: false, max_tokens: 1024 },
   { ...DEFAULT_PARAMETER_ENABLED, max_tokens: true, temperature: false,
     top_p: false, frequency_penalty: false, presence_penalty: false }, true)
   const started = Date.now()
+  let requests = 0
+  let answer = ''
+  let usage: unknown
+  let finishReason: unknown
   try {
-    const response = await fetch('https://api.lain42.top/v1/chat/completions', {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(90_000),
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+    const response = await runLocalToolLoop(payload, createBrowserAgentToolProvider(), AbortSignal.timeout(90_000), undefined, async (request, signal) => {
+      expect(request.messages.at(-1)?.content).toBe(entry.current)
+      expect(request.messages.some((message) => message.name === 'lain42_runtime_capabilities')).toBe(true)
+      expect(request.tools).toEqual([])
+      requests += 1
+      totalRequests += 1
+      if (requests > 1 || totalRequests > 3) throw new Error('The evaluation inference budget was exceeded.')
+      const response = await fetch('https://api.lain42.top/v1/chat/completions', {
+        method: 'POST', redirect: 'error', signal,
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      })
+      if (!response.ok) throw new Error(`Inference HTTP ${response.status}`)
+      const body = await response.json() as ChatCompletionResponse
+      const content = body.choices?.[0]?.message?.content
+      if (typeof content !== 'string' || !content.trim() || content.includes(key ?? '')) throw new Error('Missing or unsafe text response')
+      usage = body.usage
+      finishReason = body.choices[0]?.finish_reason
+      return body
     })
-    if (!response.ok) {
-      results.push({ id: entry.id, passed: false, error: `HTTP ${response.status}`, elapsed_ms: Date.now() - started })
-      continue
-    }
-    const body = await response.json() as ChatCompletionResponse
-    const answer = body.choices?.[0]?.message?.content
-    if (typeof answer !== 'string' || !answer.trim() || answer.includes(key)) {
-      results.push({ id: entry.id, passed: false, error: 'Missing or unsafe text response', elapsed_ms: Date.now() - started })
-      continue
-    }
-    results.push({ id: entry.id, passed: entry.accepts(answer), criterion: entry.criterion,
-      answer: answer.slice(0, 8000), elapsed_ms: Date.now() - started,
-      finish_reason: body.choices[0]?.finish_reason, returned_model: body.model, usage: body.usage })
+    const content = response.choices[0]?.message.content
+    if (typeof content !== 'string') throw new Error('Expected a completed text response.')
+    answer = content
+    expect(api.get).not.toHaveBeenCalled()
+    expect(requests).toBe(1)
+    expect(entry.accepts(answer)).toBe(true)
+    results.push({ id: entry.id, passed: true, criterion: entry.criterion, answer: answer.slice(0, 8000),
+      elapsed_ms: Date.now() - started, inference_calls: requests, finish_reason: finishReason, usage })
   } catch {
-    results.push({ id: entry.id, passed: false, error: 'Network, timeout or response parsing failure', elapsed_ms: Date.now() - started })
+    results.push({ id: entry.id, passed: false, criterion: entry.criterion, answer: answer.slice(0, 8000),
+      elapsed_ms: Date.now() - started, inference_calls: requests, finish_reason: finishReason,
+      error: 'Transport, budget or semantic assertions failed; inspect the bounded answer.', usage })
+    throw new Error('Live continuity failed; inspect the bounded evidence artifact.')
   }
-}
-await mkdir('evaluation-results', { recursive: true })
-await writeFile('evaluation-results/agent-context.json', JSON.stringify({
-  candidate_sha: process.env.GITHUB_SHA, model, created_at: new Date().toISOString(),
-  scope: 'Actual candidate prompt and payload builder, live website model, synthetic prior conversation. No DSH, OAuth, tool execution, mobile or isolation E2E claim.',
-  max_requests: cases.length, max_output_tokens_per_request: 1024, results,
-}, null, 2))
-for (const result of results) console.log(`${result.id}: ${result.passed ? 'pass' : 'FAIL'}`)
-if (results.some((result) => !result.passed)) process.exitCode = 1
+})
+
+afterAll(async () => {
+  await mkdir('evaluation-results', { recursive: true })
+  await writeFile('evaluation-results/agent-context.json', JSON.stringify({
+    candidate_sha: process.env.GITHUB_SHA, model, created_at: new Date().toISOString(),
+    scope: 'Actual candidate prompt, payload builder, browser provider and tool loop, live website model, synthetic prior conversation. No DSH, OAuth, executed tool, mobile or isolation E2E claim.',
+    max_requests: 3, inferenceCalls: totalRequests, max_output_tokens_per_request: 1024, results,
+  }, null, 2))
+})

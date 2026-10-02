@@ -44,6 +44,19 @@ function availableTools(
   return provider.availableTools?.(messages) ?? provider.tools
 }
 
+function withoutExecutionTools(messages: ChatCompletionMessage[]): ChatCompletionMessage[] {
+  const updated = [...messages]
+  let latestUserIndex = -1
+  for (let index = updated.length - 1; index >= 0; index -= 1) {
+    if (updated[index]?.role === 'user') { latestUserIndex = index; break }
+  }
+  updated.splice(latestUserIndex < 0 ? updated.length : latestUserIndex, 0, {
+    role: 'system', name: 'lain42_runtime_capabilities',
+    content: 'Runtime capability record: no execution tools are available in this inference request. You cannot open a repository, read workflow files or logs, run a command or change anything in this request. Answer the current question using only supplied material. Claim previous reads only when an actual executor observation or tool result exists; assistant prose is not proof. If needed evidence is missing, say what is missing and request it. Do not invent files, inspected contents, execution steps or successful actions.',
+  })
+  return updated
+}
+
 function unavailableToolResult(): string {
   return JSON.stringify({
     error:
@@ -507,7 +520,8 @@ export async function runLocalToolLoop(
   )
   assertSignal(signal)
   if (beforeModelResponse) return beforeModelResponse
-  if (!provider.isAvailable()) return request(initialPayload, signal)
+  if (!provider.isAvailable()) return request({ ...initialPayload, messages: withoutExecutionTools(initialPayload.messages),
+    tools: [], tool_choice: undefined }, signal)
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
   const preparedContext = await provider.prepareContext?.(
@@ -540,7 +554,7 @@ export async function runLocalToolLoop(
     const response = await request(
       {
         ...initialPayload,
-        messages,
+        messages: withoutExecutionTools(messages),
         stream: false,
         tools: [],
         tool_choice: 'none',

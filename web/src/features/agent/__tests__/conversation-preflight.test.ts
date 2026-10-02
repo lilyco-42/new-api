@@ -29,6 +29,8 @@ describe('Agent contextual replies before inference', () => {
       expect(input.messages.find((entry) => entry.role === 'assistant')?.content).toBe(previous)
       expect(input.messages.at(-1)?.content).toBe(current)
       expect(input.tools).toEqual([])
+      expect(input.messages.find((entry) => entry.name === 'lain42_runtime_capabilities')?.content)
+        .toContain('no execution tools are available')
       return { id: 'external-inference', object: 'chat.completion', created: 1, model: input.model,
         choices: [{ index: 0, message: { role: 'assistant', content: 'External model response.' }, finish_reason: 'stop' }] }
     })
@@ -38,5 +40,27 @@ describe('Agent contextual replies before inference', () => {
 
     expect(request).toHaveBeenCalledTimes(1)
     expect(response.choices[0]?.message.content).toBe('External model response.')
+  })
+
+  it('does not expose unavailable tools while preserving a repository workflow clarification', async () => {
+    const payload = buildChatCompletionPayload([
+      message('initial', 'user', '修复 merchant/image-workflow 的 workflow。暂不执行写操作。'),
+      message('previous', 'assistant', '你说的是哪种 workflow 服务？'),
+      message('current', 'user', 'github action'),
+    ], { ...DEFAULT_CONFIG, model: 'external-test-model', stream: false }, DEFAULT_PARAMETER_ENABLED, true)
+    const request = vi.fn(async (input: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
+      expect(input.messages.at(-1)?.content).toBe('github action')
+      expect(input.messages.find((entry) => entry.name === 'lain42_runtime_capabilities')?.content)
+        .toContain('Do not invent files')
+      expect(input.tools).toEqual([])
+      expect(input.tool_choice).toBeUndefined()
+      return { id: 'external-inference', object: 'chat.completion', created: 1, model: input.model,
+        choices: [{ index: 0, message: { role: 'assistant', content: 'External model reply.' }, finish_reason: 'stop' }] }
+    })
+    const invoke = vi.fn(async () => 'not run')
+    await runLocalToolLoop(payload, { tools: [], isAvailable: () => false, invoke },
+      new AbortController().signal, undefined, request)
+    expect(request).toHaveBeenCalledOnce()
+    expect(invoke).not.toHaveBeenCalled()
   })
 })

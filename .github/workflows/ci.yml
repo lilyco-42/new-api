@@ -114,6 +114,7 @@ jobs:
           src/features/playground/lib/storage/storage.ts
           src/features/playground/lib/storage/storage-schema.ts
           src/features/playground/types.ts
+          src/features/playground/hooks/local-tool-loop.ts
 
       - name: Test
         run: bun run test

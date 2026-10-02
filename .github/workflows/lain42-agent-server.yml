@@ -185,13 +185,13 @@ jobs:
         env:
           LAIN42_AGENT_EVAL_API_KEY: ${{ secrets.LAIN42_AGENT_EVAL_API_KEY }}
           LAIN42_AGENT_EVAL_MODEL: ${{ inputs.evaluation_model }}
-        run: bun scripts/evaluate-agent-context.ts
+        run: bunx vitest run --config vitest.agent-live.config.ts scripts/evaluate-agent-context.ts
       - name: Evaluate two real public GitHub reads through the candidate provider and website model
         if: ${{ inputs.evaluation_kind == 'grounding' }}
         env:
           LAIN42_AGENT_EVAL_API_KEY: ${{ secrets.LAIN42_AGENT_EVAL_API_KEY }}
           LAIN42_AGENT_EVAL_MODEL: ${{ inputs.evaluation_model }}
-        run: bunx vitest run --config vitest.agent-live.config.ts
+        run: bunx vitest run --config vitest.agent-live.config.ts scripts/agent-live-grounding.evaluation.ts
       - name: Preserve synthetic evaluation evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
