@@ -284,6 +284,22 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	require.NoError(t, browser.Run())
 	require.EqualValues(t, 5, providerCalls.Load(), "each viewport sends one real attachment turn")
 	require.EqualValues(t, 2, githubCalls.Load(), "attachment chat has no unrelated GitHub request")
+	for _, account := range []struct {
+		user  model.User
+		calls int
+	}{{owner, 3}, {other, 2}} {
+		var updated model.User
+		require.NoError(t, db.First(&updated, account.user.Id).Error)
+		require.Equal(t, account.user.Quota-account.calls*40, updated.Quota,
+			"browser attachment and refresh must charge only the owning account, once")
+		var logs []model.Log
+		require.NoError(t, db.Where("user_id = ? AND type = ?", account.user.Id, model.LogTypeConsume).Find(&logs).Error)
+		require.Len(t, logs, account.calls)
+		for _, entry := range logs {
+			require.Equal(t, 40, entry.Quota)
+			require.Zero(t, entry.TokenId)
+		}
+	}
 }
 
 type compositionGitHubTransport struct {

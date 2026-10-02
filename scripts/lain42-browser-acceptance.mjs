@@ -22,7 +22,11 @@ try {
     const context = await browser.newContext(fixture.context);
     const page = await context.newPage();
     const errors = [];
+    const postedPaths = [];
     page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => {
+      if (request.method() === 'POST') postedPaths.push(new URL(request.url()).pathname);
+    });
     await context.tracing.start({ screenshots: true, snapshots: true });
     try {
       // A user logs in through the actual form. No API response interception,
@@ -47,6 +51,10 @@ try {
       await send.click();
       await page.getByText('The attached note contains CLIENT_FILE_FACT_42.', { exact: false }).waitFor({ timeout: 45000 });
       await page.locator('pre').filter({ hasText: 'fn main()' }).first().waitFor({ timeout: 15000 });
+      assert.equal(postedPaths.filter(path => path === '/api/agent/dsh/turns').length, 1,
+        'The attachment answer must come through the hosted DSH turn, not the legacy chat loop.');
+      assert.equal(postedPaths.some(path => /^\/(?:pg|v1)\/(?:chat\/completions|responses)$/.test(path)), false,
+        'The browser must not bypass DSH with direct model inference.');
       // The browser must preserve the current conversation after a real reload.
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByText('The attached note contains CLIENT_FILE_FACT_42.', { exact: false }).waitFor({ timeout: 30000 });
@@ -54,7 +62,7 @@ try {
       assert.ok(layout.scroll <= layout.width + 1, `Horizontal overflow at ${fixture.name}: ${JSON.stringify(layout)}`);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
       await page.screenshot({ path: join(evidence, `${fixture.name}.png`), fullPage: true });
-      results.push({ viewport: fixture.name, login: 'password + real session', attachmentAnswer: true, rustCode: true, reload: true, horizontalOverflow: false });
+      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, horizontalOverflow: false });
     } catch (error) {
       await page.screenshot({ path: join(evidence, `${fixture.name}-failure.png`), fullPage: true });
       await writeFile(join(evidence, `${fixture.name}-failure.txt`), `${String(error)}\n${await page.locator('body').innerText()}`);
