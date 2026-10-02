@@ -232,6 +232,7 @@ const githubReadReceiptsByContext = new WeakMap<ChatCompletionMessage, {
   count: number | null
   fetchedAt: string
   query: { limit: number; repo?: string; state?: 'open'; sort?: 'updated'; selection?: 'most recently updated repository' }
+  sources?: Array<{ label: string; url: string }>
   pendingIntent?: 'issues' | 'pull_requests'
   repositoryOrder?: 'updated'
   repositoryChoices?: Array<{ full_name: string; html_url: string }>
@@ -258,6 +259,41 @@ function safeRepositoryChoices(result: string): Array<{ full_name: string; html_
   }
 }
 
+function safeGitHubActivitySources(
+  result: string,
+  resource: 'issues' | 'pull requests',
+  repo: string
+): Array<{ label: string; url: string }> {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repo)) return []
+  try {
+    const data = asRecord(JSON.parse(result))
+    if (!Array.isArray(data.items) || data.error !== undefined || data.success === false) return []
+    const segment = resource === 'issues' ? 'issues' : 'pull'
+    const sources: Array<{ label: string; url: string }> = []
+    for (const value of data.items) {
+      const item = asRecord(value)
+      const number = item.number
+      const rawUrl = item.url ?? item.html_url
+      if (!Number.isSafeInteger(number) || Number(number) < 1 || typeof rawUrl !== 'string') continue
+      const url = new URL(rawUrl)
+      const expectedPath = `/${repo}/${segment}/${number}`
+      if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password ||
+        url.search || url.hash || url.pathname.toLowerCase() !== expectedPath.toLowerCase()) continue
+      const title = typeof item.title === 'string'
+        ? item.title.replaceAll(/\p{Cc}/gu, ' ').replaceAll(/\s+/gu, ' ').trim().slice(0, 120)
+          .replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]')
+          .replaceAll('(', '\\(').replaceAll(')', '\\)')
+        : ''
+      const label = title ? `#${number} — ${title}` : `#${number}`
+      sources.push({ label, url: `https://github.com${expectedPath}` })
+      if (sources.length === 10) break
+    }
+    return sources
+  } catch {
+    return []
+  }
+}
+
 function githubReadContext(content: string, result: string,
   resource: 'repositories' | 'issues' | 'pull requests',
   query: { limit: number; repo?: string; state?: 'open'; sort?: 'updated'; selection?: 'most recently updated repository' }): ChatCompletionMessage {
@@ -272,6 +308,9 @@ function githubReadContext(content: string, result: string,
   githubReadReceiptsByContext.set(message, {
     resource, count, fetchedAt: new Date().toISOString(), query,
     ...(resource === 'repositories' ? { repositoryChoices: safeRepositoryChoices(result) } : {}),
+    ...((resource === 'issues' || resource === 'pull requests') && query.repo
+      ? { sources: safeGitHubActivitySources(result, resource, query.repo) }
+      : {}),
   })
   return message
 }
@@ -436,7 +475,13 @@ export function browserEvidenceResponseAppendix(
       ? '按你要求我自行选择的指示，从 OAuth 仓库列表中更新时间最新的一项开始。'
       : 'At your request to choose autonomously, this started with the most recently updated repository in the OAuth list.'
   }
-  return [note, selectionNote, searchSources].filter(Boolean).join('\n\n')
+  let sourceLinks = ''
+  if (receipt.sources?.length) {
+    const sourceHeading = chinese ? '本次读取的 GitHub 来源：' : 'GitHub sources read:'
+    const links = receipt.sources.map((source) => `- [${source.label}](${source.url})`).join('\n')
+    sourceLinks = `${sourceHeading}\n${links}`
+  }
+  return [note, selectionNote, sourceLinks, searchSources].filter(Boolean).join('\n\n')
 }
 
 function finalizePreparedBrowserSearch(
@@ -519,7 +564,7 @@ function repositoryChoicesAnswer(
 }
 
 function isDirectRepositoryListRequest(request: string): boolean {
-  const asksToList = /(?:查看|看|列出|显示|浏览|获取|show|list|view|browse|get|read)/iu.test(request)
+  const asksToList = /(?:查看|看|列出|只列|显示|浏览|获取|读取|阅读|有哪些|我有|show|list|view|browse|get|read|gh\s+repo)/iu.test(request)
   const asksForAnalysis = /(?:分析|总结|比较|推荐|评估|怎么样|如何|趋势|商业化|analy[sz]e|summari[sz]e|compare|recommend|evaluate|how are|which|trend|commercial)/iu.test(request)
   return asksToList && !asksForAnalysis
 }
