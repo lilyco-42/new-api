@@ -37,7 +37,7 @@ it.each(['received', 'lost'] as const)('keeps %s Stop visible after reload using
     }
     throw new Error('Unexpected network operation')
   })
-  const namespace = `agent-user-42-general-hook-stop-${delivery}`
+  const namespace = `agent-user-42-general-hook-stop-${delivery}-chat-103`
   const provider = createAgentDSHConversation({ storageNamespace: namespace, mode: 'general' })
   let messages: Message[] = [
     { key: 'user', from: 'user', versions: [{ id: 'user', content: 'Please reply briefly.' }] },

@@ -118,13 +118,13 @@ describe('Lain42 DSH conversation adapter', () => {
         }
         throw new Error('Unexpected request')
       })
-      const options = { storageNamespace: `agent-user-42-general-stop-${delivery}`, mode: 'general' as const, storage }
+      const options = { storageNamespace: `agent-user-42-general-stop-${delivery}-chat-101`, mode: 'general' as const, storage }
       const provider = createAgentDSHConversation(options)
       providers.push(provider)
       const controller = new AbortController()
       const result = provider.send(request('read my repository'), message('stop-message', 'read my repository'), controller.signal)
         .catch((error: unknown) => error)
-      await admitted.promise
+      await Promise.race([admitted.promise, result.then(() => { throw new Error('Turn returned before admission') })])
       const stopping = provider.cancel(controller.signal)
       controller.abort()
       if (delivery === 'lost' || delivery === 'invalid') await expect(stopping).rejects.toThrow()
@@ -151,12 +151,12 @@ describe('Lain42 DSH conversation adapter', () => {
       creating.resolve()
       return await session.promise as never
     })
-    const provider = createAgentDSHConversation({ storageNamespace: 'agent-user-42-general-stop-preparation', mode: 'general', storage: storageFixture() })
+    const provider = createAgentDSHConversation({ storageNamespace: 'agent-user-42-general-stop-preparation-chat-102', mode: 'general', storage: storageFixture() })
     providers.push(provider)
     const controller = new AbortController()
     const result = provider.send(request('read my repository'), message('preparation', 'read my repository'), controller.signal)
       .catch((error: unknown) => error)
-    await creating.promise
+    await Promise.race([creating.promise, result.then(() => { throw new Error('Turn returned before session creation') })])
     await expect(provider.cancel(controller.signal)).resolves.toBe('not-submitted')
     controller.abort()
     session.resolve(success({ session_id: SESSION_ID }))
