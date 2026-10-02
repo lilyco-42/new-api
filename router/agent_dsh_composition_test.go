@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,10 +22,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -159,9 +158,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	t.Setenv("LAIN42_AGENT_MODEL_RELAY_SECRET", secret)
 	engine := gin.New()
 	SetRelayRouter(engine)
-	engine.POST("/api/agent/dsh/sessions", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), controller.CreateAgentDSHSession)
-	engine.POST("/api/agent/dsh/turns", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), controller.AgentDSHTurn)
-	engine.POST("/api/agent/bridge/v1/tool", middleware.AgentDSHToolAuth(), controller.AgentDSHToolRelay)
+	SetApiRouter(engine)
 	controlPlane := httptest.NewServer(engine)
 	t.Cleanup(controlPlane.Close)
 	work := t.TempDir()
@@ -324,7 +321,12 @@ func startCompositionDSH(t *testing.T, root, work, patch, controlPlane, secret s
 	t.Cleanup(stop)
 	select {
 	case origin := <-ready:
-		return stop, origin
+		// The printed browser URL may contain its local Web authentication token.
+		// The server-to-server HMAC endpoint accepts only an origin, not that URL.
+		parsed, err := url.Parse(origin)
+		require.NoError(t, err)
+		require.Equal(t, "127.0.0.1", parsed.Hostname())
+		return stop, parsed.Scheme + "://" + parsed.Host
 	case err := <-done:
 		stopped = true
 		cancel()
