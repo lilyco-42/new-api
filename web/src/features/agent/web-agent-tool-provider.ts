@@ -380,9 +380,12 @@ export function browserEvidenceResponseAppendix(
   if (!receipt) return searchSources
   const chinese = /[\u3400-\u9fff]/u.test(latestUserRequestText(messages))
   const resource = receipt.resource === 'repositories' ? '仓库列表' : receipt.resource
-  const outcome = receipt.count === null
-    ? (chinese ? '读取未成功，未确认任何结果' : 'Read failed; no results were confirmed')
-    : (chinese ? `本次返回 ${receipt.count} 条` : `${receipt.count} items returned on this page`)
+  let outcome: string
+  if (receipt.count === null) {
+    outcome = chinese ? '读取未成功，未确认任何结果' : 'Read failed; no results were confirmed'
+  } else {
+    outcome = chinese ? `本次返回 ${receipt.count} 条` : `${receipt.count} items returned on this page`
+  }
   const note = chinese
     ? `读取记录：网站 GitHub OAuth · ${resource} · ${outcome} · ${receipt.fetchedAt}。未调用本机 gh。`
     : `Read record: website GitHub OAuth · ${receipt.resource} · ${outcome} · ${receipt.fetchedAt}. No local gh CLI was used.`
