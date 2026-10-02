@@ -46,9 +46,13 @@ it.each([
   let answer = ''
   let usage: unknown
   let caseCalls = 0
+  let lookups = 0
   let stage = 'lookup'
   const userText = `请阅读 ${repository} 的 ${resource}，仅列出返回结果中前两条的编号、标题、简短摘要和原始链接。不要给我操作教程，也不要使用本机 CLI。`
+  let currentRequest = userText
   vi.mocked(api.get).mockImplementation(async (path, config) => {
+    lookups += 1
+    if (lookups > 1) throw new Error('The source must not be read again for a query-method follow-up.')
     expect(path).toBe(sitePath)
     expect(config?.params?.repo).toBe(repository)
     const response = await fetch(`https://api.github.com/repos/${repository}/${githubPath}?state=open&sort=updated&direction=desc&per_page=10`, {
@@ -69,12 +73,16 @@ it.each([
   const request = async (payload: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResponse> => {
     expect(source.length).toBeGreaterThanOrEqual(1)
     expect(payload.tools).toEqual([])
-    expect(payload.messages.at(-1)?.content).toBe(userText)
-    const evidence = payload.messages.find((entry) => entry.name === 'lain42_github_oauth_context')
-    expect(evidence?.content).toContain(source[0].title)
+    expect(payload.messages.at(-1)?.content).toBe(currentRequest)
+    if (caseCalls === 0) {
+      const evidence = payload.messages.find((entry) => entry.name === 'lain42_github_oauth_context')
+      expect(evidence?.content).toContain(source[0].title)
+    } else {
+      expect(payload.messages.find((entry) => entry.role === 'assistant')?.content).toContain('读取记录：网站 GitHub OAuth')
+    }
     caseCalls += 1
     inferenceCalls += 1
-    if (caseCalls > 1 || inferenceCalls > 2) throw new Error('Live inference budget exceeded; no retries are allowed.')
+    if (caseCalls > (resource === 'issues' ? 2 : 1) || inferenceCalls > 3) throw new Error('Live inference budget exceeded; no retries are allowed.')
     stage = 'inference'
     const response = await fetch('https://api.lain42.top/v1/chat/completions', {
       method: 'POST', redirect: 'error', signal,
@@ -97,7 +105,8 @@ it.each([
     ], { ...DEFAULT_CONFIG, model: model ?? '', stream: false, max_tokens: 1024 },
     { ...DEFAULT_PARAMETER_ENABLED, max_tokens: true, temperature: false,
       top_p: false, frequency_penalty: false, presence_penalty: false }, true)
-    await runLocalToolLoop(payload, createBrowserAgentToolProvider(undefined, false), AbortSignal.timeout(90_000), undefined, request)
+    const provider = createBrowserAgentToolProvider(undefined, false)
+    const firstResponse = await runLocalToolLoop(payload, provider, AbortSignal.timeout(90_000), undefined, request)
     stage = 'grounding'
     for (const item of source.slice(0, 2)) {
       expect(answer).toContain(item.html_url)
@@ -114,6 +123,29 @@ it.each([
     expect(numberedReferences.every((number) => allowedNumbers.has(number))).toBe(true)
     expect(answer).not.toMatch(/gh auth login|github\.oauth\.\w+\.\w+\(\)/iu)
     results.push({ resource, passed: true, elapsed_ms: Date.now() - started, expected_items: Math.min(2, source.length), inference_calls: caseCalls, source: source.slice(0, 2), answer: answer.slice(0, 8000), usage })
+    if (resource === 'issues') {
+      stage = 'follow-up'
+      currentRequest = '你怎么查询的?'
+      const actualAnswer = firstResponse.choices[0]?.message.content
+      expect(typeof actualAnswer).toBe('string')
+      const followup = buildChatCompletionPayload([
+        message('system', 'system', `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}`),
+        message('user', 'user', userText),
+        message('actual-answer', 'assistant', String(actualAnswer)),
+        message('follow-up', 'user', currentRequest),
+      ], { ...DEFAULT_CONFIG, model: model ?? '', stream: false, max_tokens: 1024 },
+      { ...DEFAULT_PARAMETER_ENABLED, max_tokens: true, temperature: false,
+        top_p: false, frequency_penalty: false, presence_penalty: false }, true)
+      await runLocalToolLoop(followup, provider, AbortSignal.timeout(90_000), undefined, request)
+      stage = 'follow-up-grounding'
+      expect(answer).toMatch(/oauth/iu)
+      expect(answer).toMatch(/网站|本站|浏览器|website|site|browser/iu)
+      expect(answer).not.toMatch(/lyco-skill|(?:需要|必须|请先).{0,15}(?:gh auth login|登录.{0,8}(?:CLI|gh))/iu)
+      expect(lookups).toBe(1)
+      results.push({ resource: 'query-method-follow-up', passed: true, elapsed_ms: Date.now() - started,
+        inference_calls: 1, lookup_calls: lookups, actual_previous_answer: String(actualAnswer).slice(0, 8000),
+        answer: answer.slice(0, 8000), usage })
+    }
   } catch {
     results.push({ resource, passed: false, elapsed_ms: Date.now() - started, source: source.slice(0, 2),
       answer: answer.slice(0, 8000), stage, inference_calls: caseCalls, error: 'Lookup, timeout, inference or grounding assertions failed.', usage })
@@ -125,7 +157,7 @@ afterAll(async () => {
   await mkdir('evaluation-results', { recursive: true })
   await writeFile('evaluation-results/agent-grounding.json', JSON.stringify({
     candidate_sha: process.env.GITHUB_SHA, model, created_at: new Date().toISOString(),
-    scope: 'Actual candidate payload builder, provider and tool loop; real public GitHub data via an external HTTP test adapter, and real website model. NOT website OAuth, DSH, browser, mobile or two-user E2E.',
-    max_inference_requests: 2, max_output_tokens_per_request: 1024, inferenceCalls, results,
+    scope: 'Actual candidate payload builder, provider and tool loop; real public GitHub data via an external HTTP test adapter, real website model, and a follow-up using the actual previous answer and read record. NOT website OAuth, DSH, browser, mobile or two-user E2E.',
+    max_inference_requests: 3, max_output_tokens_per_request: 1024, inferenceCalls, results,
   }, null, 2))
 })
