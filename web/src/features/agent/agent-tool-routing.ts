@@ -180,7 +180,7 @@ export function explicitlyTargetsLocalGitHub(text: string): boolean {
     const prefixStart = Math.max(0, (match.index ?? 0) - 16)
     const prefix = text.slice(prefixStart, match.index)
     if (
-      /(?:不要|别|不许|禁止|避免|do not|don't|dont|avoid)\s*$/iu.test(
+      /(?:不要|别|不许|禁止|避免|不(?:要求|需要|必)(?:你)?(?:修改文件或)?|do not|don't|dont|avoid)\s*$/iu.test(
         prefix
       )
     ) {

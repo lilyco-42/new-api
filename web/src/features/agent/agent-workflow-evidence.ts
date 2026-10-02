@@ -32,7 +32,8 @@ export function workflowEvidenceTarget(messages: ChatCompletionMessage[]): Workf
     if (typeof previous?.content !== 'string' || !workflowTopic.test(previous.content) ||
       !repairAction.test(previous.content) || explicitlyTargetsLocalGitHub(previous.content) || declinesRead.test(previous.content)) return undefined
     request = previous.content
-  } else if (!workflowTopic.test(latest) || !repairAction.test(latest)) return undefined
+  } else if (!workflowTopic.test(latest) || (!repairAction.test(latest) &&
+    !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+\/?$/iu.test(latest))) return undefined
   const repo = explicitGitHubRepository(request)
   const runMatch = request.match(/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/(\d+)\b|\brun[_ -]?id\s*[=:：]?\s*([^\s。！，;]+)/iu)
   if (runMatch) {
@@ -72,14 +73,15 @@ export async function prepareWorkflowEvidence(messages: ChatCompletionMessage[],
     confirmed = envelope.success === true && data.repo === target.repo && Array.isArray(data.jobs) && Array.isArray(data.problems)
     if (!confirmed) data = { error: 'Workflow read failed or returned an invalid evidence contract.' }
   } catch (error) {
-    if (signal.aborted) throw error
+    if (signal.aborted) { throw error }
     data = { error: 'Workflow evidence could not be read. Check this account’s website GitHub OAuth connection and repository access; no local gh login is required. No file or log was confirmed.' }
   }
   const run = record(data.run)
   const workflow = record(data.workflow)
   const jobs = Array.isArray(data.jobs) ? data.jobs.slice(0, 20).map(record) : []
   const material = {
-    ...data,
+    repo: data.repo, fetched_at: data.fetched_at, run: data.run,
+    error: data.error, problems: data.problems, jobs_truncated: data.jobs_truncated,
     // Log excerpts precede the file so bounded hosted inputs preserve failure evidence.
     jobs: jobs.map((job) => ({ ...job, log: boundedText(job.log, 4000),
       client_log_truncated: typeof job.log === 'string' && new TextEncoder().encode(job.log).length > 4000 })),

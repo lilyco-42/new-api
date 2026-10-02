@@ -56,13 +56,13 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
       { ...DEFAULT_PARAMETER_ENABLED, max_tokens: true, temperature: false, top_p: false,
         frequency_penalty: false, presence_penalty: false }, true)
     const request = async (input: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResponse> => {
-      calls++
-      if (calls > 1) throw new Error('One-inference budget exceeded; no retries')
+      if (calls >= 1) throw new Error('One-inference budget exceeded; no retries')
       expect(input.tools).toEqual([])
       const context = input.messages.find((item) => item.name === 'lain42_workflow_evidence')
       expect(context?.content).toContain(evidence.run.head_sha)
       expect(context?.content).toContain(evidence.run.path)
       stage = 'inference'
+      calls++
       const response = await fetch('https://api.lain42.top/v1/chat/completions', {
         method: 'POST', redirect: 'error', signal,
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
