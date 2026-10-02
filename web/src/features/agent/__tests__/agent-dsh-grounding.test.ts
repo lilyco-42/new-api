@@ -129,7 +129,9 @@ describe('hosted Agent with the real browser provider', () => {
     expect(submitted[0]?.text).toContain('Parametric mechanical CAD')
     expect(submitted[0]?.text).toContain('2026-09-28')
     expect(submitted[0]?.text).toContain('parametric mounting bracket')
-    expect(response?.choices[0]?.message.content).toBe(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain('website GitHub OAuth')
+    expect(response?.choices[0]?.message.content).toContain('2 items returned on this page')
     expect(api.get).not.toHaveBeenCalledWith('/api/agent/github/status', expect.anything())
   })
 
@@ -141,7 +143,9 @@ describe('hosted Agent with the real browser provider', () => {
     expect(submitted[0]?.text).toContain('https://github.com/merchant/image-workflow/issues/17')
     expect(submitted[0]?.text).toContain('body_truncated')
     expect(submitted[0]?.text).toContain('untrusted data')
-    expect(response?.choices[0]?.message.content).toBe(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain('本次返回 1 条')
+    expect(response?.choices[0]?.message.content).toContain('未调用本机 gh')
     expect(api.get).not.toHaveBeenCalledWith('/api/agent/github/status', expect.anything())
   })
 
@@ -196,7 +200,9 @@ describe('hosted Agent with the real browser provider', () => {
     expect(submitted).toHaveLength(1)
     expect(submitted[0]?.text).toContain('GitHub OAuth authorization was revoked')
     expect(submitted[0]?.text).toContain('Report: public/project.')
-    expect(response?.choices[0]?.message.content).toBe(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain(modelAnswer)
+    expect(response?.choices[0]?.message.content).toContain('Read failed; no results were confirmed')
+    expect(response?.choices[0]?.message.content).not.toContain('0 items returned')
     expect(response?.choices[0]?.message.content).not.toContain('gh auth login')
   })
 

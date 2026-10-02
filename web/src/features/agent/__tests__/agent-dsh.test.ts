@@ -10,11 +10,11 @@ import type {
 import { api } from '@/lib/api'
 
 import { createAgentDSHConversation } from '../agent-dsh'
-import { browserSearchResponseAppendix, webAgentToolProvider } from '../web-agent-tool-provider'
+import { browserEvidenceResponseAppendix, webAgentToolProvider } from '../web-agent-tool-provider'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 vi.mock('../web-agent-tool-provider', () => ({
-  browserSearchResponseAppendix: vi.fn(() => ''),
+  browserEvidenceResponseAppendix: vi.fn(() => ''),
   webAgentToolProvider: {
     tools: [],
     preflight: vi.fn(() => null),
@@ -74,7 +74,7 @@ describe('Lain42 DSH conversation adapter', () => {
     vi.mocked(browserHooks.preflight).mockReset().mockReturnValue(null)
     vi.mocked(browserHooks.prepareContext).mockClear()
     vi.mocked(browserHooks.finalizeResponse).mockClear()
-    vi.mocked(browserSearchResponseAppendix).mockReset().mockReturnValue('')
+    vi.mocked(browserEvidenceResponseAppendix).mockReset().mockReturnValue('')
     vi.mocked(browserHooks.requiresApproval).mockReset().mockResolvedValue(true)
     vi.mocked(browserHooks.invoke).mockReset()
     vi.stubGlobal('crypto', {
@@ -372,7 +372,7 @@ describe('Lain42 DSH conversation adapter', () => {
       }),
       expect.any(Object)
     )
-    expect(browserSearchResponseAppendix).toHaveBeenCalledWith(
+    expect(browserEvidenceResponseAppendix).toHaveBeenCalledWith(
       expect.any(Array),
       [evidence]
     )

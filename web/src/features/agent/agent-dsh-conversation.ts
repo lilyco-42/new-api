@@ -10,7 +10,7 @@ import { api } from '@/lib/api'
 import { latestUserRequestText, shouldRunLocalAgentTool } from './agent-tool-routing'
 import { prepareBrowserContext } from './agent-dsh-browser-context'
 import { buildTurnInput } from './agent-dsh-input-budget'
-import { browserSearchResponseAppendix, webAgentToolProvider } from './web-agent-tool-provider'
+import { browserEvidenceResponseAppendix, webAgentToolProvider } from './web-agent-tool-provider'
 import {
   MAX_TURN_BODY_BYTES,
   MAX_TURN_TEXT_BYTES,
@@ -278,7 +278,7 @@ export function createAgentDSHConversation(options: {
         input.truncated ? localizedMessage(requestText,
           '阅读范围提示：支持资料已按输入预算截断，以上回答未基于完整资料。',
           'Reading limit: supporting evidence was truncated to fit the input budget; the answer is not based on the complete material.') : '',
-        browserSearchResponseAppendix(payload.messages, preparedContext),
+        browserEvidenceResponseAppendix(payload.messages, preparedContext),
       ].filter(Boolean).join('\n\n')
       const activeSessionId = sessionId ?? await createAgentDSHSession(signal)
       write(sessionStorageKey, activeSessionId)
