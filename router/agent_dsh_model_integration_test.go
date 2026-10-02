@@ -12,16 +12,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	const path = "/v1/agent/chat/completions"
 	const modelName = "gpt-3.5-turbo"
 	const secret = "synthetic-model-relay-secret-32-bytes"
@@ -46,8 +46,15 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 			previousLogs, previousExport := common.LogConsumeEnabled, common.DataExportEnabled
 			previousRateLimit, previousCountToken := setting.ModelRequestRateLimitEnabled, constant.CountToken
 			previousPerformance, previousMode := common.GetPerformanceMonitorConfig(), gin.Mode()
-			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-			require.NoError(t, err)
+			previousMaster, previousSQLitePath := common.IsMasterNode, common.SQLitePath
+			common.IsMasterNode = false
+			common.SQLitePath = fmt.Sprintf("file:agent_model_%d?mode=memory&cache=shared", index)
+			t.Setenv("SQL_DSN", "local")
+			t.Setenv("LOG_SQL_DSN", "")
+			// InitDB also initializes dialect-specific column names used by real
+			// channel selection and billing; direct gorm.Open would miss them.
+			require.NoError(t, model.InitDB())
+			db := model.DB
 			sqlDB, err := db.DB()
 			require.NoError(t, err)
 			sqlDB.SetMaxOpenConns(1)
@@ -67,6 +74,7 @@ func TestAgentDSHProductionModelRouteUsesOwnerWallet(t *testing.T) {
 				common.LogConsumeEnabled, common.DataExportEnabled = previousLogs, previousExport
 				setting.ModelRequestRateLimitEnabled, constant.CountToken = previousRateLimit, previousCountToken
 				common.SetPerformanceMonitorConfig(previousPerformance)
+				common.IsMasterNode, common.SQLitePath = previousMaster, previousSQLitePath
 				gin.SetMode(previousMode)
 				_ = sqlDB.Close()
 			})
