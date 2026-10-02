@@ -109,6 +109,16 @@ func AgentDSHModelAuth() func(c *gin.Context) {
 			writeAgentDSHAuthError(c, http.StatusUnauthorized, "agent_relay_unauthorized")
 			return
 		}
+		// The authenticated owner uses the existing account-funded Playground
+		// pipeline, including chat validation and canonical upstream URLs. Leaving
+		// the private /v1/agent path here would charge Playground's temporary
+		// zero-ID token instead of the owner wallet. Keep the original RequestURI
+		// and restore the URL after dispatch for outer request/audit middleware.
+		originalPath, originalRawPath := c.Request.URL.Path, c.Request.URL.RawPath
+		c.Request.URL.Path, c.Request.URL.RawPath = "/pg/chat/completions", ""
+		defer func() {
+			c.Request.URL.Path, c.Request.URL.RawPath = originalPath, originalRawPath
+		}()
 		c.Next()
 	}
 }
