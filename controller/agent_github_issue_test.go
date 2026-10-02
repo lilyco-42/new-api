@@ -138,3 +138,50 @@ func TestAgentIssueReadPreservesUpstreamAuthorizationAndNotFoundFailures(t *test
 		assert.NotContains(t, recorder.Body.String(), `"items"`)
 	}
 }
+
+func TestAgentDSHIssueReadUsesTheMappedAccountAndReturnsExactDiscussion(t *testing.T) {
+	setupAgentIssueReadTest(t)
+	previousTransport := http.DefaultTransport
+	requests := 0
+	http.DefaultTransport = agentGitHubRoundTripper(func(request *http.Request) (*http.Response, error) {
+		requests++
+		assert.Equal(t, "Bearer account-42-token", request.Header.Get("Authorization"))
+		body := `{"number":2,"title":"Reconnect","state":"closed","body":"Export is duplicated.","comments":1,"html_url":"https://github.com/owner/project/issues/2"}`
+		if strings.HasSuffix(request.URL.Path, "/comments") {
+			body = `[{"body":"The response is lost before retry.","html_url":"https://github.com/owner/project/issues/2#issuecomment-1","user":{"login":"maintainer"}}]`
+		} else {
+			assert.Equal(t, "/repos/owner/project/issues/2", request.URL.Path)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/agent/bridge/v1/tool", nil)
+	c.Set("id", 42)
+	result, code, message := executeAgentDSHTool(c, "github_issue", map[string]any{"repo": "owner/project", "number": float64(2)})
+	require.Empty(t, code, message)
+	encoded, err := common.Marshal(result)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), "Export is duplicated.")
+	assert.Contains(t, string(encoded), "The response is lost before retry.")
+	assert.Contains(t, string(encoded), `"state":"closed"`)
+	assert.NotContains(t, string(encoded), "account-42-token")
+	assert.Equal(t, 2, requests)
+
+	c.Set("id", 43)
+	result, code, _ = executeAgentDSHTool(c, "github_issue", map[string]any{"repo": "owner/project", "number": float64(2)})
+	assert.Nil(t, result)
+	assert.Equal(t, "github_not_connected", code)
+	c.Set("id", 42)
+	for _, args := range []map[string]any{
+		{"repo": "owner/project", "number": float64(0)},
+		{"repo": "owner/project", "number": float64(2.5)},
+		{"repo": "owner/project", "number": float64(2147483648)},
+		{"repo": "owner/..", "number": float64(2)},
+	} {
+		result, code, _ = executeAgentDSHTool(c, "github_issue", args)
+		assert.Nil(t, result)
+		assert.Equal(t, "invalid_arguments", code)
+	}
+	assert.Equal(t, 2, requests, "invalid arguments or another unlinked account must not query GitHub")
+}
