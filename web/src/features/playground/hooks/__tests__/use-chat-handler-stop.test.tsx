@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { PlaygroundMessageContent } from '../../components/message/playground-message-content'
 import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '../../constants'
 import { loadMessages, saveMessages } from '../../lib/storage/storage'
-import type { HostedTurnProvider, Message } from '../../types'
+import type { ChatCompletionResponse, HostedTurnProvider, Message } from '../../types'
 import { useChatHandler } from '../use-chat-handler'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() }, getFreshAuthHeaders: vi.fn() }))
@@ -75,15 +75,22 @@ it.each(['received', 'lost'] as const)('keeps %s Stop visible after reload using
   provider.reset()
 })
 
-it('keeps Stop bound to the original provider after the workspace provider changes', async () => {
+it('keeps late Stop bound to the original provider without changing the next workspace reply', async () => {
   const entered = deferred<void>()
   const response = deferred<null>()
+  const cancellation = deferred<'requested'>()
+  const nextEntered = deferred<void>()
+  const nextResponse = deferred<ChatCompletionResponse>()
   const original: HostedTurnProvider = {
     reset: vi.fn(),
     send: async () => { entered.resolve(); return await response.promise },
+    cancel: vi.fn(() => cancellation.promise),
+  }
+  const replacement: HostedTurnProvider = {
+    ...original,
+    send: async () => { nextEntered.resolve(); return await nextResponse.promise },
     cancel: vi.fn(async () => 'requested' as const),
   }
-  const replacement: HostedTurnProvider = { ...original, cancel: vi.fn(async () => 'requested' as const) }
   let messages: Message[] = [
     { key: 'user', from: 'user', versions: [{ id: 'user', content: 'Please reply briefly.' }] },
     { key: 'assistant', from: 'assistant', versions: [{ id: 'assistant', content: '' }], status: 'loading' },
@@ -101,5 +108,19 @@ it('keeps Stop bound to the original provider after the workspace provider chang
   act(() => { result.current.stopGeneration() })
   expect(original.cancel).toHaveBeenCalledOnce()
   expect(replacement.cancel).not.toHaveBeenCalled()
+  messages = [
+    { key: 'next-user', from: 'user', versions: [{ id: 'next-user', content: 'A new task.' }] },
+    { key: 'next-assistant', from: 'assistant', versions: [{ id: 'next-assistant', content: '' }], status: 'loading' },
+  ]
+  act(() => { result.current.sendChat(messages) })
+  await nextEntered.promise
+  await act(async () => { cancellation.resolve('requested') })
+  expect(messages[1]?.stopState).toBeUndefined()
   await act(async () => { response.resolve(null) })
+  await act(async () => { nextResponse.resolve({
+    id: 'next', object: 'chat.completion', created: 1, model: 'site-model',
+    choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'New workspace reply.' } }],
+  }) })
+  expect(messages[1]?.versions[0]?.content).toBe('New workspace reply.')
+  expect(messages[1]?.stopState).toBeUndefined()
 })
