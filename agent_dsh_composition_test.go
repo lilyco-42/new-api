@@ -1,6 +1,6 @@
 //go:build lain42composition
 
-package router
+package main
 
 import (
 	"bufio"
@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -46,7 +47,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	const issueURL = "https://github.com/owner/project/issues/2"
 	const answer = "Persist an export request ID before retrying after a lost response. Source: " + issueURL
 	const otherAnswer = "Hello from the second account."
-	common.IsMasterNode = false
+	common.IsMasterNode = true
 	common.SQLitePath = filepath.Join(t.TempDir(), "composition.db")
 	t.Setenv("SQL_DSN", "local")
 	t.Setenv("LOG_SQL_DSN", "")
@@ -77,6 +78,9 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		Group: "default", AuthVersion: 1, Quota: 100000, AffCode: "composition-other-aff", Setting: `{"billing_preference":"wallet_only"}`}
 	owner.SetAccessToken(tokenA)
 	other.SetAccessToken(tokenB)
+	passwordHash, err := common.HashPassword("synthetic-browser-password")
+	require.NoError(t, err)
+	owner.Password, other.Password = passwordHash, passwordHash
 	require.NoError(t, db.Create(&owner).Error)
 	require.NoError(t, db.Create(&other).Error)
 	require.NoError(t, model.SaveAgentGitHubCredential(owner.Id, "provider-owner", "owner", "repo", "synthetic-owner-github-token"))
@@ -116,7 +120,13 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		}
 		var delta any
 		finish := "stop"
-		if strings.Contains(string(body), "Say hello for the second account") {
+		if strings.Contains(string(body), "Explain my attached browser note") {
+			if !strings.Contains(string(body), "CLIENT_FILE_FACT_42") {
+				http.Error(w, "client attachment did not reach inference", http.StatusBadRequest)
+				return
+			}
+			delta = map[string]any{"role": "assistant", "content": "The attached note contains CLIENT_FILE_FACT_42.\n\n```rust\nfn main() { println!(\"CLIENT_FILE_FACT_42\"); }\n```"}
+		} else if strings.Contains(string(body), "Say hello for the second account") {
 			if strings.Contains(string(body), "lost response") || strings.Contains(string(body), issueURL) {
 				http.Error(w, "another account's context leaked", http.StatusBadRequest)
 				return
@@ -157,8 +167,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	t.Setenv("LAIN42_DSH_BRIDGE_SECRET", secret)
 	t.Setenv("LAIN42_AGENT_MODEL_RELAY_SECRET", secret)
 	engine := gin.New()
-	SetRelayRouter(engine)
-	SetApiRouter(engine)
+	router.SetRouter(engine, router.WebAssets{BuildFS: buildFS, IndexPage: indexPage})
 	controlPlane := httptest.NewServer(engine)
 	t.Cleanup(controlPlane.Close)
 	work := t.TempDir()
@@ -254,6 +263,17 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	var tokenCount int64
 	require.NoError(t, db.Model(&model.Token{}).Count(&tokenCount).Error)
 	require.Zero(t, tokenCount)
+	// Run the production build, not a DOM fixture or a route-intercepted UI.
+	// Password login, refresh cookie, Agent turns and attachment conversion use
+	// the real browser and server. The provider remains the declared fixture.
+	browserScript, err := filepath.Abs("scripts/lain42-browser-acceptance.mjs")
+	require.NoError(t, err)
+	browser := exec.Command("node", browserScript, controlPlane.URL)
+	browser.Env = os.Environ()
+	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
+	require.NoError(t, browser.Run())
+	require.EqualValues(t, 5, providerCalls.Load(), "each viewport sends one real attachment turn")
+	require.EqualValues(t, 2, githubCalls.Load(), "attachment chat has no unrelated GitHub request")
 }
 
 type compositionGitHubTransport struct {
