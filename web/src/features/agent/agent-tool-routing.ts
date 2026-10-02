@@ -87,7 +87,7 @@ function explicitlyDeclinesAccountRepositories(text: string): boolean {
 
 export function targetsAccountRepositories(text: string): boolean {
   const explicitlyTargetsAccount =
-    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*项目|(?:github\s*)?(?:仓库|repositories|repository|repos?))/iu.test(
+    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:项目|仓库|repositories|repository|repos?)/iu.test(
       text
     ) ||
     /(?:我|本人)(?:通过|已通过|在).{0,24}(?:github\s*)?oauth.{0,16}(?:授权|连接).{0,12}仓库|\b(?:my|the)\s+connected\s+github\s+(?:account(?:'s|’s)?\s+)?(?:repositories|repository|repos?)\b/iu.test(text) ||
@@ -429,14 +429,108 @@ export function latestUserRequestText(
   return latestUserText(messages)
 }
 
+export type PendingRepositoryChoices = {
+  intent: 'issues' | 'pull_requests'
+  returnedCount: number
+  repositories: Array<{ full_name: string; html_url: string }>
+  executionContext: string
+}
+
+export function readPendingGitHubRepositoryChoices(
+  messages: ChatCompletionMessage[]
+): PendingRepositoryChoices | undefined {
+  let latestUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {
+      latestUserIndex = index
+      break
+    }
+  }
+  let assistantIndex = latestUserIndex - 1
+  while (assistantIndex >= 0 && messages[assistantIndex]?.role !== 'assistant') assistantIndex -= 1
+  const recordMessage = messages[assistantIndex + 1]
+  if (recordMessage?.role !== 'system' || recordMessage.name !== 'lain42_execution_record' ||
+    typeof recordMessage.content !== 'string' || new TextEncoder().encode(recordMessage.content).byteLength > 4608) {
+    return undefined
+  }
+
+  const json = recordMessage.content.split('\n').find((line) => line.startsWith('{'))
+  if (!json || new TextEncoder().encode(json).byteLength > 4096) return undefined
+  try {
+    const record: unknown = JSON.parse(json)
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return undefined
+    const value = record as Record<string, unknown>
+    const parameters = value.parameters
+    if (value.source !== 'website GitHub OAuth' || value.resource !== 'repositories' ||
+      value.scope !== 'this page only' || value.outcome !== 'read completed' || value.local_gh_used !== false ||
+      (value.pending_intent !== 'issues' && value.pending_intent !== 'pull_requests') ||
+      value.repository_order !== 'updated' ||
+      !Number.isSafeInteger(value.returned_count) || Number(value.returned_count) < 1 || Number(value.returned_count) > 10 ||
+      typeof value.fetched_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/u.test(value.fetched_at) ||
+      !parameters || typeof parameters !== 'object' || Array.isArray(parameters) ||
+      !Number.isSafeInteger((parameters as Record<string, unknown>).limit) ||
+      Number((parameters as Record<string, unknown>).limit) < 1 || Number((parameters as Record<string, unknown>).limit) > 20 ||
+      !Array.isArray(value.repository_choices) || value.repository_choices.length < 1 ||
+      value.repository_choices.length > Number(value.returned_count) || value.repository_choices.length > 10) return undefined
+
+    const repositories: PendingRepositoryChoices['repositories'] = []
+    for (const choice of value.repository_choices) {
+      if (!choice || typeof choice !== 'object' || Array.isArray(choice)) return undefined
+      const entry = choice as Record<string, unknown>
+      if (typeof entry.full_name !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(entry.full_name) ||
+        typeof entry.html_url !== 'string') return undefined
+      const url = new URL(entry.html_url)
+      if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password ||
+        url.search || url.hash || url.pathname.toLowerCase() !== `/${entry.full_name}`.toLowerCase()) return undefined
+      repositories.push({ full_name: entry.full_name, html_url: url.toString() })
+    }
+    return { intent: value.pending_intent, returnedCount: Number(value.returned_count), repositories, executionContext: json }
+  } catch {
+    return undefined
+  }
+}
+
+function selectedRepositoryFromChoices(
+  messages: ChatCompletionMessage[]
+): { intent: 'issues' | 'pull_requests'; repository: string } | undefined {
+  const choices = readPendingGitHubRepositoryChoices(messages)
+  if (!choices) return undefined
+  const latest = latestUserText(messages).trim()
+  const numeric = /^(?:第\s*)?(\d{1,2})(?:\s*(?:个|项|号|[.)]))?$/u.exec(latest) ??
+    /^(?:我选|选|选择|就选)\s*(?:第\s*)?(\d{1,2})(?:\s*(?:个|项|号))?$/u.exec(latest)
+  const chineseOrdinal = /^(?:我选|选|选择|就选)?\s*第?([一二三四五六七八九十])(?:个|项|号)?$/u.exec(latest)
+  const chineseNumbers: Record<string, number> = {
+    一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
+  }
+  const explicit = /^(?:https:\/\/github\.com\/)?([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/?$/iu.exec(latest)
+  const choiceNumber = numeric?.[1] ? Number(numeric[1]) : chineseOrdinal?.[1] ? chineseNumbers[chineseOrdinal[1]] : undefined
+  const selected = choiceNumber !== undefined
+    ? choices.repositories[choiceNumber - 1]
+    : choices.repositories.find((repository) => repository.full_name.toLowerCase() === explicit?.[1]?.toLowerCase())
+  return selected ? { intent: choices.intent, repository: selected.full_name } : undefined
+}
+
 /** Preserve a user's immediate read request, without inheriting device or attachment authorization. */
 export function browserGitHubReadRequestText(messages: ChatCompletionMessage[]): string {
   const latest = latestUserText(messages)
+  const selection = selectedRepositoryFromChoices(messages)
+  if (selection) {
+    return `读取 ${selection.repository} 的 ${selection.intent === 'issues' ? 'issues' : 'pull requests'}`
+  }
   if (getGitHubReadIntent(latest)) return latest
   const continuesReading =
     /^(?:请|麻烦)?(?:你(?:自己|来)?|继续|接着)?(?:阅读|读取|查看|读)(?:一下|吧)?[。.!！?？]*$/u.test(latest) ||
     /^(?:please\s+)?(?:read|check)(?:\s+(?:it|them))?(?:\s+(?:yourself|again))?[.!?]*$/iu.test(latest)
   if (!continuesReading) return latest
+
+  const autonomousRead =
+    /^(?:请|麻烦)?(?:你自己|你来|你)(?:阅读|读取|查看|读)(?:一下|吧)?[。.!！?？]*$/u.test(latest) ||
+    /^(?:please\s+)?read(?:\s+(?:it|them))?\s+yourself[.!?]*$/iu.test(latest)
+  const pendingChoices = readPendingGitHubRepositoryChoices(messages)
+  const preferredRepository = pendingChoices?.repositories[0]
+  if (autonomousRead && pendingChoices && preferredRepository) {
+    return `读取 ${preferredRepository.full_name} 的 ${pendingChoices.intent === 'issues' ? 'issues' : 'pull requests'}`
+  }
 
   let foundLatest = false
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -455,7 +549,8 @@ export function browserGitHubReadRequestText(messages: ChatCompletionMessage[]):
     }
     const intent = getGitHubReadIntent(previous)
     if (intent === 'repositories' && targetsAccountRepositories(previous)) return previous
-    if ((intent === 'issues' || intent === 'pull_requests') && explicitGitHubRepository(previous)) {
+    if ((intent === 'issues' || intent === 'pull_requests') &&
+      (explicitGitHubRepository(previous) || targetsAccountRepositories(previous))) {
       return previous
     }
     return latest

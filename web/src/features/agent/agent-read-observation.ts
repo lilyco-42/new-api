@@ -35,15 +35,19 @@ export function explainPreviousRead(messages: ChatCompletionMessage[]): { answer
     if (parameters.repo !== undefined && (typeof parameters.repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/u.test(parameters.repo))) return { answer: missing }
     if (parameters.state !== undefined && parameters.state !== 'open') return { answer: missing }
     if (parameters.sort !== undefined && parameters.sort !== 'updated') return { answer: missing }
+    if (parameters.selection !== undefined && parameters.selection !== 'most recently updated repository') return { answer: missing }
     if ((record.outcome === 'read completed') !== (record.returned_count !== null)) return { answer: missing }
     const fields = [parameters.repo ? `repo=${parameters.repo}` : '',
       parameters.state ? 'state=open' : '', parameters.sort ? 'sort=updated' : '', `limit=${parameters.limit}`].filter(Boolean).join(' · ')
     let outcome: string
     if (record.returned_count === null) outcome = chinese ? '读取失败或尚未确认，不能当作零条结果。' : 'The read failed or is unconfirmed; this is not a confirmed empty result.'
     else outcome = chinese ? `本次实际返回 ${record.returned_count} 条。` : `${record.returned_count} items actually returned on this page.`
+    const selectionNote = parameters.selection === 'most recently updated repository'
+      ? (chinese ? '按你的要求，从本页更新时间最新的仓库开始读取。' : 'At your request, the read started with the most recently updated repository on this page.')
+      : ''
     const answer = chinese
-      ? `根据上一轮的执行记录，通过网站 GitHub OAuth 读取 ${record.resource}。\n实际参数：${fields}。\n${outcome}\n读取时间：${record.fetched_at}。范围仅为本次分页，不代表完整集合；未调用本机 gh。`
-      : `The previous execution record shows a website GitHub OAuth read of ${record.resource}.\nActual parameters: ${fields}.\n${outcome}\nRead at ${record.fetched_at}. This page does not represent the complete collection; no local gh CLI ran.`
+      ? `根据上一轮的执行记录，通过网站 GitHub OAuth 读取 ${record.resource}。\n实际参数：${fields}。\n${selectionNote ? `${selectionNote}\n` : ''}${outcome}\n读取时间：${record.fetched_at}。范围仅为本次分页，不代表完整集合；未调用本机 gh。`
+      : `The previous execution record shows a website GitHub OAuth read of ${record.resource}.\nActual parameters: ${fields}.\n${selectionNote ? `${selectionNote}\n` : ''}${outcome}\nRead at ${record.fetched_at}. This page does not represent the complete collection; no local gh CLI ran.`
     return { answer, executionContext: json }
   } catch {
     return { answer: missing }

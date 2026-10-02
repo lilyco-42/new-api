@@ -95,10 +95,9 @@ describe('webAgentToolProvider', () => {
 
   it.each([
     '不要阅读 merchant/image-workflow 的 issues。',
-    '请阅读我的项目的 issues。',
     '请阅读 merchant/image-workflow 和 merchant/other-workflow 的 issues。',
     '请在我的 Radxa 上读取 merchant/image-workflow 的 issues。',
-  ])('does not pre-read denied, ambiguous or device activity requests: %s', async (content) => {
+  ])('does not pre-read denied, multi-repository or device activity requests: %s', async (content) => {
     await createBrowserAgentToolProvider(undefined, false).prepareContext?.(
       [{ role: 'user', content }], new AbortController().signal
     )
@@ -716,15 +715,10 @@ describe('webAgentToolProvider', () => {
       messages: [{ role: 'user', content: 'gh repo 我的项目' }],
       stream: false,
     }
-    const request = vi.fn(async (input: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
-      const evidence = input.messages.find((message) => message.name === 'lain42_github_oauth_context')
-      expect(evidence?.content).toContain('"items":[]')
-      expect(evidence?.content).toContain('The connected account was queried without using a local gh CLI.')
-      return {
-        id: 'empty-repository-model-turn', object: 'chat.completion', created: 1, model: input.model,
-        choices: [{ index: 0, message: { role: 'assistant', content: 'GitHub OAuth 读取成功，当前返回的仓库列表为空。' }, finish_reason: 'stop' }],
-      }
-    })
+    const request = vi.fn(async (input: ChatCompletionRequest): Promise<ChatCompletionResponse> => ({
+      id: 'unexpected-model-turn', object: 'chat.completion', created: 1, model: input.model,
+      choices: [{ index: 0, message: { role: 'assistant', content: 'Must not run.' }, finish_reason: 'stop' }],
+    }))
 
     const response = await runLocalToolLoop(
       payload,
@@ -734,12 +728,12 @@ describe('webAgentToolProvider', () => {
       request
     )
 
-    expect(response.choices[0]?.message.content).toContain('GitHub OAuth 读取成功')
+    expect(response.choices[0]?.message.content).toContain('GitHub OAuth 仓库读取成功')
     expect(api.get).toHaveBeenCalledWith(
       '/api/agent/github/repositories',
       expect.objectContaining({ params: { limit: 10 } })
     )
-    expect(request).toHaveBeenCalledTimes(1)
+    expect(request).not.toHaveBeenCalled()
     expect(api.get).toHaveBeenCalledTimes(1)
   })
 
@@ -1073,22 +1067,17 @@ describe('webAgentToolProvider', () => {
     expect(names).not.toContain('github.auth.status')
   })
 
-  it('reads the requested OAuth repository limit and lets the model answer using that evidence', async () => {
+  it('reads the requested OAuth repository limit and renders actual repository data deterministically', async () => {
     const bridgeProvider: LocalToolProvider = {
       tools: [],
       isAvailable: () => true,
       invoke: vi.fn(),
     }
     const provider = createBrowserAgentToolProvider(bridgeProvider, true)
-    const request = vi.fn(async (payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
-      const evidence = payload.messages.find((message) => message.name === 'lain42_github_oauth_context')
-      expect(evidence?.role).toBe('system')
-      expect(evidence?.content).toContain('lilyco-42/repo-three')
-      return {
-        id: 'repository-model-turn', object: 'chat.completion', created: 1, model: 'test-model',
-        choices: [{ index: 0, message: { role: 'assistant', content: 'OAuth returned lilyco-42/repo-one, lilyco-42/repo-two and lilyco-42/repo-three.' }, finish_reason: 'stop' }],
-      }
-    })
+    const request = vi.fn(async (_payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => ({
+      id: 'unexpected-model-turn', object: 'chat.completion', created: 1, model: 'test-model',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'Must not run.' }, finish_reason: 'stop' }],
+    }))
     vi.mocked(api.get).mockResolvedValueOnce({
       data: {
         success: true,
@@ -1142,21 +1131,17 @@ describe('webAgentToolProvider', () => {
     expect(result.choices[0]?.message.content).toContain(
       'lilyco-42/repo-three'
     )
-    expect(request).toHaveBeenCalledTimes(1)
+    expect(result.choices[0]?.message.content).toContain('https://github.com/lilyco-42/repo-three')
+    expect(request).not.toHaveBeenCalled()
     expect(bridgeProvider.invoke).not.toHaveBeenCalled()
   })
 
   it('reports OAuth repository failures without blaming local gh login', async () => {
     const provider = createBrowserAgentToolProvider(undefined, false)
-    const request = vi.fn(async (payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
-      const evidence = payload.messages.find((message) => message.name === 'lain42_github_oauth_context')
-      expect(evidence?.content).toContain('Request failed with status code 401')
-      expect(evidence?.content).toContain('A lookup error does not imply that local gh must be logged in.')
-      return {
-        id: 'repository-error-model-turn', object: 'chat.completion', created: 1, model: 'test-model',
-        choices: [{ index: 0, message: { role: 'assistant', content: 'GitHub OAuth 仓库读取失败（401）；这与本机 GitHub CLI 是否登录无关。' }, finish_reason: 'stop' }],
-      }
-    })
+    const request = vi.fn(async (_payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => ({
+      id: 'unexpected-model-turn', object: 'chat.completion', created: 1, model: 'test-model',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'Must not run.' }, finish_reason: 'stop' }],
+    }))
     vi.mocked(api.get).mockRejectedValueOnce(
       new Error('Request failed with status code 401')
     )
@@ -1173,13 +1158,10 @@ describe('webAgentToolProvider', () => {
       request
     )
 
-    expect(result.choices[0]?.message.content).toContain(
-      'GitHub OAuth 仓库读取失败'
-    )
-    expect(result.choices[0]?.message.content).toContain(
-      '这与本机 GitHub CLI 是否登录无关'
-    )
-    expect(request).toHaveBeenCalledTimes(1)
+    expect(result.choices[0]?.message.content).toContain('读取未成功')
+    expect(result.choices[0]?.message.content).toContain('HTTP 401')
+    expect(result.choices[0]?.message.content).toContain('不需要登录本机 gh CLI')
+    expect(request).not.toHaveBeenCalled()
     expect(api.get).toHaveBeenCalledTimes(1)
   })
 

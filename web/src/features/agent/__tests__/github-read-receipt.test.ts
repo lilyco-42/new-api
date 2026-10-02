@@ -28,7 +28,7 @@ describe('GitHub read method recorded with the answer', () => {
     const truncated = completion('Analysis cut off before the conclusion')
     truncated.choices[0].finish_reason = 'length'
     const response = await runLocalToolLoop({ model: 'external-test-model', stream: false,
-      messages: [{ role: 'user', content: '查看我的 GitHub 项目' }] }, createBrowserAgentToolProvider(),
+      messages: [{ role: 'user', content: '查看我的 GitHub 项目并分析项目情况' }] }, createBrowserAgentToolProvider(),
       new AbortController().signal, undefined, async () => truncated)
     expect(response.choices[0]?.finish_reason).toBe('length')
     expect(response.choices[0]?.message.content).toContain('Analysis cut off')
@@ -43,7 +43,7 @@ describe('GitHub read method recorded with the answer', () => {
   ])('records the actual lookup outcome rather than a model claim (%#)', async (data, expected) => {
     vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data } } as never)
     const response = await runLocalToolLoop({ model: 'external-test-model', stream: false,
-      messages: [{ role: 'user', content: '查看我的 GitHub 项目' }] }, createBrowserAgentToolProvider(),
+      messages: [{ role: 'user', content: '查看我的 GitHub 项目并分析项目情况' }] }, createBrowserAgentToolProvider(),
       new AbortController().signal, undefined, async () => completion('Model analysis remains here.'))
 
     expect(api.get).toHaveBeenCalledTimes(1)
@@ -108,6 +108,138 @@ describe('GitHub read method recorded with the answer', () => {
     }))
     expect(response.choices[0]?.message.content).toContain('repo=merchant/image-workflow · state=open · sort=updated · limit=10')
     expect(response.choices[0]?.message.content).not.toMatch(/owner=|name=/u)
+  })
+
+  it.each(['查看我的 github 项目', '看我的 GitHub 仓库'])('answers a direct repository-list request with actual OAuth results: %s', async (userText) => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data: { items: [{
+      full_name: 'lilyco-42/rembg-ui',
+      html_url: 'https://github.com/lilyco-42/rembg-ui',
+      private: false,
+      stargazers_count: 7,
+      description: 'Local product-image background removal and batch delivery.',
+    }] } } } as never)
+    const request = vi.fn(async (_payload: ChatCompletionRequest) => completion('Made-up repository list.'))
+    const response = await runLocalToolLoop({ model: 'external-test-model', stream: false,
+      messages: [{ role: 'user', content: userText }] }, createBrowserAgentToolProvider(),
+    new AbortController().signal, undefined, request)
+
+    expect(api.get).toHaveBeenCalledWith('/api/agent/github/repositories', expect.objectContaining({
+      params: { limit: 10 },
+    }))
+    expect(request).not.toHaveBeenCalled()
+    expect(response.choices[0]?.message.content).toContain('[lilyco-42/rembg-ui](https://github.com/lilyco-42/rembg-ui)')
+    expect(response.choices[0]?.message.content).toContain('★ 7')
+    expect(response.choices[0]?.message.content).not.toContain('github.oauth.repositories.list')
+    expect(response.choices[0]?.message.content).not.toContain('your-username')
+  })
+
+  it('turns an account-wide Issue request into verified repo choices, then reads only the selected repo', async () => {
+    const initialRequest = '请阅读我的项目的 issues 并尝试解决'
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: { success: true, data: { items: [
+        { full_name: 'lilyco-42/rembg-ui', html_url: 'https://github.com/lilyco-42/rembg-ui' },
+        { full_name: 'lilyco-42/new-api', html_url: 'https://github.com/lilyco-42/new-api' },
+      ] } } } as never)
+      .mockResolvedValueOnce({ data: { success: true, data: { items: [{
+        number: 17,
+        title: 'Keep batch progress after reconnect',
+        body: 'Reloading the workspace loses the current batch state.',
+        html_url: 'https://github.com/lilyco-42/rembg-ui/issues/17',
+      }] } } } as never)
+    const provider = createBrowserAgentToolProvider(undefined, false)
+    const request = vi.fn(async (payload: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
+      const evidence = payload.messages.find((entry) => entry.name === 'lain42_github_oauth_context')
+      expect(evidence?.content).toContain('Keep batch progress after reconnect')
+      expect(evidence?.content).toContain('Reloading the workspace loses the current batch state.')
+      expect(payload.messages.at(-1)?.content).toBe('你自己阅读')
+      return completion('Issue #17 reports lost batch progress after reconnect; persist and restore the batch checkpoint.')
+    })
+
+    const picker = await runLocalToolLoop({ model: 'external-test-model', stream: false,
+      messages: [{ role: 'user', content: initialRequest }] }, provider,
+    new AbortController().signal, undefined, request)
+    expect(request).not.toHaveBeenCalled()
+    expect(picker.choices[0]?.message.content).toContain('lilyco-42/rembg-ui')
+    expect(picker.choices[0]?.message.content).toContain('lilyco-42/new-api')
+    expect(picker.choices[0]?.message.content).toContain('还没有读取 Issue')
+    const pickerMessage = applyChatCompletionResponse(message('picker', 'assistant', ''), picker)
+    if (!pickerMessage) throw new Error('Expected a repository picker response.')
+
+    const insistPayload = buildChatCompletionPayload([
+      message('request', 'user', initialRequest),
+      pickerMessage,
+      message('insist', 'user', '你自己阅读'),
+    ], { ...DEFAULT_CONFIG, model: 'external-test-model', stream: false }, DEFAULT_PARAMETER_ENABLED, true)
+    const response = await runLocalToolLoop(insistPayload, provider,
+      new AbortController().signal, undefined, request)
+
+    expect(api.get).toHaveBeenNthCalledWith(1, '/api/agent/github/repositories', expect.objectContaining({
+      params: { limit: 10 },
+    }))
+    expect(api.get).toHaveBeenNthCalledWith(2, '/api/agent/github/issues', expect.objectContaining({
+      params: { repo: 'lilyco-42/rembg-ui', limit: 10, state: 'open', sort: 'updated' },
+    }))
+    expect(api.get).toHaveBeenCalledTimes(2)
+    expect(request).toHaveBeenCalledOnce()
+    expect(response.choices[0]?.message.content).toContain('persist and restore the batch checkpoint')
+    expect(response.choices[0]?.message.content).toContain('https://github.com/lilyco-42/rembg-ui/issues/17')
+    expect(response.choices[0]?.message.content).toContain('从 OAuth 仓库列表中更新时间最新的一项开始')
+
+    const issueAnswer = applyChatCompletionResponse(message('issue-answer', 'assistant', ''), response)
+    if (!issueAnswer) throw new Error('Expected a completed Issue analysis.')
+    const methodPayload = buildChatCompletionPayload([
+      message('request', 'user', initialRequest),
+      pickerMessage,
+      message('insist', 'user', '你自己阅读'),
+      issueAnswer,
+      message('method', 'user', '你怎么查询的?'),
+    ], { ...DEFAULT_CONFIG, model: 'external-test-model', stream: false }, DEFAULT_PARAMETER_ENABLED, true)
+    const method = await runLocalToolLoop(methodPayload, provider,
+      new AbortController().signal, undefined, request)
+    expect(method.choices[0]?.message.content).toContain('lilyco-42/rembg-ui')
+    expect(method.choices[0]?.message.content).toContain('更新时间最新的仓库开始读取')
+    expect(api.get).toHaveBeenCalledTimes(2)
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it('accepts a natural-language numbered repository choice and reads only that verified repository', async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: { success: true, data: { items: [
+        { full_name: 'lilyco-42/rembg-ui', html_url: 'https://github.com/lilyco-42/rembg-ui' },
+        { full_name: 'lilyco-42/new-api', html_url: 'https://github.com/lilyco-42/new-api' },
+      ] } } } as never)
+      .mockResolvedValueOnce({ data: { success: true, data: { items: [{
+        number: 25,
+        title: 'Fix browser search follow-up',
+        body: 'The selected repository should be used for the next read.',
+        html_url: 'https://github.com/lilyco-42/new-api/issues/25',
+      }] } } } as never)
+    const provider = createBrowserAgentToolProvider(undefined, false)
+    const request = vi.fn(async (payload: ChatCompletionRequest) => {
+      expect(payload.messages.find((entry) => entry.name === 'lain42_github_oauth_context')?.content)
+        .toContain('Fix browser search follow-up')
+      return completion('Issue #25 describes a browser search follow-up problem.')
+    })
+    const picker = await runLocalToolLoop({ model: 'external-test-model', stream: false,
+      messages: [{ role: 'user', content: '请阅读我的项目的 issues' }] }, provider,
+    new AbortController().signal, undefined, request)
+    const pickerMessage = applyChatCompletionResponse(message('picker-number', 'assistant', ''), picker)
+    if (!pickerMessage) throw new Error('Expected a repository picker response.')
+
+    const payload = buildChatCompletionPayload([
+      message('request-number', 'user', '请阅读我的项目的 issues'),
+      pickerMessage,
+      message('selection-number', 'user', '我选第二个'),
+    ], { ...DEFAULT_CONFIG, model: 'external-test-model', stream: false }, DEFAULT_PARAMETER_ENABLED, true)
+    const response = await runLocalToolLoop(payload, provider,
+      new AbortController().signal, undefined, request)
+
+    expect(api.get).toHaveBeenNthCalledWith(2, '/api/agent/github/issues', expect.objectContaining({
+      params: { repo: 'lilyco-42/new-api', limit: 10, state: 'open', sort: 'updated' },
+    }))
+    expect(api.get).toHaveBeenCalledTimes(2)
+    expect(response.choices[0]?.message.content).toContain('https://github.com/lilyco-42/new-api/issues/25')
+    expect(request).toHaveBeenCalledOnce()
   })
 
   it('retains a user-selected page limit even when its lookup fails', async () => {

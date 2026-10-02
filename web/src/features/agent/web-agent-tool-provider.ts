@@ -25,6 +25,7 @@ import {
   getGitHubReadIntent,
   latestUserRequestText,
   requestsKnownAIEntityDefinition,
+  readPendingGitHubRepositoryChoices,
   shouldAdvertiseBrowserGitHubTool,
   shouldAdvertiseWebAgentTool,
   shouldRunGitHubTool,
@@ -230,12 +231,36 @@ const githubReadReceiptsByContext = new WeakMap<ChatCompletionMessage, {
   resource: 'repositories' | 'issues' | 'pull requests'
   count: number | null
   fetchedAt: string
-  query: { limit: number; repo?: string; state?: 'open'; sort?: 'updated' }
+  query: { limit: number; repo?: string; state?: 'open'; sort?: 'updated'; selection?: 'most recently updated repository' }
+  pendingIntent?: 'issues' | 'pull_requests'
+  repositoryOrder?: 'updated'
+  repositoryChoices?: Array<{ full_name: string; html_url: string }>
 }>()
+
+function safeRepositoryChoices(result: string): Array<{ full_name: string; html_url: string }> {
+  try {
+    const data = asRecord(JSON.parse(result))
+    if (!Array.isArray(data.items) || data.error !== undefined || data.success === false) return []
+    const choices: Array<{ full_name: string; html_url: string }> = []
+    const seen = new Set<string>()
+    for (const value of data.items) {
+      const item = asRecord(value)
+      const fullName = item.full_name
+      if (typeof fullName !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(fullName) ||
+        seen.has(fullName.toLowerCase())) continue
+      seen.add(fullName.toLowerCase())
+      choices.push({ full_name: fullName, html_url: `https://github.com/${fullName}` })
+      if (choices.length === 10) break
+    }
+    return choices
+  } catch {
+    return []
+  }
+}
 
 function githubReadContext(content: string, result: string,
   resource: 'repositories' | 'issues' | 'pull requests',
-  query: { limit: number; repo?: string; state?: 'open'; sort?: 'updated' }): ChatCompletionMessage {
+  query: { limit: number; repo?: string; state?: 'open'; sort?: 'updated'; selection?: 'most recently updated repository' }): ChatCompletionMessage {
   const message: ChatCompletionMessage = { role: 'system', name: 'lain42_github_oauth_context', content }
   let count: number | null = null
   try {
@@ -244,7 +269,10 @@ function githubReadContext(content: string, result: string,
   } catch {
     // Malformed responses are never recorded as successful empty collections.
   }
-  githubReadReceiptsByContext.set(message, { resource, count, fetchedAt: new Date().toISOString(), query })
+  githubReadReceiptsByContext.set(message, {
+    resource, count, fetchedAt: new Date().toISOString(), query,
+    ...(resource === 'repositories' ? { repositoryChoices: safeRepositoryChoices(result) } : {}),
+  })
   return message
 }
 
@@ -402,7 +430,12 @@ export function browserEvidenceResponseAppendix(
   const note = chinese
     ? `读取记录：网站 GitHub OAuth · ${resource} · ${query} · ${outcome} · ${receipt.fetchedAt}。范围仅为本次分页，不代表完整集合。未调用本机 gh。`
     : `Read record: website GitHub OAuth · ${receipt.resource} · ${query} · ${outcome} · ${receipt.fetchedAt}. Scope is this page, not the complete collection. No local gh CLI was used.`
-  return [note, searchSources].filter(Boolean).join('\n\n')
+  const selectionNote = receipt.query.selection === 'most recently updated repository'
+    ? (chinese
+      ? '按你要求我自行选择的指示，从 OAuth 仓库列表中更新时间最新的一项开始。'
+      : 'At your request to choose autonomously, this started with the most recently updated repository in the OAuth list.')
+    : ''
+  return [note, selectionNote, searchSources].filter(Boolean).join('\n\n')
 }
 
 function finalizePreparedBrowserSearch(
@@ -446,7 +479,119 @@ export function browserEvidenceExecutionContext(preparedContext: ChatCompletionM
     source: 'website GitHub OAuth', resource: receipt.resource, parameters: receipt.query,
     returned_count: receipt.count, fetched_at: receipt.fetchedAt, scope: 'this page only',
     outcome: receipt.count === null ? 'read failed or unconfirmed' : 'read completed', local_gh_used: false,
+    ...(receipt.pendingIntent && receipt.repositoryChoices?.length
+      ? {
+          pending_intent: receipt.pendingIntent,
+          repository_order: receipt.repositoryOrder,
+          repository_choices: receipt.repositoryChoices,
+        }
+      : {}),
   })
+}
+
+function repositoryChoicesAnswer(
+  request: string,
+  intent: 'issues' | 'pull_requests',
+  choices: Array<{ full_name: string; html_url: string }>,
+  returnedCount: number | null
+): string {
+  const chinese = /[\u3400-\u9fff]/u.test(request)
+  if (returnedCount === null) {
+    return chinese
+      ? '我还没有读取任何 Issue。通过网站 GitHub OAuth 获取仓库列表失败或未确认；请检查网站内的 GitHub 连接状态后重试，不需要登录本机 gh CLI。'
+      : 'I have not read any issues yet. The repository list could not be confirmed through website GitHub OAuth. Check the GitHub connection on this site and retry; local gh CLI login is not required.'
+  }
+  if (returnedCount === 0) {
+    return chinese
+      ? '网站 GitHub OAuth 已成功读取仓库列表，但本页返回 0 个可访问仓库；我还没有读取 Issue。请确认连接的 GitHub 账号或授权范围。'
+      : 'The repository list was read through website GitHub OAuth, but this page returned 0 accessible repositories; no issues have been read. Check the connected GitHub account and granted access.'
+  }
+  if (choices.length === 0) {
+    return chinese
+      ? `仓库列表接口返回 ${returnedCount} 条数据，但没有可安全识别的 owner/repo；我没有猜测项目，也没有读取 Issue。请提供 GitHub 仓库链接。`
+      : `The repository endpoint returned ${returnedCount} entries, but none had a safely verifiable owner/repo identity. I did not guess a project or read issues; provide a GitHub repository link.`
+  }
+  const list = choices.map((choice, index) => `${index + 1}. [${choice.full_name}](${choice.html_url})`).join('\n')
+  return chinese
+    ? `我已通过网站 GitHub OAuth 读取到 ${returnedCount} 个可访问仓库（仅本页）；还没有读取 Issue。请选择要处理的仓库，回复序号或完整的 owner/repo。也可以回复“你自己阅读”，我会从按更新时间排序的列表首项开始：\n\n${list}\n\n选定后，我会读取该仓库最近更新的 ${intent === 'issues' ? 'open Issues' : 'open Pull Requests'}，再根据实际内容给出分析和可执行建议。无需登录本机 gh CLI。`
+    : `I read ${returnedCount} accessible repositories from this page using website GitHub OAuth; I have not read any issues yet. Choose a repository by number or exact owner/repo, or say "read it yourself" to start with the first repository in the list sorted by update time:\n\n${list}\n\nAfter you choose, I will read its recently updated open ${intent === 'issues' ? 'issues' : 'pull requests'} and give an evidence-based analysis. No local gh CLI login is needed.`
+}
+
+function isDirectRepositoryListRequest(request: string): boolean {
+  const asksToList = /(?:查看|看|列出|显示|浏览|获取|show|list|view|browse|get|read)/iu.test(request)
+  const asksForAnalysis = /(?:分析|总结|比较|推荐|评估|怎么样|如何|趋势|商业化|analy[sz]e|summari[sz]e|compare|recommend|evaluate|how are|which|trend|commercial)/iu.test(request)
+  return asksToList && !asksForAnalysis
+}
+
+function safeGitHubReadFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : ''
+  const status = /(?:status code|HTTP)\s*:?\s*([45]\d\d)/iu.exec(message)?.[1]
+  return JSON.stringify({
+    error: status
+      ? `GitHub OAuth request failed (HTTP ${status}).`
+      : 'GitHub OAuth request failed; no data was confirmed.',
+  })
+}
+
+function repositoryListAnswer(request: string, result: string, returnedCount: number | null, limit: number): string {
+  const chinese = /[\u3400-\u9fff]/u.test(request)
+  if (returnedCount === null) {
+    let status = ''
+    try {
+      const data = asRecord(JSON.parse(result))
+      const error = typeof data.error === 'string' ? data.error : ''
+      const match = /(?:status code|HTTP)\s*:?\s*([45]\d\d)/iu.exec(error)
+      status = match?.[1] ? `HTTP ${match[1]}` : ''
+    } catch {
+      // Keep an unparseable response generic.
+    }
+    return chinese
+      ? `读取未成功或尚未确认${status ? `（${status}）` : ''}（limit=${limit}）；我没有把失败说成空列表。请检查网站内 GitHub 连接后重试，不需要登录本机 gh CLI。`
+      : `The read failed or is unconfirmed${status ? ` (${status})` : ''} (limit=${limit}); I will not present it as an empty list. Check the site connection and retry. Local gh CLI login is not required.`
+  }
+  if (returnedCount === 0) {
+    return chinese
+      ? `网站 GitHub OAuth 仓库读取成功（limit=${limit}），本页返回 0 个可访问仓库。`
+      : `The website GitHub OAuth read succeeded (limit=${limit}); this page returned 0 accessible repositories.`
+  }
+  const items = (() => {
+    try {
+      const data = asRecord(JSON.parse(result))
+      return Array.isArray(data.items) ? data.items : []
+    } catch {
+      return []
+    }
+  })()
+  const lines = items.slice(0, 10).flatMap((value) => {
+    try {
+      const item = asRecord(value)
+      const fullName = item.full_name
+      if (typeof fullName !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(fullName)) return []
+      const url = `https://github.com/${fullName}`
+      const privateLabel = item.private === true ? '私有' : '公开'
+      const stars = typeof item.stargazers_count === 'number' && Number.isFinite(item.stargazers_count)
+        ? ` · ★ ${Math.max(0, Math.trunc(item.stargazers_count))}`
+        : ''
+      const description = typeof item.description === 'string'
+        ? item.description.replaceAll(/\p{Cc}/gu, ' ').replaceAll(/\s+/gu, ' ').trim().slice(0, 180)
+        : ''
+      const suffix = description ? ` — ${description.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]')}` : ''
+      return [`- [${fullName}](${url})（${privateLabel}${stars}）${suffix}`]
+    } catch {
+      return []
+    }
+  })
+  if (lines.length === 0) {
+    return chinese
+      ? `GitHub OAuth 仓库列表本页返回 ${returnedCount} 条，但没有可安全展示的仓库名称；我没有编造占位项目。`
+      : `The GitHub OAuth repository page returned ${returnedCount} entries, but none had a safe repository name to display. No placeholders were invented.`
+  }
+  const heading = chinese
+    ? `已通过网站 GitHub OAuth 读取（limit=${limit}），本页返回 ${returnedCount} 个可访问仓库：`
+    : `Website GitHub OAuth returned ${returnedCount} accessible repositories on this page (limit=${limit}):`
+  return [heading, '', ...lines, '', chinese
+    ? '这只是本次分页结果，不代表账号下的完整仓库集合；未调用本机 gh CLI。'
+    : 'This is one page, not necessarily the account’s complete repository collection; no local gh CLI was used.'].join('\n')
 }
 
 function localPreflightResponse(
@@ -477,6 +622,11 @@ async function readAccountRepositories(limit: number, signal: AbortSignal): Prom
       arguments: JSON.stringify({ limit }),
     },
   }, signal)
+}
+
+function requestedRepositoryLimit(request: string): number {
+  const match = request.match(/(?:前|top|first)\s*(\d{1,2})/iu)
+  return match ? boundedLimit(Number(match[1]), 10, 20) : 10
 }
 
 function githubActivityMembershipEvidence(result: string): string {
@@ -973,6 +1123,69 @@ export const webAgentToolProvider: LocalToolProvider = {
 
     return null
   },
+  beforeModel: async (messages, signal) => {
+    const request = browserGitHubReadRequestText(messages)
+    const intent = getGitHubReadIntent(request)
+    const localRequest = explicitlyTargetsLocalGitHub(request)
+
+    if (intent === 'repositories' && targetsAccountRepositories(request) && !localRequest &&
+      isDirectRepositoryListRequest(request)) {
+      const limit = requestedRepositoryLimit(request)
+      let result: string
+      try {
+        result = await readAccountRepositories(limit, signal)
+      } catch (error) {
+        if (signal.aborted) throw error
+        result = safeGitHubReadFailure(error)
+      }
+      const context = githubReadContext('', result, 'repositories', { limit })
+      const receipt = githubReadReceiptsByContext.get(context)
+      const response = localPreflightResponse('github-repository-list', repositoryListAnswer(
+        request, result, receipt?.count ?? null, limit
+      ))
+      const executionContext = browserEvidenceExecutionContext([context])
+      return executionContext ? retainResponseExecutionContext(response, executionContext) : response
+    }
+
+    if ((intent !== 'issues' && intent !== 'pull_requests') ||
+      explicitGitHubRepository(request) || localRequest) return null
+
+    if (!targetsAccountRepositories(request)) {
+      const answer = /[\u3400-\u9fff]/u.test(request)
+        ? '请提供 GitHub 仓库的 owner/repo 或 Issue 链接。我会用网站 GitHub OAuth 读取实际内容；不需要本机 gh CLI。'
+        : 'Please provide a GitHub owner/repo or an Issue URL. I will read the actual content through website GitHub OAuth; local gh CLI login is not required.'
+      return localPreflightResponse('github-activity-repository-required', answer)
+    }
+
+    const previousChoices = readPendingGitHubRepositoryChoices(messages)
+    if (previousChoices?.intent === intent) {
+      const response = localPreflightResponse('github-activity-repository-picker', repositoryChoicesAnswer(
+        request, intent, previousChoices.repositories, previousChoices.returnedCount
+      ))
+      return retainResponseExecutionContext(response, previousChoices.executionContext)
+    }
+
+    let result: string
+    try {
+      result = await readAccountRepositories(10, signal)
+    } catch (error) {
+      if (signal.aborted) throw error
+      result = safeGitHubReadFailure(error)
+    }
+    const context = githubReadContext('', result, 'repositories', { limit: 10 })
+    const receipt = githubReadReceiptsByContext.get(context)
+    const choices = safeRepositoryChoices(result)
+    if (receipt && choices.length > 0) {
+      receipt.pendingIntent = intent
+      receipt.repositoryOrder = 'updated'
+      receipt.repositoryChoices = choices
+    }
+    const response = localPreflightResponse('github-activity-repository-picker', repositoryChoicesAnswer(
+      request, intent, choices, receipt?.count ?? null
+    ))
+    const executionContext = browserEvidenceExecutionContext([context])
+    return executionContext ? retainResponseExecutionContext(response, executionContext) : response
+  },
   prepareContext: async (messages, signal) => {
     const workflow = await prepareWorkflowEvidence(messages, signal)
     if (workflow) return workflow
@@ -980,6 +1193,10 @@ export const webAgentToolProvider: LocalToolProvider = {
     const intent = getGitHubReadIntent(request)
     const repository = explicitGitHubRepository(request)
     if ((intent === 'issues' || intent === 'pull_requests') && repository && !explicitlyTargetsLocalGitHub(request)) {
+      const pendingChoices = readPendingGitHubRepositoryChoices(messages)
+      const latestRequest = latestUserRequestText(messages)
+      const autonomousSelection = pendingChoices?.repositories[0]?.full_name.toLowerCase() === repository.toLowerCase() &&
+        /^(?:请|麻烦)?(?:你自己|你来|你)(?:阅读|读取|查看|读)(?:一下|吧)?[。.!！?？]*$/u.test(latestRequest)
       const name = intent === 'issues' ? 'github.oauth.issues.list' : 'github.oauth.pull_requests.list'
       const call: ChatCompletionToolCall = {
         id: 'github-activity-read', type: 'function', function: {
@@ -1001,11 +1218,17 @@ export const webAgentToolProvider: LocalToolProvider = {
         `Operation: ${name}; repository: ${repository}; fetched_at: ${new Date().toISOString()}.`,
         githubActivityMembershipEvidence(result),
         'A body_truncated flag means the description is partial. State that limitation instead of claiming to have read the complete report or discussion.',
-        'This read was already attempted without using local gh. Answer the current user request from its actual result, with source links. Do not ask the user to execute an internal tool name, repeat this read, or claim a workflow was changed. An error is not an empty successful result or a CLI login requirement.',
+          ...(autonomousSelection
+            ? ['The user asked you to choose a repository yourself. This is the first repository from the verified OAuth page sorted by updated time. State the selected repository and this reason, then answer from actual Issue/PR data with source links.']
+            : []),
+          'This read was already attempted without using local gh. If the latest user message is a short repository selection, continue the earlier Issue/PR task for this exact selected repository. Answer from the actual result with source links. Do not ask the user to execute an internal tool name, repeat this read, or claim a workflow was changed. An error is not an empty successful result or a CLI login requirement.',
         result,
         '[End website GitHub OAuth evidence.]',
       ].join('\n'), result, intent === 'issues' ? 'issues' : 'pull requests',
-      { repo: repository, limit: 10, state: 'open', sort: 'updated' })]
+      {
+        repo: repository, limit: 10, state: 'open', sort: 'updated',
+        ...(autonomousSelection ? { selection: 'most recently updated repository' as const } : {}),
+      })]
     }
     if (
       getGitHubReadIntent(request) === 'repositories' &&
@@ -1013,8 +1236,7 @@ export const webAgentToolProvider: LocalToolProvider = {
       !explicitlyTargetsLocalGitHub(request)
     ) {
       let result: string
-      const requestedLimitMatch = request.match(/(?:前|top|first)\s*(\d{1,2})/iu)
-      const limit = requestedLimitMatch ? boundedLimit(Number(requestedLimitMatch[1]), 10, 20) : 10
+      const limit = requestedRepositoryLimit(request)
       try {
         result = await readAccountRepositories(limit, signal)
       } catch (error) {
