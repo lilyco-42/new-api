@@ -27,17 +27,20 @@ export function explainPreviousRead(messages: ChatCompletionMessage[]): { answer
     if (workflow) return { answer: workflow, executionContext: json }
     const parameters = record.parameters as Record<string, unknown> | undefined
     if (record.source !== 'website GitHub OAuth' || !['repositories', 'issues', 'pull requests'].includes(String(record.resource)) ||
-      record.scope !== 'this page only' || record.local_gh_used !== false ||
+      !['this page only', 'single issue only'].includes(String(record.scope)) || record.local_gh_used !== false ||
       typeof record.fetched_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/u.test(record.fetched_at) ||
       !parameters || !Number.isSafeInteger(parameters.limit) || Number(parameters.limit) < 1 || Number(parameters.limit) > 20 ||
       (record.returned_count !== null && (!Number.isSafeInteger(record.returned_count) || Number(record.returned_count) < 0 || Number(record.returned_count) > 20)) ||
       !['read completed', 'read failed or unconfirmed'].includes(String(record.outcome))) return { answer: missing }
     if (parameters.repo !== undefined && (typeof parameters.repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/u.test(parameters.repo))) return { answer: missing }
+    if (parameters.number !== undefined && (!Number.isSafeInteger(parameters.number) || Number(parameters.number) < 1 || Number(parameters.number) > 2147483647 || record.resource !== 'issues' || !parameters.repo || parameters.limit !== 1)) return { answer: missing }
+    if ((record.scope === 'single issue only') !== (parameters.number !== undefined)) return { answer: missing }
     if (parameters.state !== undefined && parameters.state !== 'open') return { answer: missing }
     if (parameters.sort !== undefined && parameters.sort !== 'updated') return { answer: missing }
     if (parameters.selection !== undefined && parameters.selection !== 'most recently updated repository') return { answer: missing }
     if ((record.outcome === 'read completed') !== (record.returned_count !== null)) return { answer: missing }
     const fields = [parameters.repo ? `repo=${parameters.repo}` : '',
+      parameters.number ? `number=${parameters.number}` : '',
       parameters.state ? 'state=open' : '', parameters.sort ? 'sort=updated' : '', `limit=${parameters.limit}`].filter(Boolean).join(' · ')
     let outcome: string
     if (record.returned_count === null) outcome = chinese ? '读取失败或尚未确认，不能当作零条结果。' : 'The read failed or is unconfirmed; this is not a confirmed empty result.'
@@ -48,9 +51,11 @@ export function explainPreviousRead(messages: ChatCompletionMessage[]): { answer
         ? '按你的要求，从本页更新时间最新的仓库开始读取。'
         : 'At your request, the read started with the most recently updated repository on this page.'
     }
+    let scope = chinese ? '范围仅为本次分页，不代表完整集合' : 'This page does not represent the complete collection'
+    if (parameters.number) scope = chinese ? '范围仅为指定 Issue 的有界正文和最多三条最早评论，不代表完整讨论' : 'Only the selected issue with its bounded body and at most three oldest comments was requested, not the full discussion'
     const answer = chinese
-      ? `根据上一轮的执行记录，通过网站 GitHub OAuth 读取 ${record.resource}。\n实际参数：${fields}。\n${selectionNote ? `${selectionNote}\n` : ''}${outcome}\n读取时间：${record.fetched_at}。范围仅为本次分页，不代表完整集合；未调用本机 gh。`
-      : `The previous execution record shows a website GitHub OAuth read of ${record.resource}.\nActual parameters: ${fields}.\n${selectionNote ? `${selectionNote}\n` : ''}${outcome}\nRead at ${record.fetched_at}. This page does not represent the complete collection; no local gh CLI ran.`
+      ? `根据上一轮的执行记录，通过网站 GitHub OAuth 读取 ${record.resource}。\n实际参数：${fields}。\n${selectionNote ? `${selectionNote}\n` : ''}${outcome}\n读取时间：${record.fetched_at}。${scope}；未调用本机 gh。`
+      : `The previous execution record shows a website GitHub OAuth read of ${record.resource}.\nActual parameters: ${fields}.\n${selectionNote ? `${selectionNote}\n` : ''}${outcome}\nRead at ${record.fetched_at}. ${scope}; no local gh CLI ran.`
     return { answer, executionContext: json }
   } catch {
     return { answer: missing }

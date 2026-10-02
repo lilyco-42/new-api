@@ -7,6 +7,7 @@ import type {
 
 import {
   explicitlyTargetsLocalGitHub,
+  explicitGitHubIssueTarget,
   getGitHubReadIntent,
   shouldAdvertiseBrowserGitHubTool,
   shouldAdvertiseWebAgentTool,
@@ -27,6 +28,31 @@ function toolCall(name: string): ChatCompletionToolCall {
 }
 
 describe('Agent tool intent routing', () => {
+  it('binds an exact OAuth issue read to the URL repo and number while withholding the recent list', () => {
+    const request = '读取 https://github.com/owner/project/issues/2#issuecomment-7'
+    const messages = userMessage(request)
+    expect(explicitGitHubIssueTarget(request)).toEqual({ repo: 'owner/project', number: 2 })
+    expect(getGitHubReadIntent('https://github.com/owner/project/issues/2')).toBe('issues')
+    expect(shouldAdvertiseBrowserGitHubTool('github.oauth.issues.read', messages, true)).toBe(true)
+    expect(shouldAdvertiseBrowserGitHubTool('github.oauth.issues.list', messages, false)).toBe(false)
+    const call = toolCall('github.oauth.issues.read')
+    call.function.arguments = JSON.stringify({ repo: 'owner/project', number: 2 })
+    expect(shouldRunWebAgentTool(call, messages)).toBe(true)
+    call.function.arguments = JSON.stringify({ repo: 'owner/project', number: 17 })
+    expect(shouldRunWebAgentTool(call, messages)).toBe(false)
+    call.function.arguments = JSON.stringify({ repo: 'other/private', number: 2 })
+    expect(shouldRunWebAgentTool(call, messages)).toBe(false)
+  })
+
+  it.each([
+    '不要读取 https://github.com/owner/project/issues/2',
+    'https://github.com.evil.test/owner/project/issues/2',
+    'https://github.com/owner/project/issues/2147483648',
+    '仅说明这个链接格式 https://github.com/owner/project/issues/2',
+  ])('does not interpret unsafe or declined links as exact Issue grants: %s', (request) => {
+    expect(explicitGitHubIssueTarget(request)).toBeUndefined()
+  })
+
   it('offers browser OAuth repository listing when the user calls repositories GitHub projects', () => {
     const messages = userMessage('查看我的github 项目')
     const name = 'github.oauth.repositories.list'

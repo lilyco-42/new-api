@@ -116,6 +116,7 @@ export function getGitHubReadIntent(
   ) {
     return 'status'
   }
+  if (explicitGitHubIssueTarget(text)) return 'issues'
   if (
     /(?:issue|issues|工单|议题|问题列表)/iu.test(text) &&
     /(?:查看|列出|搜索|读取|阅读|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
@@ -158,6 +159,28 @@ export function getGitHubReadIntent(
     }
   }
   return null
+}
+
+/** Read exactly one user-supplied GitHub Issue URL; attachments are not read grants. */
+export function explicitGitHubIssueTarget(text: string): { repo: string; number: number } | undefined {
+  if (/(?:不要|不用|无需|别|禁止|不许).{0,8}(?:读取|阅读|访问|查看|查询)|\b(?:do not|don't|don’t|without)\s+(?:read|fetch|access|inspect|query)/iu.test(text)) return undefined
+  if (!/^https:\/\/\S+$/iu.test(text.trim()) &&
+    !/(?:修复|排查|诊断|阅读|读取|查看|检查|分析|解决|\bfix\b|\bread\b|\bfetch\b|\binspect\b|\bcheck\b|\banaly[sz]e\b)/iu.test(text)) return undefined
+  const targets = new Map<string, { repo: string; number: number }>()
+  for (const match of text.matchAll(/https:\/\/[^\s<>]+/giu)) {
+    try {
+      const url = new URL(match[0].replace(/[)\]。。，,;!！?？]+$/u, ''))
+      const path = /^\/([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)\/issues\/([1-9]\d*)\/?$/u.exec(url.pathname)
+      if (url.hostname !== 'github.com' || url.port || url.username || url.password || !path || path[2] === '.' || path[2] === '..') continue
+      const number = Number(path[3])
+      if (!Number.isSafeInteger(number) || number > 2147483647) continue
+      const repo = `${path[1]}/${path[2]}`.toLowerCase()
+      targets.set(`${repo}#${number}`, { repo, number })
+    } catch {
+      // Malformed links are never interpreted as repository read grants.
+    }
+  }
+  return targets.size === 1 ? targets.values().next().value : undefined
 }
 
 /** A read may target exactly one repository named by the user, never a model guess. */
@@ -210,7 +233,7 @@ function toolIntent(name: string): GitHubReadIntent | null {
   ) {
     return 'repository_search'
   }
-  if (name === 'github.oauth.issues.list' || name === 'github.issues.list') {
+  if (name === 'github.oauth.issues.list' || name === 'github.oauth.issues.read' || name === 'github.issues.list') {
     return 'issues'
   }
   if (
@@ -232,6 +255,17 @@ export function shouldRunGitHubTool(
     : latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(call.function.name) !== intent) return false
+  if (source === 'oauth' && intent === 'issues') {
+    const target = explicitGitHubIssueTarget(request)
+    if (call.function.name === 'github.oauth.issues.read') {
+      try {
+        const args = JSON.parse(call.function.arguments) as Record<string, unknown>
+        if (!target || typeof args.repo !== 'string' || args.repo.toLowerCase() !== target.repo || args.number !== target.number) return false
+      } catch {
+        return false
+      }
+    } else if (target) return false
+  }
   if (
     source === 'oauth' && request !== latestUserText(messages) &&
     (intent === 'issues' || intent === 'pull_requests')
@@ -351,6 +385,10 @@ export function shouldAdvertiseBrowserGitHubTool(
   const request = browserGitHubReadRequestText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(name) !== intent) return false
+  if (intent === 'issues') {
+    const target = explicitGitHubIssueTarget(request)
+    if ((name === 'github.oauth.issues.read') !== Boolean(target)) return false
+  }
   if (
     intent === 'repository_search' &&
     explicitlyRequestsBrowserWebSearch(request) &&

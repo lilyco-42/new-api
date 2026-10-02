@@ -419,6 +419,12 @@ func agentGitHubActivityList(c *gin.Context, pulls bool) {
 	common.ApiSuccess(c, gin.H{"repo": repo, "items": items})
 }
 
+type agentGitHubHTTPError struct{ StatusCode int }
+
+func (err *agentGitHubHTTPError) Error() string {
+	return fmt.Sprintf("github returned status %d", err.StatusCode)
+}
+
 func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader, output any) error {
 	request, err := http.NewRequestWithContext(c.Request.Context(), method, endpoint, body)
 	if err != nil {
@@ -436,7 +442,7 @@ func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader,
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("github returned status %d", response.StatusCode)
+		return &agentGitHubHTTPError{StatusCode: response.StatusCode}
 	}
 	return common.DecodeJson(io.LimitReader(response.Body, 2<<20), output)
 }

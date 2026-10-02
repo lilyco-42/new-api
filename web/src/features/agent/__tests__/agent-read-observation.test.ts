@@ -17,6 +17,16 @@ function history(record: unknown): ChatCompletionMessage[] {
 }
 
 describe('read provenance from the immediate executor observation', () => {
+  it('retains the selected issue number and bounded discussion scope in a follow-up', () => {
+    const selected = { ...observation, scope: 'single issue only', parameters: { repo: 'merchant/images', number: 2, limit: 1 } }
+    const explanation = explainPreviousRead(history(selected))
+    expect(explanation?.answer).toContain('repo=merchant/images · number=2 · limit=1')
+    expect(explanation?.answer).toContain('最多三条最早评论')
+    expect(explanation?.answer).not.toContain('state=open')
+    expect(explanation?.executionContext).toContain('"number":2')
+    expect(explainPreviousRead(history({ ...selected, scope: 'this page only' }))?.answer).toContain('没有可核验')
+  })
+
   it('renders the actual read fields without making up defaults or a complete collection', () => {
     const answer = explainPreviousRead(history(observation))?.answer
     expect(answer).toContain('repo=merchant/images · state=open · sort=updated · limit=10')
