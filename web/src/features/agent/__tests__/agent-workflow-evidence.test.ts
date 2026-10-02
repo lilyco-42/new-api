@@ -18,6 +18,9 @@ const evidence = {
     url: 'https://github.com/merchant/project/actions/runs/17' },
   workflow: { path: '.github/workflows/ci.yml', ref: sha, text: 'run: cargo build --invalid-argument',
     url: `https://github.com/merchant/project/blob/${sha}/.github/workflows/ci.yml` },
+  sources: [{ annotation_path: 'src/tool.ts', path: 'web/src/tool.ts', ref: sha,
+    start_line: 1, end_line: 3, error_line: 2, text: "2: const clean = value.replace(/foo/g, 'bar');",
+    url: `https://github.com/merchant/project/blob/${sha}/web/src/tool.ts#L2`, excerpt_truncated: true }],
   jobs: [{ id: 23, name: 'build', conclusion: 'failure', log: 'error: unexpected argument --invalid-argument',
     url: 'https://github.com/merchant/project/actions/runs/17/job/23' }],
 }
@@ -33,6 +36,8 @@ describe('workflow evidence in real browser conversation composition', () => {
       expect(context?.content).toContain('unexpected argument --invalid-argument')
       expect(context?.content).toContain('cargo build --invalid-argument')
       expect(context?.content).toContain(sha)
+      expect(context?.content).toContain('2: const clean = value.replace(/foo/g,')
+      expect(context?.content).toContain('"annotation_path":"src/tool.ts"')
       expect(payload.messages.at(-1)?.content).toBe('请诊断 merchant/project 的 GitHub Actions run_id=17')
       return { id: 'workflow-diagnosis', object: 'chat.completion', model: payload.model, created: 1,
         choices: [{ index: 0, message: { role: 'assistant' as const,
@@ -48,6 +53,7 @@ describe('workflow evidence in real browser conversation composition', () => {
     expect(response.choices[0]?.message.content).toContain('run_id=17')
     expect(response.choices[0]?.message.content).toContain('未修改文件')
     expect(response.choices[0]?.message.content).toContain('已提供完整工作流文件')
+    expect(response.choices[0]?.message.content).toContain('1 处源文件片段')
   })
 
   it('continues the immediate repair task after “github action” rather than returning a tutorial', async () => {
@@ -120,6 +126,15 @@ describe('workflow evidence in real browser conversation composition', () => {
     expect(context?.[0]?.content).toContain('no local gh login is required')
     expect(browserEvidenceExecutionContext(context ?? [])).toContain('"workflow_read":false')
     expect(browserEvidenceExecutionContext(context ?? [])).toContain('read failed or unconfirmed')
+  })
+
+  it('does not claim a source file was read when permission or path resolution failed', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { success: true, data: {
+      ...evidence, sources: [{ path: 'src/tool.ts', ref: sha, error: 'GitHub returned HTTP 403' }],
+    } } })
+    const context = await prepareWorkflowEvidence([{ role: 'user', content: '诊断 merchant/project 的 workflow' }], new AbortController().signal)
+    expect(context?.[0]?.content).toContain('GitHub returned HTTP 403')
+    expect(browserEvidenceExecutionContext(context ?? [])).toContain('"source_excerpts_read":0')
   })
 
   it('does not resume a cancelled read', async () => {

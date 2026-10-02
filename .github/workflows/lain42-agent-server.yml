@@ -168,6 +168,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      checks: read
     defaults:
       run:
         working-directory: web

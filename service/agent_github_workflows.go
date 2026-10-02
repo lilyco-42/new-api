@@ -29,13 +29,14 @@ var workflowFilePattern = regexp.MustCompile(`^\.github/workflows/[A-Za-z0-9_.-]
 // WorkflowEvidence is a bounded read, not permission to modify or execute code.
 // Partial failures stay visible so a model cannot claim it inspected missing logs.
 type WorkflowEvidence struct {
-	Repo          string                `json:"repo"`
-	FetchedAt     string                `json:"fetched_at"`
-	Run           *WorkflowRunEvidence  `json:"run,omitempty"`
-	Workflow      *WorkflowFileEvidence `json:"workflow,omitempty"`
-	Jobs          []WorkflowJobEvidence `json:"jobs"`
-	JobsTruncated bool                  `json:"jobs_truncated"`
-	Problems      []string              `json:"problems"`
+	Repo          string                   `json:"repo"`
+	FetchedAt     string                   `json:"fetched_at"`
+	Run           *WorkflowRunEvidence     `json:"run,omitempty"`
+	Workflow      *WorkflowFileEvidence    `json:"workflow,omitempty"`
+	Jobs          []WorkflowJobEvidence    `json:"jobs"`
+	JobsTruncated bool                     `json:"jobs_truncated"`
+	Problems      []string                 `json:"problems"`
+	Sources       []WorkflowSourceEvidence `json:"sources,omitempty"`
 }
 
 type WorkflowRunEvidence struct {
@@ -56,18 +57,21 @@ type WorkflowFileEvidence struct {
 }
 
 type WorkflowJobEvidence struct {
-	ID                   int64                  `json:"id"`
-	RunID                int64                  `json:"run_id"`
-	HeadSHA              string                 `json:"head_sha"`
-	Name                 string                 `json:"name"`
-	Status               string                 `json:"status"`
-	Conclusion           string                 `json:"conclusion"`
-	URL                  string                 `json:"url"`
-	Log                  string                 `json:"log,omitempty"`
-	LogTruncated         bool                   `json:"log_truncated"`
-	LogError             string                 `json:"log_error,omitempty"`
-	FailedSteps          []WorkflowStepEvidence `json:"failed_steps,omitempty"`
-	FailedStepsTruncated bool                   `json:"failed_steps_truncated"`
+	ID                   int64                        `json:"id"`
+	RunID                int64                        `json:"run_id"`
+	HeadSHA              string                       `json:"head_sha"`
+	Name                 string                       `json:"name"`
+	Status               string                       `json:"status"`
+	Conclusion           string                       `json:"conclusion"`
+	URL                  string                       `json:"url"`
+	Log                  string                       `json:"log,omitempty"`
+	LogTruncated         bool                         `json:"log_truncated"`
+	LogError             string                       `json:"log_error,omitempty"`
+	FailedSteps          []WorkflowStepEvidence       `json:"failed_steps,omitempty"`
+	FailedStepsTruncated bool                         `json:"failed_steps_truncated"`
+	Annotations          []WorkflowAnnotationEvidence `json:"annotations,omitempty"`
+	AnnotationsTruncated bool                         `json:"annotations_truncated"`
+	AnnotationError      string                       `json:"annotation_error,omitempty"`
 }
 
 type WorkflowStepEvidence struct {
@@ -141,7 +145,8 @@ func ReadAgentWorkflowEvidence(ctx context.Context, repo string, runID int64, to
 		Total int `json:"total_count"`
 		Jobs  []struct {
 			WorkflowJobEvidence
-			Steps []WorkflowStepEvidence `json:"steps"`
+			Steps       []WorkflowStepEvidence `json:"steps"`
+			CheckRunURL string                 `json:"check_run_url"`
 		} `json:"jobs"`
 	}
 	endpoint := fmt.Sprintf("%s/actions/runs/%d/attempts/%d/jobs?per_page=20&page=1", base, run.ID, run.Attempt)
@@ -163,6 +168,7 @@ func ReadAgentWorkflowEvidence(ctx context.Context, repo string, runID int64, to
 		// Ignore upstream text and URLs in fields not needed for this contract.
 		job.Log, job.LogError, job.LogTruncated = "", "", false
 		job.FailedSteps, job.FailedStepsTruncated = nil, false
+		job.Annotations, job.AnnotationsTruncated, job.AnnotationError = nil, false, ""
 		for _, step := range rawJob.Steps {
 			if step.Conclusion != "failure" && step.Conclusion != "timed_out" {
 				continue
@@ -184,6 +190,7 @@ func ReadAgentWorkflowEvidence(ctx context.Context, repo string, runID int64, to
 		if job.Conclusion == "failure" || job.Conclusion == "timed_out" {
 			if logsRead < 3 {
 				logsRead++
+				r.readFailureSources(ctx, base, repo, run, rawJob.CheckRunURL, &job, evidence)
 				log, truncated, err := r.readJobLog(ctx, fmt.Sprintf("%s/actions/jobs/%d/logs", base, job.ID))
 				if err != nil {
 					job.LogError = err.Error()
@@ -220,6 +227,10 @@ func (r workflowEvidenceReader) readJSON(ctx context.Context, endpoint string, o
 	if err != nil {
 		return err
 	}
+	return r.decodeJSONResponse(response, output)
+}
+
+func (r workflowEvidenceReader) decodeJSONResponse(response *http.Response, output any) error {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("GitHub returned HTTP %d", response.StatusCode)

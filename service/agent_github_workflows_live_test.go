@@ -34,6 +34,12 @@ func TestAgentWorkflowEvidenceLiveRead(t *testing.T) {
 		}
 	}
 	require.Greater(t, logs, 0, "a balance, run status or empty log is not execution evidence")
+	require.Len(t, evidence.Sources, 3, "the three actual source diagnostics must have source evidence")
+	for _, source := range evidence.Sources {
+		require.Empty(t, source.Error)
+		require.Equal(t, evidence.Run.HeadSHA, source.Ref)
+		require.Contains(t, source.Text, ".replace(")
+	}
 	body, err := common.Marshal(evidence)
 	require.NoError(t, err)
 	require.NotContains(t, string(body), token)

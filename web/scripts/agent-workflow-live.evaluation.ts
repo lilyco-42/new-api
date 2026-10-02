@@ -38,10 +38,13 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
     const evidence = JSON.parse(await readFile(process.env.LAIN42_WORKFLOW_EVIDENCE_FILE, 'utf8')) as {
       repo: string; run: { id: number; head_sha: string; path: string; url: string };
       workflow: { text: string; url: string }; jobs: Array<{ log?: string; log_error?: string }>;
+      sources: Array<{ path: string; text: string; error?: string; ref: string }>;
     }
     expect(evidence.repo).toBe('lilyco-42/new-api')
     expect(evidence.workflow.text).toBeTruthy()
     expect(evidence.jobs.some((job) => typeof job.log === 'string' && job.log.length > 0)).toBe(true)
+    expect(evidence.sources).toHaveLength(3)
+    expect(evidence.sources.every((source) => !source.error && source.ref === evidence.run.head_sha)).toBe(true)
     let reads = 0
     vi.mocked(api.get).mockImplementation(async (path, options) => {
       reads++
@@ -50,7 +53,7 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
       expect(options?.params).toEqual({ repo: evidence.repo, run_id: evidence.run.id })
       return { data: { success: true, data: evidence } }
     })
-    const user = `请用六行以内诊断 ${evidence.repo} 的 GitHub Actions run_id=${evidence.run.id}：实际失败步骤和具体报错、工作流路径与提交、最小修复建议、原始运行链接、证据限制。不要求你修改文件或运行本机 CLI。不要把未执行步骤或未看到的错误说成事实。`
+    const user = `请诊断 ${evidence.repo} 的 GitHub Actions run_id=${evidence.run.id}：依据实际错误与源文件片段，给出一处具体 before/after 最小修改，保留原有匹配行为；说明实际失败步骤、源文件路径与行号、提交、原始运行链接和证据限制。不要求你修改文件或运行本机 CLI。不要把未执行步骤或未看到的错误说成事实。`
     const history = [message('system', 'system', `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}`), message('user', 'user', user)]
     const payload = (items: Message[]) => buildChatCompletionPayload(items,
       { ...DEFAULT_CONFIG, model, stream: false, max_tokens: 2048 },
@@ -63,6 +66,8 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
       expect(context?.content).toContain(evidence.run.head_sha)
       expect(context?.content).toContain(evidence.run.path)
       expect(context?.content).toContain('String#replaceAll')
+      expect(context?.content).toContain('"sources":')
+      expect(context?.content).toContain(evidence.sources[0]?.text ?? 'MISSING_SOURCE')
       stage = 'inference'
       calls++
       const response = await fetch('https://api.lain42.top/v1/chat/completions', {
@@ -91,6 +96,8 @@ it('diagnoses an actual failed Actions run from commit-pinned file and real job 
     // not a plausible missing-lockfile or deployment tutorial.
     expect(answer).toMatch(/replaceAll/iu)
     expect(answer).toMatch(/(?:lint|oxlint)/iu)
+    expect(answer).toContain(evidence.sources[0]?.path ?? 'MISSING_SOURCE')
+    expect(answer).toMatch(/\.replaceAll\(/u)
     expect(answer).not.toMatch(/未读取(?:任何)?(?:仓库|工作流|文件)|(?:did not|have not|haven't) read (?:any )?(?:repository|workflow|files?)/iu)
     expect(answer).not.toMatch(/未见.{0,12}完整文件|(?:删[去除]|移除).{0,8}[`'“]?g[`'”]?.{0,4}标志|\b(?:drop|remove|delete)\s+(?:the\s+)?(?:global|[`'“]?g[`'”]?)\s+(?:regex\s+)?flag\b/iu)
     const completed = applyChatCompletionResponse(message('answer', 'assistant', ''), first)
