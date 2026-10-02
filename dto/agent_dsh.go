@@ -19,6 +19,13 @@ type AgentDSHTurnImage struct {
 	Data      string `json:"data"`
 }
 
+// AgentDSHCancelRequest names the original message, never the currently active
+// turn. Its account owner comes exclusively from the authenticated session.
+type AgentDSHCancelRequest struct {
+	SessionID string `json:"session_id"`
+	RequestID string `json:"request_id"`
+}
+
 // AgentDSHToolRelayRequest is sent by the private DSH server. Its exact body
 // bytes are covered by the server-to-server HMAC before this DTO is accepted.
 type AgentDSHToolRelayRequest struct {

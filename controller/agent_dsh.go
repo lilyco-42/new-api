@@ -2,7 +2,6 @@ package controller
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -272,25 +272,11 @@ func validAgentDSHTurnRequest(request dto.AgentDSHTurnRequest) bool {
 }
 
 func configuredAgentDSHEndpoint(path string) (string, error) {
-	raw := strings.TrimSpace(os.Getenv("LAIN42_DSH_BASE_URL"))
-	parsed, err := url.Parse(raw)
-	if err != nil || raw == "" || parsed == nil || parsed.User != nil || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-		return "", errors.New("invalid DSH base URL")
-	}
-	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && isAgentDSHLoopback(parsed.Hostname())) {
-		return "", errors.New("DSH must use HTTPS except on loopback")
-	}
-	return strings.TrimRight(parsed.String(), "/") + path, nil
-}
-
-func isAgentDSHLoopback(host string) bool {
-	return strings.EqualFold(host, "localhost") || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+	return service.AgentDSHEndpoint(path)
 }
 
 func signAgentDSHTurn(secret, timestamp, nonce string, body []byte) string {
-	digest := sha256.Sum256(body)
-	canonical := fmt.Sprintf("v1\n%s\n%s\nPOST\n%s\n%s", timestamp, nonce, agentDSHTurnPath, hex.EncodeToString(digest[:]))
-	return common.GenerateHMACWithKey([]byte(secret), canonical)
+	return service.SignAgentDSHRequest(secret, timestamp, nonce, agentDSHTurnPath, body)
 }
 
 type agentDSHToolSearchArgs struct {

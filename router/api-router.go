@@ -41,6 +41,7 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				platformAgentRoute.POST("/dsh/sessions", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("agent-dsh-session"), controller.CreateAgentDSHSession)
 				platformAgentRoute.POST("/dsh/turns", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("agent-dsh-turn"), controller.AgentDSHTurn)
+				platformAgentRoute.POST("/dsh/turns/cancel", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("agent-dsh-cancel"), controller.CancelAgentDSHTurn)
 				platformAgentRoute.POST("/pairings", middleware.SessionCookieOriginGuard(), controller.CreateAgentPairing)
 				platformAgentRoute.POST("/pairings/:id/confirm", middleware.SessionCookieOriginGuard(), controller.ConfirmAgentPairing)
 				platformAgentRoute.GET("/devices", controller.ListAgentDevices)

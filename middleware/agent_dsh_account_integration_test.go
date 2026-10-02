@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
@@ -70,6 +69,19 @@ func TestAgentDSHHTTPRoutesEnforceAuthenticatedSessionOwners(t *testing.T) {
 		runtimeErr      error
 	)
 	runtime := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPost && request.URL.Path == "/lain42/bridge/v1/cancel" {
+			var target struct {
+				SessionID string `json:"sessionId"`
+				RequestID string `json:"requestId"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&target); err != nil {
+				http.Error(writer, "invalid cancellation", http.StatusBadRequest)
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(writer, `{"version":1,"sessionId":%q,"requestId":%q,"accepted":true,"status":"not-found"}`, target.SessionID, target.RequestID)
+			return
+		}
 		if request.Method != http.MethodPost || request.URL.Path != "/lain42/bridge/v1/turn" || request.Header.Get("X-Lain42-Signature") == "" {
 			runtimeMu.Lock()
 			runtimeErr = fmt.Errorf("unexpected DSH request: %s %s", request.Method, request.URL.Path)
@@ -111,6 +123,7 @@ func TestAgentDSHHTTPRoutesEnforceAuthenticatedSessionOwners(t *testing.T) {
 	router := gin.New()
 	router.POST("/api/agent/dsh/sessions", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), controller.CreateAgentDSHSession)
 	router.POST("/api/agent/dsh/turns", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), controller.AgentDSHTurn)
+	router.POST("/api/agent/dsh/turns/cancel", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), controller.CancelAgentDSHTurn)
 
 	createSession := func(token string) string {
 		request := httptest.NewRequest(http.MethodPost, "/api/agent/dsh/sessions", nil)
@@ -152,6 +165,20 @@ func TestAgentDSHHTTPRoutesEnforceAuthenticatedSessionOwners(t *testing.T) {
 	}
 
 	requestID := "123e4567-e89b-42d3-a456-426614174000"
+	stop := func(token, sessionID string) *httptest.ResponseRecorder {
+		body, marshalErr := json.Marshal(dto.AgentDSHCancelRequest{SessionID: sessionID, RequestID: requestID})
+		require.NoError(t, marshalErr)
+		request := httptest.NewRequest(http.MethodPost, "/api/agent/dsh/turns/cancel", strings.NewReader(string(body)))
+		request.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			request.Header.Set("Authorization", "Bearer "+token)
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+	require.Equal(t, http.StatusUnauthorized, stop("", sessionA).Code)
+	require.Equal(t, http.StatusNotFound, stop(tokenB, sessionA).Code)
 	response := sendTurn(tokenB, sessionA, requestID)
 	require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
 	require.NoError(t, forwardingError())
@@ -160,8 +187,11 @@ func TestAgentDSHHTTPRoutesEnforceAuthenticatedSessionOwners(t *testing.T) {
 	response = sendTurn(tokenA, sessionA, requestID)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	require.Contains(t, response.Body.String(), "answer for "+sessionA)
-	_, err = model.RequestOwnedAgentDSHCancellation(userA.Id, sessionA, requestID, time.Now().UTC())
-	require.NoError(t, err)
+	response = stop(tokenA, sessionA)
+	require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), `"cancel_requested":true`)
+	require.Contains(t, response.Body.String(), `"status":"not-found"`)
+	require.NotContains(t, response.Body.String(), `"settled"`)
 	response = sendTurn(tokenA, sessionA, requestID)
 	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
 	require.Contains(t, response.Body.String(), "AGENT_DSH_CANCEL_REQUESTED")
