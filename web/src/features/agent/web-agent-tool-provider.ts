@@ -902,6 +902,13 @@ function parseToolArguments(
         limit: boundedLimit(params.limit, 10, 20),
       }
     }
+    case 'github.oauth.issues.search': {
+      const allowed = new Set(['limit'])
+      if (Object.keys(params).some((key) => !allowed.has(key))) {
+        throw new Error('Unsupported GitHub issue search argument.')
+      }
+      return { limit: boundedLimit(params.limit, 10, 20) }
+    }
     case 'github.oauth.issues.list':
     case 'github.oauth.pull_requests.list': {
       const allowed = new Set(['repo', 'state', 'limit', 'sort'])
