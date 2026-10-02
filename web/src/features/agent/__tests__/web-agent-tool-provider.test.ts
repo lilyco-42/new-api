@@ -206,8 +206,8 @@ describe('webAgentToolProvider', () => {
     expect(api.get).toHaveBeenCalledTimes(1)
     expect(request).toHaveBeenCalledTimes(1)
     expect(response.choices[0]?.message.content).toContain('A product-image workflow is a candidate; revenue is unverified.')
-    expect(response.choices[0]?.message.content).toContain('website GitHub OAuth')
-    expect(response.choices[0]?.message.content).toContain('1 items returned on this page')
+    expect(response.choices[0]?.message.content).toContain('网站 GitHub OAuth')
+    expect(response.choices[0]?.message.content).toContain('本次返回 1 条')
   })
 
   afterEach(() => {
