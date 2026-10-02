@@ -27,6 +27,8 @@ export type PlaygroundMessageLayoutMode = 'alternating' | 'left'
 export interface MessageVersion {
   id: string
   content: string
+  /** Bounded executor observations, separate from generated text; never tool authorization. */
+  executionContext?: string
   /**
    * Request-only content parts (for example image attachments). These are
    * deliberately omitted from localStorage by the storage schema because

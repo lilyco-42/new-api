@@ -71,7 +71,11 @@ export function updateCurrentVersionContent(
   const currentVersion = getCurrentVersion(message)
   return {
     ...message,
-    versions: [{ ...currentVersion, content }],
+    versions: [{
+      id: currentVersion.id,
+      content,
+      ...(currentVersion.parts ? { parts: currentVersion.parts } : {}),
+    }],
   }
 }
 

@@ -6,6 +6,7 @@ import type {
   LocalToolProvider,
 } from '@/features/playground/types'
 import { api } from '@/lib/api'
+import { retainResponseExecutionContext } from '@/features/playground/lib/message/response-execution-context'
 
 import {
   crawlClientSite,
@@ -412,7 +413,7 @@ function finalizePreparedBrowserSearch(
     typeof firstChoice.message.content === 'string'
       ? firstChoice.message.content.trim()
       : ''
-  return {
+  const finalized: ChatCompletionResponse = {
     ...response,
     choices: [
       {
@@ -426,6 +427,14 @@ function finalizePreparedBrowserSearch(
       ...response.choices.slice(1),
     ],
   }
+  const receipt = preparedContext.map((message) => githubReadReceiptsByContext.get(message))
+    .find((value) => value !== undefined)
+  if (!receipt) return finalized
+  return retainResponseExecutionContext(finalized, JSON.stringify({
+    source: 'website GitHub OAuth', resource: receipt.resource, parameters: receipt.query,
+    returned_count: receipt.count, fetched_at: receipt.fetchedAt, scope: 'this page only',
+    outcome: receipt.count === null ? 'read failed or unconfirmed' : 'read completed', local_gh_used: false,
+  }))
 }
 
 function localPreflightResponse(

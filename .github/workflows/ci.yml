@@ -107,6 +107,13 @@ jobs:
           src/features/agent/__tests__/github-read-receipt.test.ts
           src/features/playground/lib/streaming/payload-builder.ts
           src/features/playground/lib/streaming/__tests__/payload-builder.test.ts
+          src/features/playground/lib/message/response-execution-context.ts
+          src/features/playground/lib/message/message-utils.ts
+          src/features/playground/lib/message/message-streaming-utils.ts
+          src/features/playground/lib/message/__tests__/execution-context.test.ts
+          src/features/playground/lib/storage/storage.ts
+          src/features/playground/lib/storage/storage-schema.ts
+          src/features/playground/types.ts
 
       - name: Test
         run: bun run test

@@ -9,6 +9,7 @@ import { createBrowserAgentToolProvider } from '../src/features/agent/web-agent-
 import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '../src/features/playground/constants'
 import { runLocalToolLoop } from '../src/features/playground/hooks/local-tool-loop'
 import { buildChatCompletionPayload } from '../src/features/playground/lib/streaming/payload-builder'
+import { applyChatCompletionResponse } from '../src/features/playground/lib/message/message-streaming-utils'
 import type { ChatCompletionRequest, ChatCompletionResponse, Message } from '../src/features/playground/types'
 import { api } from '../src/lib/api'
 
@@ -79,6 +80,9 @@ it.each([
       expect(evidence?.content).toContain(source[0].title)
     } else {
       expect(payload.messages.find((entry) => entry.role === 'assistant')?.content).toContain('读取记录：网站 GitHub OAuth')
+      const record = payload.messages.find((entry) => entry.name === 'lain42_execution_record')
+      expect(record?.content).toContain('"repo":"ast-grep/ast-grep"')
+      expect(record?.content).toContain('"limit":10')
     }
     caseCalls += 1
     inferenceCalls += 1
@@ -128,10 +132,12 @@ it.each([
       currentRequest = '你怎么查询的?'
       const actualAnswer = firstResponse.choices[0]?.message.content
       expect(typeof actualAnswer).toBe('string')
+      const actualMessage = applyChatCompletionResponse(message('actual-answer', 'assistant', ''), firstResponse)
+      if (!actualMessage) throw new Error('The first model response did not form a completed message.')
       const followup = buildChatCompletionPayload([
         message('system', 'system', `${LYCO_DEFAULT_SYSTEM_PROMPT}${AGENT_TOOL_PROMPT}`),
         message('user', 'user', userText),
-        message('actual-answer', 'assistant', String(actualAnswer)),
+        actualMessage,
         message('follow-up', 'user', currentRequest),
       ], { ...DEFAULT_CONFIG, model: model ?? '', stream: false, max_tokens: 1024 },
       { ...DEFAULT_PARAMETER_ENABLED, max_tokens: true, temperature: false,
@@ -143,6 +149,7 @@ it.each([
       expect(answer).not.toMatch(/lyco-skill|(?:需要|必须|请先).{0,15}(?:gh auth login|登录.{0,8}(?:CLI|gh))/iu)
       expect(answer).not.toMatch(/\bowner\s*[:=]|\bname\s*[:=]|未传入\s*[`"']?limit|(?:按|按照)创建时间|(?:仓库|返回|获取).{0,12}全部(?:公开)?\s*issue|默认分页/iu)
       expect(answer).toMatch(/repo\s*[:=]\s*[`"']?ast-grep\/ast-grep|ast-grep\/ast-grep/iu)
+      expect(answer).toMatch(/limit\s*[:=]\s*[`"']?10|(?:上限|最多|至多).{0,8}10/iu)
       expect(lookups).toBe(1)
       results.push({ resource: 'query-method-follow-up', passed: true, elapsed_ms: Date.now() - started,
         inference_calls: 1, lookup_calls: lookups, actual_previous_answer: String(actualAnswer).slice(0, 8000),
