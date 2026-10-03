@@ -32,7 +32,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const prototypeModel = "nvidia/nemotron-3-super-120b-a12b"
+// Catalog-positive free development endpoint, pinned for this isolated gate.
+// A successful trial does not establish production/commercial entitlement.
+const prototypeModel = "nvidia/nemotron-3.5-lightning-30b-a3b"
 
 // Opt-in Actions only: actual New API and DSH, a real developer-trial model,
 // and synthetic account-owned GitHub data. This is not production OAuth or a
@@ -68,6 +70,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	require.NotEmpty(t, evidence)
 	require.NoError(t, os.MkdirAll(evidence, 0700))
 	var providerCalls, githubCalls atomic.Int32
+	var toolFreeFollowupCalls atomic.Int32
 	var searchCalls atomic.Int32
 	var officialSearchSource atomic.Bool
 	searchObservation := &prototypeSearchObservation{queries: make(map[string]struct{})}
@@ -100,6 +103,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			"public_search_non_200_responses":       searchObservation.nonOK.Load(),
 			"public_search_repeated_origin_queries": searchObservation.repeated.Load(),
 			"external_attempts":                     providerCalls.Load(), "github_reads": githubCalls.Load(),
+			"tool_free_followup_attempts":           toolFreeFollowupCalls.Load(),
 			"upstream_denial_status": denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
 			"scope": scope}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
@@ -202,6 +206,17 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			http.Error(w, "prototype budget exhausted; no retries or fallback", http.StatusServiceUnavailable)
 			return
 		}
+		// The Issue tool and its continuation consume the first two attempts.
+		// Every later issue-scenario turn is evidence-only, including the actual
+		// mobile attachment. Check the real model boundary, not just stored scope.
+		toolFreeFollowup := !research && providerCalls.Load() >= 2
+		if toolFreeFollowup {
+			tools, _ := payload["tools"].([]any)
+			if len(tools) != 0 {
+				http.Error(w, "evidence-only turn exposed model tools", http.StatusBadRequest)
+				return
+			}
+		}
 		// Explicit test-only sampling/output policy; history and tools are untouched.
 		payload["max_tokens"] = 1024
 		payload["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
@@ -225,6 +240,9 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			if providerCalls.CompareAndSwap(attempts, attempts+1) {
 				break
 			}
+		}
+		if toolFreeFollowup {
+			toolFreeFollowupCalls.Add(1)
 		}
 		response, requestErr := client.Do(upstream)
 		if requestErr != nil {
@@ -293,7 +311,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	require.NoError(t, json.Unmarshal(body, &session))
 	require.Len(t, session.Data.SessionID, 64)
 	turn := dto.AgentDSHTurnRequest{SessionID: session.Data.SessionID, Model: prototypeModel,
-		RequestID: "99999999-9999-4999-8999-999999999991", Text: "Read " + issueURL + " and its discussion. Summarize the current state, quote both diagnostic markers exactly, propose the discussed fix, and cite the Issue URL. Do not just report OAuth status."}
+		RequestID: "99999999-9999-4999-8999-999999999991", ToolScope: "account-read", Text: "Read " + issueURL + " and its discussion. Summarize the current state, quote both diagnostic markers exactly, propose the discussed fix, and cite the Issue URL. Do not just report OAuth status."}
 	answerFor := func(request dto.AgentDSHTurnRequest) string {
 		status, body := post("/api/agent/dsh/turns", request)
 		require.Equal(t, http.StatusOK, status, "hosted turn failed; upstream denial status=%d", denial.Load())
@@ -308,6 +326,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		return response.Data.Answer
 	}
 	if research {
+		turn.ToolScope = "public-only"
 		turn.Text = "Use web_search to find the official ast-grep GitHub repository from the public web. Return its repository name and source link, and explain its purpose in one sentence. Do not use my GitHub account, local CLI or devices."
 	}
 	answer := ""
@@ -325,16 +344,21 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		require.Contains(t, answer, "DISCUSSION_927")
 		require.Contains(t, answer, issueURL)
 		require.Contains(t, strings.ToLower(answer), "closed")
+		require.Regexp(t, `(?i)duplicat`, answer)
+		require.Regexp(t, `(?i)reconnect|lost response`, answer)
+		require.Regexp(t, `(?i)request.{0,40}(?:identifier|\bid\b)|idempotenc`, answer)
 		require.Regexp(t, `(?i)persist|stor(?:e|ing)|sav(?:e|ing)`, answer)
 		require.EqualValues(t, 2, githubCalls.Load(), "read actual Issue tool and discussion with the owner's OAuth credential")
 		require.GreaterOrEqual(t, providerCalls.Load(), int32(2), "the real model must continue after the real tool")
 		followup := turn
 		followup.RequestID = "99999999-9999-4999-8999-999999999992"
+		followup.ToolScope = "evidence-only"
 		followup.Text = "What was the discussion marker in that Issue? Reply with the marker only; this is a follow-up to what you just read."
 		require.Equal(t, "DISCUSSION_927", strings.TrimSpace(answerFor(followup)))
 		ordinary := turn
 		ordinary.RequestID = "99999999-9999-4999-8999-999999999994"
-		ordinary.Text = "New topic: what is DeepSeek? In one English sentence say whether it is an AI company/model family or an academic search tool. This is stable common knowledge; do not search or revisit the export Issue."
+		ordinary.ToolScope = "evidence-only"
+		ordinary.Text = "New topic: what is DeepSeek? Explain in one English sentence. This is stable common knowledge; do not search or revisit the export Issue."
 		ordinaryAnswer := answerFor(ordinary)
 		require.Regexp(t, `(?i)company|model family|models`, ordinaryAnswer)
 		require.NotContains(t, ordinaryAnswer, "ORBIT_EXPORT_731")
@@ -343,6 +367,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		require.EqualValues(t, 2, githubCalls.Load(), "ordinary chat must not depend on another Issue read")
 		attachment := turn
 		attachment.RequestID = "99999999-9999-4999-8999-999999999993"
+		attachment.ToolScope = "evidence-only"
 		attachment.Text = "[Lain42 client-prepared attachment]\nFile: note.txt\nATTACHMENT_FACT_548: the delivery color is indigo.\n\nCurrent user request:\nFrom this attached note, give its exact marker and delivery color in one sentence. Ignore the earlier export task for this answer."
 		attachmentAnswer := answerFor(attachment)
 		require.Contains(t, attachmentAnswer, "ATTACHMENT_FACT_548")
@@ -400,6 +425,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			require.Zero(t, githubCalls.Load(), "research must not read connected-account GitHub data")
 		} else {
 			require.EqualValues(t, 6, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
+			require.EqualValues(t, 4, toolFreeFollowupCalls.Load(), "follow-up, ordinary chat and both attachments expose no tools to the real model")
 			require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
 		}
 	} else {
@@ -443,6 +469,13 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	require.Len(t, admissions, admissionCount, "probes and replay must not reserve another owner turn")
 	for _, request := range admissions {
 		require.False(t, request.CancelRequested, "foreign cancellation must not alter the owner's durable intent")
+		if !research {
+			expectedScope := "evidence-only"
+			if request.RequestID == turn.RequestID {
+				expectedScope = "account-read"
+			}
+			require.Equal(t, expectedScope, request.ToolScope, "the admitted scope belongs to this request, not an earlier account read")
+		}
 	}
 	var foreignAdmissions int64
 	require.NoError(t, db.Model(&model.AgentDSHRequest{}).Where("user_id = ?", other.Id).Count(&foreignAdmissions).Error)

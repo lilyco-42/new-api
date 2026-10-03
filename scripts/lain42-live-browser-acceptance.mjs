@@ -30,8 +30,8 @@ page.on('request', request => {
   if (request.method() !== 'POST') return;
   posts.push(url.pathname);
   if (url.pathname === '/api/agent/dsh/turns') {
-    const { session_id, request_id, model } = request.postDataJSON();
-    hostedRequests.push({ session_id, request_id, model });
+    const { session_id, request_id, model, tool_scope } = request.postDataJSON();
+    hostedRequests.push({ session_id, request_id, model, tool_scope });
   }
 });
 async function signIn(username) {
@@ -89,6 +89,8 @@ try {
     'Reload must preserve the real answer without resubmission.');
   assert.equal(hostedRequests.length, 1);
   const original = hostedRequests[0];
+  assert.equal(original.tool_scope, 'evidence-only',
+    'An attachment question must not inherit GitHub or public-search permission.');
   assert.match(original.session_id, /^[A-Za-z0-9]{64}$/);
   assert.match(original.request_id, /^[0-9a-f-]{36}$/);
 
