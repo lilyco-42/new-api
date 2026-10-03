@@ -200,11 +200,37 @@ try {
       assert.notEqual(hostedRequests[5].request, hostedRequests[4].request,
         'The stopped request must not prevent a new message with its own identity.');
       assert.equal(postedPaths.filter(path => path === '/api/agent/dsh/turns/cancel').length, 1);
+      // The exact reported request must read through this website account's
+      // OAuth connection, without a repository URL or a paired CLI device.
+      const issueRead = page.waitForResponse(response =>
+        new URL(response.url()).pathname === '/api/agent/github/issues/search', { timeout: 15000 });
+      await input.fill('阅读我的项目 issue 并回复尝试解决');
+      await send.click();
+      const issueResponse = await issueRead;
+      if (fixture.name === 'desktop') {
+        assert.equal(issueResponse.status(), 200);
+        const issueResult = (await issueResponse.json()).data;
+        assert.equal(issueResult.login, 'owner');
+        assert.equal(issueResult.items[0].repository, 'owner/project');
+        await page.getByText('Save a durable batch manifest after each item', { exact: false }).waitFor({ timeout: 45000 });
+        await page.getByRole('link', { name: 'https://github.com/owner/project/issues/17', exact: true }).first().waitFor({ timeout: 15000 });
+      } else {
+        assert.equal(issueResponse.status(), 401);
+        await page.getByText('No issue content was read for this account.', { exact: false }).waitFor({ timeout: 45000 });
+        assert.equal(await page.getByText('BROWSER_ISSUE_FACT_17', { exact: false }).count(), 0,
+          'The unlinked account must not receive the linked account issue evidence.');
+      }
+      assert.equal(hostedRequests.length, 7, 'Issue reads must be answered by the hosted DSH conversation.');
+      assert.equal(hostedRequests[6].session, hostedRequests[5].session);
+      assert.notEqual(hostedRequests[6].request, hostedRequests[5].request);
+      assert.equal(postedPaths.some(path => /^\/(?:pg|v1)\/(?:chat\/completions|responses)$/.test(path)), false,
+        'OAuth Issue analysis must not bypass DSH.');
+      await page.screenshot({ path: join(evidence, `${fixture.name}-oauth-issues.png`), fullPage: true });
       const layout = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
       assert.ok(layout.scroll <= layout.width + 1, `Horizontal overflow at ${fixture.name}: ${JSON.stringify(layout)}`);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
       await page.screenshot({ path: join(evidence, `${fixture.name}.png`), fullPage: true });
-      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, rustSyntaxHighlighting: true, rustCopyAndDownload: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', explicitStopBeforeOutput: true, newTaskAfterStop: true, horizontalOverflow: false });
+      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, rustSyntaxHighlighting: true, rustCopyAndDownload: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', explicitStopBeforeOutput: true, newTaskAfterStop: true, automaticOAuthIssueAnswer: fixture.name === 'desktop', unlinkedOAuthIssueFailure: fixture.name === 'mobile', horizontalOverflow: false });
     } catch (error) {
       await page.screenshot({ path: join(evidence, `${fixture.name}-failure.png`), fullPage: true });
       await writeFile(join(evidence, `${fixture.name}-failure.txt`), `${String(error)}\n${await page.locator('body').innerText()}`);

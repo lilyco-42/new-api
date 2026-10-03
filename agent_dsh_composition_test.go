@@ -96,7 +96,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	require.NotNil(t, model.GetSetup())
 	require.NoError(t, model.SaveAgentGitHubCredential(owner.Id, "provider-owner", "owner", "repo", "synthetic-owner-github-token"))
 
-	var githubCalls, providerCalls atomic.Int32
+	var githubCalls, providerCalls, accountIssueSearchCalls, browserIssueInferenceCalls atomic.Int32
 	recoveryStarted := make(chan struct{}, 1)
 	recoveryReleased := make(chan struct{})
 	var releaseRecoveryOnce sync.Once
@@ -122,6 +122,13 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/search/issues":
+			if r.URL.Query().Get("q") != "user:owner is:issue is:open" || r.URL.Query().Get("sort") != "updated" || r.URL.Query().Get("order") != "desc" || r.URL.Query().Get("per_page") != "10" {
+				http.Error(w, "issue search did not use the connected account and bounded scope", http.StatusBadRequest)
+				return
+			}
+			accountIssueSearchCalls.Add(1)
+			_, _ = io.WriteString(w, `{"total_count":1,"incomplete_results":false,"items":[{"number":17,"state":"open","title":"Browser batch recovery","body":"BROWSER_ISSUE_FACT_17: refresh loses completed item IDs.","repository_url":"https://api.github.com/repos/owner/project","html_url":"https://github.com/owner/project/issues/17"}]}`)
 		case "/repos/owner/project/issues/2":
 			_, _ = io.WriteString(w, `{"number":2,"state":"closed","title":"Export retry","body":"A reconnect delivers the same export twice.","comments":1,"html_url":"`+issueURL+`"}`)
 		case "/repos/owner/project/issues/2/comments":
@@ -197,6 +204,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		// A new session can contain seeded history. Match the explicit current
 		// instruction, not an earlier user request quoted in that history.
 		const currentInstruction = "Current user request:\n"
+		currentTurnEvidence := latestUser
 		if index := strings.LastIndex(latestUser, currentInstruction); index >= 0 {
 			latestUser = latestUser[index+len(currentInstruction):]
 		}
@@ -233,6 +241,16 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 			case <-recoveryReleased:
 				delta = map[string]any{"role": "assistant", "content": recoveryAnswer}
 			case <-r.Context().Done():
+				return
+			}
+		} else if strings.Contains(latestUser, "阅读我的项目 issue 并回复尝试解决") {
+			browserIssueInferenceCalls.Add(1)
+			if strings.Contains(currentTurnEvidence, "BROWSER_ISSUE_FACT_17") && strings.Contains(currentTurnEvidence, "https://github.com/owner/project/issues/17") {
+				delta = map[string]any{"role": "assistant", "content": "Issue #17 reports lost completed item IDs on refresh. Save a durable batch manifest after each item and restore it before retrying. Source: https://github.com/owner/project/issues/17. No repository change or comment was published."}
+			} else if strings.Contains(currentTurnEvidence, "GitHub OAuth request failed (HTTP 401)") && !strings.Contains(currentTurnEvidence, "BROWSER_ISSUE_FACT_17") {
+				delta = map[string]any{"role": "assistant", "content": "No issue content was read for this account. Connect GitHub on this website and retry; local gh login and a paired device are not required."}
+			} else {
+				http.Error(w, "the current browser issue evidence or its honest OAuth failure did not reach DSH", http.StatusBadRequest)
 				return
 			}
 		} else if strings.Contains(latestUser, "What does that Rust code print?") {
@@ -437,14 +455,16 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	browser.Env = append(os.Environ(), "LAIN42_BROWSER_MODEL_FIXTURE="+provider.URL)
 	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
 	require.NoError(t, browser.Run())
-	require.EqualValues(t, 14, providerCalls.Load(), "each viewport recovers once, stops one inference, then runs a new task")
-	require.EqualValues(t, 2, githubCalls.Load(), "attachment chat has no unrelated GitHub request")
+	require.EqualValues(t, 16, providerCalls.Load(), "each viewport also submits its current OAuth Issue evidence to DSH once")
+	require.EqualValues(t, 2, browserIssueInferenceCalls.Load(), "both browser account outcomes must reach the actual DSH model adapter")
+	require.EqualValues(t, 1, accountIssueSearchCalls.Load(), "only the linked account may search its own open issues")
+	require.EqualValues(t, 3, githubCalls.Load(), "the unlinked account and unrelated browser chat must not query GitHub")
 	require.NoError(t, db.Model(&model.AgentDSHRequest{}).Where("cancel_requested = ?", true).Count(&cancellationCount).Error)
 	require.EqualValues(t, 2, cancellationCount, "only the two explicit browser Stops create cancellation intent")
 	for _, account := range []struct {
 		user  model.User
 		calls int
-	}{{owner, 7}, {other, 5}} {
+	}{{owner, 8}, {other, 6}} {
 		var updated model.User
 		require.NoError(t, db.First(&updated, account.user.Id).Error)
 		require.Equal(t, account.user.Quota-account.calls*40, updated.Quota,
