@@ -21,6 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
+import { rust } from '@codemirror/lang-rust'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
 import {
@@ -35,6 +36,7 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
+  FileCodeIcon,
 } from 'lucide-react'
 import {
   type ComponentProps,
@@ -127,6 +129,7 @@ const LANGUAGE_ALIASES: Record<string, BundledLanguage> = {
   csharp: 'c#',
   golang: 'go',
   js: 'javascript',
+  rs: 'rust',
   shell: 'bash',
   shellscript: 'bash',
   ts: 'typescript',
@@ -239,6 +242,10 @@ function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
     return javascript({ jsx: requestedLanguage === 'tsx', typescript: true })
   }
 
+  if (requestedLanguage === 'rust') {
+    return rust()
+  }
+
   return []
 }
 
@@ -255,7 +262,12 @@ function getDownloadFilename(language: string, filename?: string) {
     return filename
   }
 
-  const extension = language === 'plaintext' ? 'txt' : language
+  let extension = language
+  if (language === 'plaintext') {
+    extension = 'txt'
+  } else if (language === 'rust') {
+    extension = 'rs'
+  }
   return `code.${extension}`
 }
 
@@ -577,7 +589,12 @@ export const CodeBlock = ({
           </>
         }
         showToolbar={showToolbar}
-        title={displayTitle}
+        title={
+          <span className='inline-flex items-center gap-1.5'>
+            <FileCodeIcon aria-hidden='true' className='size-3.5 shrink-0' />
+            {displayTitle}
+          </span>
+        }
         {...props}
       >
         <CodeMirrorCodeView

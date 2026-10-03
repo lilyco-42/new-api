@@ -1,6 +1,6 @@
 /** CI-only acceptance of the built New API Agent UI against real DSH/server routes. */
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 
@@ -92,6 +92,20 @@ try {
       assert.notEqual(stringColor, foreground, 'Rust strings must be highlighted by the client grammar.');
       assert.notEqual(keywordColor, stringColor, 'Keywords and strings must remain visually distinguishable.');
       await rustCode.screenshot({ path: join(evidence, `${fixture.name}-rust.png`) });
+      const originalCode = 'fn main() { println!("CLIENT_FILE_FACT_42"); }';
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+      await page.getByRole('button', { name: 'Copy code', exact: true }).click();
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), originalCode,
+        'Client highlighting must not change the copied source text.');
+      const [codeDownload] = await Promise.all([
+        page.waitForEvent('download', { timeout: 15000 }),
+        page.getByRole('button', { name: 'Download', exact: true }).click(),
+      ]);
+      assert.equal(codeDownload.suggestedFilename(), 'code.rs');
+      const codePath = join(evidence, `${fixture.name}-code.rs`);
+      await codeDownload.saveAs(codePath);
+      assert.equal(await readFile(codePath, 'utf8'), originalCode,
+        'Client highlighting must preserve the downloadable Rust source.');
       assert.equal(postedPaths.filter(path => path === '/api/agent/dsh/turns').length, 1,
         'The attachment answer must come through the hosted DSH turn, not the legacy chat loop.');
       assert.equal(postedPaths.some(path => /^\/(?:pg|v1)\/(?:chat\/completions|responses)$/.test(path)), false,
@@ -189,7 +203,7 @@ try {
       assert.ok(layout.scroll <= layout.width + 1, `Horizontal overflow at ${fixture.name}: ${JSON.stringify(layout)}`);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
       await page.screenshot({ path: join(evidence, `${fixture.name}.png`), fullPage: true });
-      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, rustSyntaxHighlighting: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', explicitStopBeforeOutput: true, newTaskAfterStop: true, horizontalOverflow: false });
+      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, rustSyntaxHighlighting: true, rustCopyAndDownload: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', explicitStopBeforeOutput: true, newTaskAfterStop: true, horizontalOverflow: false });
     } catch (error) {
       await page.screenshot({ path: join(evidence, `${fixture.name}-failure.png`), fullPage: true });
       await writeFile(join(evidence, `${fixture.name}-failure.txt`), `${String(error)}\n${await page.locator('body').innerText()}`);
