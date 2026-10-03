@@ -99,6 +99,7 @@ describe('Lain42 DSH conversation adapter', () => {
   it.each([
     ['Explain Rust ownership.', [], 'evidence-only'],
     ['Search the web for the current Rust release.', [], 'public-only'],
+    ['Search GitHub repositories for ast-grep.', [], 'public-only'],
     ['查看我的 GitHub 仓库', [], 'account-read'],
     ['阅读我的项目 issue 并回复尝试解决', [{ role: 'system', content: 'Issue17: confirmed body and source.' }], 'evidence-only'],
     ['阅读我的项目 issue 并回复尝试解决', [{ role: 'system', content: 'GitHub OAuth request failed (HTTP 401). No content was read.' }], 'evidence-only'],
@@ -645,6 +646,7 @@ describe('Lain42 DSH conversation adapter', () => {
     vi.mocked(browserHooks.prepareContext).mockResolvedValueOnce([
       { role: 'system', content: 'New account evidence appeared after the connection recovered.' },
     ])
+    storage.setItem('agent-user-42-general-chat-7:dsh-request:another-message:unknown', 'another pending record')
     const result = await provider.send(payload, messages, signal)
 
     const firstTurn = vi.mocked(api.post).mock.calls[1]?.[1]

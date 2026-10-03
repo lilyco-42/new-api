@@ -261,7 +261,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: lilyco-42/deepseek-harness
-          ref: 8c46372eca41f7a55efb2006013ebb1987827052
+          ref: 5abc327fb1092d1f357975bb38efeb83910e7063
           path: .ci-dsh
           persist-credentials: false
       - name: Set up Go

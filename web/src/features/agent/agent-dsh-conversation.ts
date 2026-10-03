@@ -12,6 +12,7 @@ import { latestUserRequestText, shouldRunLocalAgentTool } from './agent-tool-rou
 import { explainPreviousRead } from './agent-read-observation'
 import { prepareBrowserContext } from './agent-dsh-browser-context'
 import { buildTurnInput } from './agent-dsh-input-budget'
+import { deriveAgentDSHToolScope } from './agent-dsh-tool-scope'
 import { browserEvidenceExecutionContext, browserEvidenceResponseAppendix, webAgentToolProvider } from './web-agent-tool-provider'
 import {
   MAX_TURN_BODY_BYTES,
@@ -82,7 +83,7 @@ export function createAgentDSHConversation(options: {
   const read = (key: string) => {
     try {
       const value = getStorage()?.getItem(key)
-      if (value) return value
+      if (value !== undefined && value !== null) return value
     } catch {
       // Keep this chat usable when the browser blocks durable storage.
     }
@@ -223,35 +224,30 @@ export function createAgentDSHConversation(options: {
         fingerprint: await fingerprintText(image.data),
       })
     }
-    const requestFingerprint = await fingerprintText(JSON.stringify({
+    const fingerprintInput = {
       text: latestText, images: imageFingerprints, model: payload.model, mode,
-    }))
+    }
+    const baseFingerprint = await fingerprintText(JSON.stringify(fingerprintInput))
+    const requestPrefix = `${storageNamespace}${DSH_REQUEST_KEY_SUFFIX}${encodeURIComponent(latestMessageKey)}:`
+    const legacyFingerprint = await fingerprintText(JSON.stringify({ text: latestText, images: imageFingerprints }))
+    // Check both predecessor identities before any reset, including stopped or
+    // damaged records. Neither can be upgraded by silently creating a new ID.
+    if (read(`${requestPrefix}${baseFingerprint}`) !== null || read(`${requestPrefix}${legacyFingerprint}`) !== null) {
+      throw new Error(localizedMessage(requestText,
+        '旧版请求没有保存工具权限，无法安全恢复。请新建消息继续；不会自动重新执行旧任务。',
+        'The previous request cannot be safely resumed because its tool permissions were not saved. Start a new message; the old task was not automatically rerun.'))
+    }
     const requestKey = [
-      storageNamespace,
-      DSH_REQUEST_KEY_SUFFIX,
-      encodeURIComponent(latestMessageKey),
-      ':',
-      requestFingerprint,
+      requestPrefix, 'scoped-v3:', baseFingerprint,
     ].join('')
 
-    if (hasOtherPendingRequest(storageNamespace, requestKey, getStorage())) {
-      const legacyFingerprint = await fingerprintText(JSON.stringify({ text: latestText, images: imageFingerprints }))
-      const legacyKey = `${storageNamespace}${DSH_REQUEST_KEY_SUFFIX}${encodeURIComponent(latestMessageKey)}:${legacyFingerprint}`
-      if (read(legacyKey)) {
-        throw new Error(localizedMessage(requestText,
-          '旧版请求没有保存原始输入，无法安全恢复。请新建一轮对话；不会自动重新执行旧任务。',
-          'The previous request cannot be safely resumed because the old version did not save its input. Start a new turn.'))
-      }
-      reset()
-    }
-    const lastTurn = parseLastTurn(read(lastTurnStorageKey))
-    if (lastTurn?.messageKey === latestMessageKey) {
-      reset()
-    }
-
     const savedRequest = read(requestKey)
-    let pending: AgentDSHRequestRecord | null = parseRequestRecord(savedRequest)
-    if (savedRequest && (!pending || pending.fingerprint !== requestFingerprint || pending.model !== payload.model || pending.mode !== mode)) {
+    const parsedRequest = parseRequestRecord(savedRequest)
+    let pending: AgentDSHRequestRecord | null = parsedRequest?.version === 3 ? parsedRequest : null
+    let requestFingerprint = pending
+      ? await fingerprintText(JSON.stringify({ ...fingerprintInput, toolScope: pending.toolScope }))
+      : ''
+    if (savedRequest !== null && (!pending || pending.fingerprint !== requestFingerprint || pending.model !== payload.model || pending.mode !== mode)) {
       // Never reuse an admitted ID with fresh input, even after a version change.
       throw new Error(localizedMessage(requestText,
         '无法安全恢复之前的请求。请新建一轮对话；不会自动重新执行旧任务。',
@@ -265,6 +261,10 @@ export function createAgentDSHConversation(options: {
     }
 
     if (!pending) {
+      if (hasOtherPendingRequest(storageNamespace, requestKey, getStorage()) ||
+        parseLastTurn(read(lastTurnStorageKey))?.messageKey === latestMessageKey) {
+        reset()
+      }
       // Validate the instruction before network work; only supporting material may be cut.
       try {
         buildTurnInput(payload.messages, latest, '', false)
@@ -305,6 +305,8 @@ export function createAgentDSHConversation(options: {
         browserContext.text,
       ].filter((text) => text.trim() !== '').join('\n\n')
       const input = buildTurnInput(payload.messages, latest, browserEvidence, sessionId === null)
+      const toolScope = deriveAgentDSHToolScope(payload.messages, browserEvidence.trim() !== '')
+      requestFingerprint = await fingerprintText(JSON.stringify({ ...fingerprintInput, toolScope }))
       if (byteLength(input.text) > MAX_TURN_TEXT_BYTES) {
         throw new Error('The prepared request exceeds the text limit. No turn was submitted.')
       }
@@ -318,7 +320,7 @@ export function createAgentDSHConversation(options: {
       if (signal.aborted) throw new DOMException('The request was canceled.', 'AbortError')
       write(sessionStorageKey, activeSessionId)
       pending = {
-        version: 2, requestId: createRequestId(), fingerprint: requestFingerprint,
+        version: 3, requestId: createRequestId(), fingerprint: requestFingerprint, toolScope,
         sessionId: activeSessionId, model: payload.model, mode, text: input.text, appendix,
         executionContext: browserEvidenceExecutionContext(preparedContext),
       }
@@ -330,6 +332,7 @@ export function createAgentDSHConversation(options: {
       model: pending.model,
       mode: pending.mode,
       text: pending.text,
+      tool_scope: pending.toolScope,
       ...(imageParts.images.length > 0 ? { images: imageParts.images } : {}),
     }
     if (byteLength(JSON.stringify(turnRequest)) > MAX_TURN_BODY_BYTES) {

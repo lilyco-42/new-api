@@ -37,14 +37,24 @@ the relay payload version and exact identity. One-use nonces are unchanged.
 
 ## Integration gate
 
-This change is the control-plane boundary only. The currently pinned DSH peer
-does not consume turn version 3, and the browser does not yet send `tool_scope`.
-Do not enable it for users, deploy, or claim the public-search defect solved
-until DSH binds permission to the exact logged active prompt, narrows both
-model-visible tools and dispatch using its scoped registry/guard, includes scope
-in immutable request/context checks, and the browser carries it in the matching
-retry snapshot. A shared mutable session flag or model-provided request ID is
-insufficient. Matching peers must pass recorded-session, model-tool continuation,
+The candidate pins DSH `5abc327fb1092d1f357975bb38efeb83910e7063`, whose full
+Actions run `37131875749` passed. It binds permission to the logged active prompt
+and narrows both model-visible tools and dispatch. The browser now carries scope
+in a version-3 immutable retry snapshot and submits the saved scope on retries.
+Ordinary chat and prepared evidence (including explicit read-failure notices)
+are evidence-only; a direct current public-research or account-read instruction
+can enable the corresponding read scope when preparation supplied no context.
+Attachments, model arguments, retrieved content and prior requests do not grant
+account permissions. Reconnecting does not rerun preparation or derive a new scope.
+
+Predecessor v1/v2 request keys are checked before any reset or new ID. An existing
+record cannot be migrated implicitly, even if stopped or damaged; the user must
+start a new message. Scope participates in the saved fingerprint while the lookup
+key uses a versioned digest of the original text/images/model/mode. No raw image
+or credential is persisted in that retry record.
+
+New API/browser matching-peer integration is pending its own Actions run; the DSH
+gate alone is not product acceptance. Matching peers must pass recorded-session, model-tool continuation,
 public-source, later account-read, cancellation/restart and account-isolation
 checks in Actions. Production OAuth and commercial model capacity remain separate
 release gates.

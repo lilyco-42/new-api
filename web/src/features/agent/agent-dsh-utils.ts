@@ -3,6 +3,7 @@ import type {
   ChatCompletionResponse,
   Message,
 } from '@/features/playground/types'
+import type { AgentDSHToolScope } from './agent-dsh-tool-scope'
 
 export const MAX_TURN_TEXT_BYTES = 24 * 1024
 export const MAX_TURN_BODY_BYTES = 12 * 1024 * 1024
@@ -64,8 +65,7 @@ export async function fingerprintText(value: string): Promise<string> {
   ).join('')
 }
 
-export type AgentDSHRequestRecord = {
-  version: 2
+type AgentDSHRequestSnapshot = {
   requestId: string
   fingerprint: string
   sessionId: string
@@ -77,14 +77,23 @@ export type AgentDSHRequestRecord = {
   cancelRequested?: true
 }
 
-export function parseRequestRecord(value: string | null): AgentDSHRequestRecord | null {
+export type AgentDSHRequestRecord = AgentDSHRequestSnapshot & {
+  version: 3
+  toolScope: AgentDSHToolScope
+}
+
+type LegacyAgentDSHRequestRecord = AgentDSHRequestSnapshot & { version: 2 }
+
+export function parseRequestRecord(value: string | null): AgentDSHRequestRecord | LegacyAgentDSHRequestRecord | null {
   if (!value) return null
   // JSON may escape each text byte as six ASCII bytes (for example, U+0000).
   if (byteLength(value) > 6 * (MAX_TURN_TEXT_BYTES + 12 * 1024) + 4096) return null
   try {
     const record = asRecord(JSON.parse(value))
     if (
-      record?.version === 2 &&
+      (record?.version === 2 || record?.version === 3) &&
+      (record.version === 2 || record.toolScope === 'account-read' ||
+        record.toolScope === 'public-only' || record.toolScope === 'evidence-only') &&
       typeof record.requestId === 'string' &&
       REQUEST_ID_PATTERN.test(record.requestId) &&
       typeof record.fingerprint === 'string' && /^[a-f0-9]{64}$/u.test(record.fingerprint) &&
@@ -97,13 +106,15 @@ export function parseRequestRecord(value: string | null): AgentDSHRequestRecord 
       (record.executionContext === undefined ||
         (typeof record.executionContext === 'string' && byteLength(record.executionContext) <= 4096))
     ) {
-      return {
-        version: 2, requestId: record.requestId, fingerprint: record.fingerprint,
+      const snapshot: AgentDSHRequestSnapshot = {
+        requestId: record.requestId, fingerprint: record.fingerprint,
         sessionId: record.sessionId, model: record.model, mode: record.mode,
         text: record.text, appendix: record.appendix,
         ...(record.cancelRequested === true ? { cancelRequested: true as const } : {}),
         ...(typeof record.executionContext === 'string' ? { executionContext: record.executionContext } : {}),
       }
+      if (record.version === 2) return { ...snapshot, version: 2 }
+      return { ...snapshot, version: 3, toolScope: record.toolScope as AgentDSHToolScope }
     }
   } catch {
     // An invalid or old record must not be reused as an idempotency key.

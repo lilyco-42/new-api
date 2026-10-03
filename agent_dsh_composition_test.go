@@ -187,17 +187,37 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 				Role    string          `json:"role"`
 				Content json.RawMessage `json:"content"`
 			} `json:"messages"`
+			Tools    []json.RawMessage `json:"tools"`
 		}
 		if json.Unmarshal(body, &inference) != nil {
 			http.Error(w, "invalid model messages", http.StatusBadRequest)
 			return
 		}
 		var latestUser string
+		var scopedImageRead bool
 		for _, message := range inference.Messages {
 			if message.Role == "user" {
 				if json.Unmarshal(message.Content, &latestUser) != nil {
-					http.Error(w, "the fixture expects a text instruction", http.StatusBadRequest)
-					return
+					var parts []struct {
+						Type     string `json:"type"`
+						Text     string `json:"text"`
+						ImageURL struct {
+							URL string `json:"url"`
+						} `json:"image_url"`
+					}
+					if json.Unmarshal(message.Content, &parts) != nil {
+						http.Error(w, "invalid multimodal instruction", http.StatusBadRequest)
+						return
+					}
+					latestUser = ""
+					for _, part := range parts {
+						if part.Type == "text" {
+							latestUser += part.Text
+						}
+						if part.Type == "image_url" && part.ImageURL.URL == "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC" {
+							scopedImageRead = true
+						}
+					}
 				}
 			}
 		}
@@ -219,7 +239,13 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 				break
 			}
 		}
-		if browserGate != nil {
+		if strings.Contains(latestUser, "Describe the scoped image.") {
+			if !scopedImageRead || len(inference.Tools) != 0 {
+				http.Error(w, "scoped image input must reach the model without additional tools", http.StatusBadRequest)
+				return
+			}
+			delta = map[string]any{"role": "assistant", "content": "The scoped image bytes reached the model without account tools."}
+		} else if browserGate != nil {
 			browserGate.startOnce.Do(func() { close(browserGate.started) })
 			select {
 			case <-browserGate.released:
@@ -316,7 +342,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		map[string]any{"id": "session-title-llm", "disabled": true},
 		map[string]any{"id": "agent-default-model", "config": map[string]any{"provider": "lain42-web", "model": "gpt-3.5-turbo"}},
 		map[string]any{"id": "llm-pi-ai", "config": map[string]any{"providers": map[string]any{"lain42-web": map[string]any{
-			"api": "openai-completions", "baseURL": controlPlane.URL + "/v1/agent", "apiKeyEnv": "LAIN42_COMPOSITION_KEY", "models": []any{map[string]any{"id": "gpt-3.5-turbo"}}}}}},
+			"api": "openai-completions", "baseURL": controlPlane.URL + "/v1/agent", "apiKeyEnv": "LAIN42_COMPOSITION_KEY", "models": []any{map[string]any{"id": "gpt-3.5-turbo", "input": []string{"text", "image"}}}}}}},
 	}
 	encoded, err := json.Marshal(configuration)
 	require.NoError(t, err)
@@ -352,7 +378,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		return envelope.Data.SessionID
 	}
 	sessionA, sessionB := create(tokenA), create(tokenB)
-	turnA := dto.AgentDSHTurnRequest{SessionID: sessionA, RequestID: "44444444-4444-4444-8444-444444444444", Model: "gpt-3.5-turbo", Text: "Read " + issueURL + " and propose a fix based on its discussion."}
+	turnA := dto.AgentDSHTurnRequest{SessionID: sessionA, RequestID: "44444444-4444-4444-8444-444444444444", Model: "gpt-3.5-turbo", Text: "Read " + issueURL + " and propose a fix based on its discussion.", ToolScope: "account-read"}
 	turnB := dto.AgentDSHTurnRequest{SessionID: sessionB, RequestID: turnA.RequestID, Model: turnA.Model, Text: "Say hello for the second account"}
 	status, body := post(tokenB, "/api/agent/dsh/turns", turnA)
 	require.Equal(t, http.StatusNotFound, status, body)
@@ -383,6 +409,12 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	}
 	require.EqualValues(t, 3, providerCalls.Load(), "durable replay after DSH restart must not re-infer or double-charge")
 	require.EqualValues(t, 2, githubCalls.Load(), "durable replay must not reread GitHub")
+	changedScope := turnA
+	changedScope.ToolScope = "public-only"
+	status, body = post(tokenA, "/api/agent/dsh/turns", changedScope)
+	require.Equal(t, http.StatusConflict, status, body)
+	require.Contains(t, body, "AGENT_DSH_REQUEST_CONFLICT")
+	require.EqualValues(t, 3, providerCalls.Load(), "changing replay permissions must not reinfer")
 	for _, account := range []struct {
 		user  model.User
 		calls int
@@ -477,6 +509,22 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 			require.Zero(t, entry.TokenId)
 		}
 	}
+	imageTurn := dto.AgentDSHTurnRequest{SessionID: sessionA,
+		RequestID: "66666666-6666-4666-8666-666666666666", Model: turnA.Model,
+		Text: "Describe the scoped image.", ToolScope: "evidence-only",
+		Images: []dto.AgentDSHTurnImage{{MediaType: "image/png", Data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}}}
+	status, body = post(tokenA, "/api/agent/dsh/turns", imageTurn)
+	require.Equal(t, http.StatusOK, status, body)
+	require.Contains(t, body, "The scoped image bytes reached the model without account tools.")
+	status, body = post(tokenB, "/api/agent/dsh/turns", imageTurn)
+	require.Equal(t, http.StatusNotFound, status, body)
+	status, body = post(tokenA, "/api/agent/dsh/turns", imageTurn)
+	require.Equal(t, http.StatusOK, status, body)
+	require.EqualValues(t, 17, providerCalls.Load(), "scoped image replay and foreign ownership must not reinfer")
+	require.EqualValues(t, 3, githubCalls.Load(), "scoped image analysis must not read account data")
+	var imageOwner model.User
+	require.NoError(t, db.First(&imageOwner, owner.Id).Error)
+	require.Equal(t, owner.Quota-9*40, imageOwner.Quota, "scoped image replay is charged only once")
 }
 
 type compositionGitHubTransport struct {
