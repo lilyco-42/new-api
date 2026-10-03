@@ -17,19 +17,48 @@ const context = await browser.newContext({ ...devices['Pixel 7'], locale: 'en-US
 const page = await context.newPage();
 const posts = [];
 const errors = [];
+const hostedRequests = [];
+let currentAuthorization;
 page.on('pageerror', error => errors.push(error.message));
 page.on('request', request => {
-  if (request.method() === 'POST') posts.push(new URL(request.url()).pathname);
+  const url = new URL(request.url());
+  if (url.origin !== origin) return;
+  // Real sign-in supplies this synthetic account's JWT. Retain it only in
+  // memory for adversarial API probes; never inject UI auth or export it.
+  const authorization = request.headers().authorization;
+  if (url.pathname.startsWith('/api/') && authorization) currentAuthorization = authorization;
+  if (request.method() !== 'POST') return;
+  posts.push(url.pathname);
+  if (url.pathname === '/api/agent/dsh/turns') {
+    const { session_id, request_id, model } = request.postDataJSON();
+    hostedRequests.push({ session_id, request_id, model });
+  }
 });
-try {
+async function signIn(username) {
+  currentAuthorization = undefined;
   await page.goto(`${origin}/sign-in?redirect=%2Fagent`, { waitUntil: 'domcontentloaded' });
-  await page.getByLabel('Username or Email', { exact: true }).fill('prototype-owner');
+  await page.getByLabel('Username or Email', { exact: true }).fill(username);
   await page.getByLabel('Password', { exact: true }).fill('synthetic-prototype-browser-password');
   await Promise.all([
     page.waitForURL(url => url.pathname !== '/sign-in', { timeout: 30000 }),
     page.getByRole('button', { name: 'Sign in', exact: true }).click(),
   ]);
   await page.goto(`${origin}/agent`, { waitUntil: 'domcontentloaded' });
+  await page.getByPlaceholder('Ask anything', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+}
+async function signOut() {
+  await page.goto(`${origin}/profile`, { waitUntil: 'domcontentloaded' });
+  // Both declared prototype usernames use the application's "P" fallback.
+  await page.getByRole('button', { name: 'P', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
+  await Promise.all([
+    page.waitForURL(url => url.pathname === '/sign-in', { timeout: 30000 }),
+    page.getByRole('alertdialog', { name: 'Sign out', exact: true })
+      .getByRole('button', { name: 'Sign out', exact: true }).click(),
+  ]);
+}
+try {
+  await signIn('prototype-owner');
   const input = page.getByPlaceholder('Ask anything', { exact: true });
   await input.waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('input[type="file"]').first().setInputFiles({
@@ -58,12 +87,50 @@ try {
   assert.match(await assistant.innerText(), /coral/i);
   assert.equal(posts.filter(path => path === '/api/agent/dsh/turns').length, 1,
     'Reload must preserve the real answer without resubmission.');
+  assert.equal(hostedRequests.length, 1);
+  const original = hostedRequests[0];
+  assert.match(original.session_id, /^[A-Za-z0-9]{64}$/);
+  assert.match(original.request_id, /^[0-9a-f-]{36}$/);
+
+  // Same mobile cookie/storage context, with actual UI logout and login.
+  // B must neither inherit A's visible history nor obtain/cancel its request.
+  await signOut();
+  await signIn('prototype-other');
+  assert.ok(currentAuthorization?.startsWith('Bearer '), 'B must have its own actual signed-in credential.');
+  const headers = { Authorization: currentAuthorization };
+  const self = await context.request.get(`${origin}/api/user/self`, { headers });
+  assert.equal(self.status(), 200);
+  assert.equal((await self.json()).data.username, 'prototype-other');
+  assert.equal(await page.locator('.is-assistant').count(), 0, 'B must have an empty conversation.');
+  assert.equal(await page.getByText('CLIENT_MOBILE_NOTE_638', { exact: false }).count(), 0,
+    'A attachment/answer must not appear for B.');
+  await page.getByRole('button', { name: 'Open sidebar', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Lain42 Agent', exact: true })
+    .getByText('No saved conversations yet', { exact: true }).waitFor({ timeout: 15000 });
+  await page.screenshot({ path: join(evidence, 'mobile-account-b.png'), fullPage: true });
+  for (const probe of [
+    { path: '/api/agent/dsh/turns', data: { ...original, text: 'Read the original response for this request.' } },
+    { path: '/api/agent/dsh/turns/cancel', data: { session_id: original.session_id, request_id: original.request_id } },
+  ]) {
+    const denied = await context.request.post(`${origin}${probe.path}`, { headers, data: probe.data });
+    assert.equal(denied.status(), 404, 'B must be rejected before DSH or inference.');
+    const body = await denied.json();
+    assert.equal(body.success, false);
+    assert.equal(body.code, 'AGENT_DSH_SESSION_NOT_FOUND');
+    assert.equal(body.data, undefined, 'Foreign answer must not be returned.');
+  }
+  await signOut();
+  await signIn('prototype-owner');
+  await assistant.waitFor({ state: 'visible', timeout: 15000 });
+  assert.match(await assistant.innerText(), /coral/i);
+  assert.equal(hostedRequests.length, 1, 'Account switching must not replay the original model turn.');
   const layout = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
   assert.ok(layout.scroll <= layout.width + 1, 'Mobile page must fit its viewport.');
   assert.deepEqual(errors, [], 'Uncaught browser errors');
   await page.screenshot({ path: join(evidence, 'mobile-real-model.png'), fullPage: true });
-  console.log('Actual mobile-emulated login, attachment, DSH answer and reload passed.');
+  console.log('Actual mobile-emulated login, attachment, answer/reload, account history switch and foreign turn/cancel denial passed.');
 } finally {
+  currentAuthorization = undefined;
   // No trace, cookie, network body, private credential or actual user file is
   // exported. The sole screenshot contains the declared synthetic conversation.
   await context.close();

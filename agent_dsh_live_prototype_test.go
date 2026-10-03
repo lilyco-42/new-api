@@ -54,8 +54,9 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 		// traces. The optional screenshot contains only declared synthetic data.
 		// Failed inference is recorded as a failure, not empty success.
 		result := map[string]any{"passed": passed && !t.Failed(), "model": prototypeModel,
-			"mobile_browser_emulation": mobileBrowser,
-			"external_attempts":        providerCalls.Load(), "github_reads": githubCalls.Load(),
+			"mobile_browser_emulation":      mobileBrowser,
+			"mobile_account_history_switch": mobileBrowser, "foreign_turn_and_cancel_denied": mobileBrowser,
+			"external_attempts": providerCalls.Load(), "github_reads": githubCalls.Load(),
 			"upstream_denial_status": denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
 			"scope": "Real trial inference + actual New API/DSH + Chromium mobile emulation; synthetic GitHub/accounts; not physical Android or production OAuth"}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
@@ -97,7 +98,7 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	require.NoError(t, err)
 	owner.Password = passwordHash
 	require.NoError(t, db.Create(&owner).Error)
-	other := model.User{Username: "prototype-other", Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+	other := model.User{Username: "prototype-other", Password: passwordHash, Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
 		Group: "default", AuthVersion: 1, Quota: 12345, AffCode: "prototype-other-aff"}
 	require.NoError(t, db.Create(&other).Error)
 	require.NoError(t, db.Create(&model.User{Username: "prototype-root", Password: passwordHash,
@@ -326,6 +327,15 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	require.Equal(t, owner.Quota-charged, updated.Quota)
 	require.Equal(t, charged, updated.UsedQuota)
 	require.Equal(t, other.Quota, unchanged.Quota)
+	var admissions []model.AgentDSHRequest
+	require.NoError(t, db.Where("user_id = ?", owner.Id).Find(&admissions).Error)
+	require.Len(t, admissions, 5, "foreign probes and replay must not reserve another owner turn")
+	for _, request := range admissions {
+		require.False(t, request.CancelRequested, "foreign cancellation must not alter the owner's durable intent")
+	}
+	var foreignAdmissions int64
+	require.NoError(t, db.Model(&model.AgentDSHRequest{}).Where("user_id = ?", other.Id).Count(&foreignAdmissions).Error)
+	require.Zero(t, foreignAdmissions, "foreign probes must not create a request for the second account")
 	var tokenCount int64
 	require.NoError(t, db.Model(&model.Token{}).Count(&tokenCount).Error)
 	require.Zero(t, tokenCount)

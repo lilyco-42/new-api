@@ -37,12 +37,18 @@ Required outcomes:
   message, and retain that answer after reload without another inference. This
   adds one request within the same six-request ceiling; no auth/store/API/answer
   is injected or intercepted, and the browser driver does not inherit the key.
+- In that same mobile cookie/storage context, sign out A, sign in B, verify
+  empty B history, reject B's attempts to read/cancel A's session, then sign
+  back into A and restore its answer without another inference. Attack probes
+  use only B's actual sign-in credential in test-driver memory; no credential
+  is exported or injected into frontend state. Rejected requests create no
+  admission and cannot change A's cancellation intent.
 - Restart DSH and replay the identical final answer with no extra inference.
 - Reconcile actual owner charges with wallet and consume logs, leave the other
   account's wallet unchanged, and create no persistent user API token.
 
-The artifact contains whitelisted outcome/count/scope fields and a screenshot of
-the declared synthetic mobile conversation. It omits keys, raw network inputs/
+The artifact contains whitelisted outcome/count/scope fields and screenshots of
+the declared synthetic mobile conversation and empty B history. It omits keys, raw network inputs/
 outputs, runtime logs, cookies and traces. Provider denial
 stops external requests and leaves a failed gate with its HTTP status (or `-1`
 for a transport failure). A successful run proves this bounded prototype;

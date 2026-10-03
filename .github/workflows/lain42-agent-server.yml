@@ -313,6 +313,7 @@ jobs:
           path: |
             ${{ runner.temp }}/lain42-prototype-evidence/prototype.json
             ${{ runner.temp }}/lain42-prototype-evidence/mobile-real-model.png
+            ${{ runner.temp }}/lain42-prototype-evidence/mobile-account-b.png
           if-no-files-found: warn
           retention-days: 7
 
