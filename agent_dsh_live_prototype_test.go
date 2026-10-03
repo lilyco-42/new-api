@@ -106,8 +106,11 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	require.True(t, constant.Setup)
 	const githubKey = "synthetic-prototype-github-key"
 	const relaySecret = "synthetic-prototype-model-relay-secret"
-	const issueURL = "https://github.com/owner/project/issues/2"
-	require.NoError(t, model.SaveAgentGitHubCredential(owner.Id, "prototype-owner", "owner", "repo", githubKey))
+	// A literal owner/project URL reads as an unresolved placeholder to a real
+	// model. Use an unambiguous synthetic repository without adding answer facts
+	// to the user instruction; both markers must still come from the Issue tool.
+	const issueURL = "https://github.com/lain42-acceptance/export-workbench/issues/2"
+	require.NoError(t, model.SaveAgentGitHubCredential(owner.Id, "prototype-owner", "lain42-acceptance", "repo", githubKey))
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		githubCalls.Add(1)
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer "+githubKey {
@@ -116,9 +119,9 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/repos/owner/project/issues/2":
+		case "/repos/lain42-acceptance/export-workbench/issues/2":
 			_, _ = io.WriteString(w, `{"number":2,"state":"closed","title":"Export retry","body":"A reconnect creates duplicate exports. Diagnostic marker: ORBIT_EXPORT_731.","comments":1,"html_url":"`+issueURL+`"}`)
-		case "/repos/owner/project/issues/2/comments":
+		case "/repos/lain42-acceptance/export-workbench/issues/2/comments":
 			_, _ = io.WriteString(w, `[{"body":"Persist the request identifier before starting export; reconnect still reproduces after a lost response. Discussion marker: DISCUSSION_927.","user":{"login":"maintainer"}}]`)
 		default:
 			http.Error(w, "unexpected GitHub resource", http.StatusNotFound)
