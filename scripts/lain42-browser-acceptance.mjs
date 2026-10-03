@@ -81,6 +81,17 @@ try {
       await rustCode.waitFor({ timeout: 15000 });
       assert.match(await rustCode.innerText(), /fn main\(\)/);
       assert.equal(await rustCode.getAttribute('aria-readonly'), 'true');
+      const keyword = rustCode.getByText('fn', { exact: true });
+      const stringLiteral = rustCode.getByText('"CLIENT_FILE_FACT_42"', { exact: true });
+      await keyword.waitFor({ timeout: 15000 });
+      await stringLiteral.waitFor({ timeout: 15000 });
+      const foreground = await rustCode.evaluate(element => getComputedStyle(element).color);
+      const keywordColor = await keyword.evaluate(element => getComputedStyle(element).color);
+      const stringColor = await stringLiteral.evaluate(element => getComputedStyle(element).color);
+      assert.notEqual(keywordColor, foreground, 'Rust keywords must be highlighted by the client grammar.');
+      assert.notEqual(stringColor, foreground, 'Rust strings must be highlighted by the client grammar.');
+      assert.notEqual(keywordColor, stringColor, 'Keywords and strings must remain visually distinguishable.');
+      await rustCode.screenshot({ path: join(evidence, `${fixture.name}-rust.png`) });
       assert.equal(postedPaths.filter(path => path === '/api/agent/dsh/turns').length, 1,
         'The attachment answer must come through the hosted DSH turn, not the legacy chat loop.');
       assert.equal(postedPaths.some(path => /^\/(?:pg|v1)\/(?:chat\/completions|responses)$/.test(path)), false,
@@ -178,7 +189,7 @@ try {
       assert.ok(layout.scroll <= layout.width + 1, `Horizontal overflow at ${fixture.name}: ${JSON.stringify(layout)}`);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
       await page.screenshot({ path: join(evidence, `${fixture.name}.png`), fullPage: true });
-      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', explicitStopBeforeOutput: true, newTaskAfterStop: true, horizontalOverflow: false });
+      results.push({ viewport: fixture.name, login: 'password + real session', hostedDSHTurn: true, attachmentAnswer: true, rustCode: true, rustSyntaxHighlighting: true, reload: true, contextualFollowUp: true, interruptedTurnRetry: true, sameBrowserAccountSwitch: fixture.name === 'desktop', explicitStopBeforeOutput: true, newTaskAfterStop: true, horizontalOverflow: false });
     } catch (error) {
       await page.screenshot({ path: join(evidence, `${fixture.name}-failure.png`), fullPage: true });
       await writeFile(join(evidence, `${fixture.name}-failure.txt`), `${String(error)}\n${await page.locator('body').innerText()}`);
