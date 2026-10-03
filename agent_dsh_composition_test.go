@@ -188,8 +188,17 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		var latestUser string
 		for _, message := range inference.Messages {
 			if message.Role == "user" {
-				latestUser = string(message.Content)
+				if json.Unmarshal(message.Content, &latestUser) != nil {
+					http.Error(w, "the fixture expects a text instruction", http.StatusBadRequest)
+					return
+				}
 			}
+		}
+		// A new session can contain seeded history. Match the explicit current
+		// instruction, not an earlier user request quoted in that history.
+		const currentInstruction = "Current user request:\n"
+		if index := strings.LastIndex(latestUser, currentInstruction); index >= 0 {
+			latestUser = latestUser[index+len(currentInstruction):]
 		}
 		var delta any
 		finish := "stop"

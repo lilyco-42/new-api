@@ -98,6 +98,12 @@ describe('Lain42 DSH conversation adapter', () => {
   it.each(['pending', 'received', 'invalid', 'lost'] as const)(
     'persists explicit Stop and never replays that prompt after %s delivery', async (delivery) => {
       const storage = storageFixture()
+      const nextRequestId = '123e4567-e89b-42d3-a456-426614174001'
+      const requestIds = [REQUEST_ID, nextRequestId]
+      vi.stubGlobal('crypto', {
+        randomUUID: () => requestIds.shift() ?? nextRequestId,
+        subtle: globalThis.crypto.subtle,
+      })
       const admitted = deferred<void>()
       const turn = deferred<unknown>()
       vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
@@ -139,6 +145,25 @@ describe('Lain42 DSH conversation adapter', () => {
       await expect(reloaded.send(request('read my repository'), message('stop-message', 'read my repository'), new AbortController().signal))
         .rejects.toThrow('saved Stop request')
       expect(vi.mocked(api.post).mock.calls.filter(([url]) => url === '/api/agent/dsh/turns')).toHaveLength(1)
+
+      vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
+      vi.mocked(api.post).mockImplementation(async (url) => {
+        if (url === '/api/agent/dsh/sessions') return success({ session_id: OTHER_SESSION_ID }) as never
+        if (url === '/api/agent/dsh/turns') return success({
+          session_id: SESSION_ID, request_id: nextRequestId, answer: 'The new message completed.',
+        }) as never
+        throw new Error('Unexpected request')
+      })
+      await reloaded.send(request('Continue with a new task.'), message('next-message', 'Continue with a new task.'), new AbortController().signal)
+      const submitted = vi.mocked(api.post).mock.calls.filter(([url]) => url === '/api/agent/dsh/turns')
+      expect(submitted).toHaveLength(2)
+      expect(submitted[1]?.[1]).toMatchObject({
+        session_id: SESSION_ID, request_id: nextRequestId, text: 'Current user request:\nContinue with a new task.',
+      })
+      expect(vi.mocked(api.post).mock.calls.filter(([url]) => url === '/api/agent/dsh/sessions')).toHaveLength(1)
+      await expect(reloaded.send(request('read my repository'), message('stop-message', 'read my repository'), new AbortController().signal))
+        .rejects.toThrow('saved Stop request')
+      expect(vi.mocked(api.post).mock.calls.filter(([url]) => url === '/api/agent/dsh/turns')).toHaveLength(2)
     },
   )
 
