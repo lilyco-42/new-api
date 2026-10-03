@@ -356,6 +356,9 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		if err != nil {
 			return nil, "search_unavailable", "Web search is temporarily unavailable."
 		}
+		if len(items) == 0 {
+			return nil, "search_no_results", "No search results were retrieved. Do not repeat the same query. Explain the missing evidence or use a different relevant public source; do not invent sources."
+		}
 		return gin.H{"query": query, "provider": provider, "items": items, "search_url": "https://www.bing.com/search?q=" + url.QueryEscape(query)}, "", ""
 	case "web_fetch":
 		return nil, "client_fetch_required", "Public page reading must run in the user's browser; this server does not fetch page contents."

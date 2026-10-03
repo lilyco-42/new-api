@@ -91,6 +91,12 @@ declined and unreadable page flows separately with labelled external fixtures.
 These checks do not establish universal web access, production OAuth, physical
 Android, or commercial API eligibility.
 
+An empty search response is reported to DSH as `search_no_results`, without a
+successful evidence payload. The tool asks the model to explain missing evidence
+or use a different relevant public source rather than repeat the same query or
+invent sources. This distinguishes no results from a transport/provider failure;
+it does not guarantee that a model will obey, or prove why a live search failed.
+
 ## Observed provider retirement and explicit repin
 
 The first prototype at e166229 / run 37094876969 used the local configured
