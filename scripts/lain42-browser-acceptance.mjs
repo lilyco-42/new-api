@@ -92,7 +92,8 @@ try {
       assert.notEqual(stringColor, foreground, 'Rust strings must be highlighted by the client grammar.');
       assert.notEqual(keywordColor, stringColor, 'Keywords and strings must remain visually distinguishable.');
       await rustCode.screenshot({ path: join(evidence, `${fixture.name}-rust.png`) });
-      const originalCode = 'fn main() { println!("CLIENT_FILE_FACT_42"); }';
+      // The model fixture includes this newline before the closing fence.
+      const originalCode = 'fn main() { println!("CLIENT_FILE_FACT_42"); }\n';
       await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
       await page.getByRole('button', { name: 'Copy code', exact: true }).click();
       assert.equal(await page.evaluate(() => navigator.clipboard.readText()), originalCode,
