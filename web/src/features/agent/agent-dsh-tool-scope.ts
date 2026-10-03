@@ -1,6 +1,7 @@
 import type { ChatCompletionMessage } from '@/features/playground/types'
 
 import {
+  explicitGitHubRepository,
   explicitlyRequestsBrowserWebSearch,
   explicitlyTargetsLocalGitHub,
   getGitHubReadIntent,
@@ -22,7 +23,9 @@ export function deriveAgentDSHToolScope(
   const githubIntent = getGitHubReadIntent(request)
   if (githubIntent === 'repository_search' && !targetsAccountRepositories(request) &&
     !explicitlyTargetsLocalGitHub(request)) return 'public-only'
-  if (githubIntent && !explicitlyTargetsLocalGitHub(request) &&
+  const accountTargetRequested = githubIntent === 'status' ||
+    targetsAccountRepositories(request) || explicitGitHubRepository(request) !== null
+  if (githubIntent && accountTargetRequested && !explicitlyTargetsLocalGitHub(request) &&
     (!explicitlyRequestsBrowserWebSearch(request) || targetsAccountRepositories(request))) {
     return 'account-read'
   }
