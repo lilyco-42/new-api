@@ -55,8 +55,8 @@ try {
       postedPaths.push(path);
       if (path === '/api/agent/dsh/turns') {
         const submitted = request.postDataJSON();
-        // Observe only identities; do not retain credentials or attachment bodies.
-        hostedRequests.push({ session: submitted.session_id, request: submitted.request_id });
+        // Observe identities and closed permissions, never credentials or attachment bodies.
+        hostedRequests.push({ session: submitted.session_id, request: submitted.request_id, scope: submitted.tool_scope });
       }
     });
     await context.tracing.start({ screenshots: true, snapshots: true });
@@ -223,6 +223,8 @@ try {
       assert.equal(hostedRequests.length, 7, 'Issue reads must be answered by the hosted DSH conversation.');
       assert.equal(hostedRequests[6].session, hostedRequests[5].session);
       assert.notEqual(hostedRequests[6].request, hostedRequests[5].request);
+      assert.ok(hostedRequests.every(request => request.scope === 'evidence-only'),
+        'Ordinary chat, attachments, retries, Stop and prefetched OAuth outcomes must not grant additional relay reads.');
       assert.equal(postedPaths.some(path => /^\/(?:pg|v1)\/(?:chat\/completions|responses)$/.test(path)), false,
         'OAuth Issue analysis must not bypass DSH.');
       await page.screenshot({ path: join(evidence, `${fixture.name}-oauth-issues.png`), fullPage: true });
