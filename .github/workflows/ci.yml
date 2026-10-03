@@ -168,7 +168,7 @@ jobs:
           retention-days: 3
 
   hosted-dsh-composition:
-    needs: frontend
+    needs: [frontend, backend]
     name: Built DSH and New API Issue read, answer, and replay
     if: github.event.action != 'closed' || github.event.pull_request.merged == true
     runs-on: ubuntu-24.04

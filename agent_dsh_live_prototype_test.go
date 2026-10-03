@@ -141,8 +141,8 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			"public_search_non_200_responses":       searchObservation.nonOK.Load(),
 			"public_search_repeated_origin_queries": searchObservation.repeated.Load(),
 			"external_attempts":                     providerCalls.Load(), "github_reads": githubCalls.Load(),
-			"tool_free_followup_attempts":           toolFreeFollowupCalls.Load(),
-			"upstream_denial_status": denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
+			"tool_free_followup_attempts": toolFreeFollowupCalls.Load(),
+			"upstream_denial_status":      denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
 			"scope": scope}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
 		require.NoError(t, marshalErr)
