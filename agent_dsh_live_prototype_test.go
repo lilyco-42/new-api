@@ -36,6 +36,44 @@ import (
 // A successful trial does not establish production/commercial entitlement.
 const prototypeModel = "nvidia/nemotron-3.5-lightning-30b-a3b"
 
+// OpenAI-compatible adapters may emit modern tools or legacy functions. A
+// malformed definition field is not evidence that a model has no tools.
+func prototypeHasCallableDefinitions(payload map[string]any) bool {
+	for _, name := range []string{"tools", "functions"} {
+		value := payload[name]
+		if value == nil {
+			continue
+		}
+		definitions, ok := value.([]any)
+		if !ok || len(definitions) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Offline regression: no credentials, runtime, provider requests or fixtures.
+func TestPrototypeToolDefinitions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		payload map[string]any
+		blocked bool
+	}{
+		{"omitted", map[string]any{}, false},
+		{"empty", map[string]any{"tools": []any{}, "functions": []any{}}, false},
+		{"null", map[string]any{"tools": nil, "functions": nil}, false},
+		{"modern", map[string]any{"tools": []any{map[string]any{"type": "function"}}}, true},
+		{"legacy", map[string]any{"functions": []any{map[string]any{"name": "github_read"}}, "function_call": "auto"}, true},
+		{"legacy_with_empty_tools", map[string]any{"tools": []any{}, "functions": []any{map[string]any{"name": "github_read"}}}, true},
+		{"malformed_modern", map[string]any{"tools": map[string]any{"name": "github_read"}}, true},
+		{"malformed_legacy", map[string]any{"functions": "github_read"}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.blocked, prototypeHasCallableDefinitions(test.payload))
+		})
+	}
+}
+
 // Opt-in Actions only: actual New API and DSH, a real developer-trial model,
 // and synthetic account-owned GitHub data. This is not production OAuth or a
 // commercial capacity certification. Missing credentials fail, never skip.
@@ -211,8 +249,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		// mobile attachment. Check the real model boundary, not just stored scope.
 		toolFreeFollowup := !research && providerCalls.Load() >= 2
 		if toolFreeFollowup {
-			tools, _ := payload["tools"].([]any)
-			if len(tools) != 0 {
+			if prototypeHasCallableDefinitions(payload) {
 				http.Error(w, "evidence-only turn exposed model tools", http.StatusBadRequest)
 				return
 			}
@@ -471,7 +508,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		require.False(t, request.CancelRequested, "foreign cancellation must not alter the owner's durable intent")
 		if !research {
 			expectedScope := "evidence-only"
-			if request.RequestID == turn.RequestID {
+			if request.RequestId == turn.RequestID {
 				expectedScope = "account-read"
 			}
 			require.Equal(t, expectedScope, request.ToolScope, "the admitted scope belongs to this request, not an earlier account read")
