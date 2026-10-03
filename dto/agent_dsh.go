@@ -10,6 +10,9 @@ type AgentDSHTurnRequest struct {
 	Mode   string              `json:"mode,omitempty"`
 	Text   string              `json:"text"`
 	Images []AgentDSHTurnImage `json:"images,omitempty"`
+	// ToolScope can only narrow the shipped read-only tool surface. A required
+	// scope uses wire version 3 so an older DSH peer cannot silently ignore it.
+	ToolScope string `json:"tool_scope,omitempty"`
 }
 
 // AgentDSHTurnImage is a bounded browser image payload accepted only as part
@@ -29,8 +32,10 @@ type AgentDSHCancelRequest struct {
 // AgentDSHToolRelayRequest is sent by the private DSH server. Its exact body
 // bytes are covered by the server-to-server HMAC before this DTO is accepted.
 type AgentDSHToolRelayRequest struct {
-	Version   int            `json:"version"`
-	SessionID string         `json:"session_id"`
+	Version   int    `json:"version"`
+	SessionID string `json:"session_id"`
+	// Version 2 binds execution to the exact account-owned admitted request.
+	RequestID string         `json:"request_id,omitempty"`
 	Tool      string         `json:"tool"`
 	Arguments map[string]any `json:"arguments"`
 }

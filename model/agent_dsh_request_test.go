@@ -17,6 +17,42 @@ import (
 const dshRequestOne = "123e4567-e89b-42d3-a456-426614174000"
 const dshRequestTwo = "123e4567-e89b-42d3-a456-426614174001"
 
+func TestOwnedDSHToolScopesAreImmutableAndRequestLocal(t *testing.T) {
+	setupAgentDSHSessionModelTest(t)
+	session, err := CreateAgentDSHSession(7, time.Time{})
+	require.NoError(t, err)
+	first, err := ReserveOwnedAgentDSHRequestWithToolScope(7, session.SessionId, dshRequestOne, "public-only", time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, "public-only", first.ToolScope)
+	same, err := ReserveOwnedAgentDSHRequestWithToolScope(7, session.SessionId, dshRequestOne, "public-only", time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, first.Id, same.Id)
+	for _, scope := range []string{"", "account-read", "evidence-only"} {
+		_, err := ReserveOwnedAgentDSHRequestWithToolScope(7, session.SessionId, dshRequestOne, scope, time.Time{})
+		assert.ErrorIs(t, err, ErrAgentDSHRequestConflict)
+	}
+	_, err = ReserveOwnedAgentDSHRequest(7, session.SessionId, dshRequestOne, time.Time{})
+	assert.ErrorIs(t, err, ErrAgentDSHRequestConflict, "legacy admission cannot remove a recorded restriction")
+	_, err = ReserveOwnedAgentDSHRequestWithToolScope(7, session.SessionId, dshRequestTwo, "invalid", time.Time{})
+	assert.ErrorIs(t, err, ErrAgentDSHRequestInvalid)
+	_, err = ReserveOwnedAgentDSHRequestWithToolScope(8, session.SessionId, dshRequestTwo, "public-only", time.Time{})
+	assert.ErrorIs(t, err, ErrAgentDSHSessionNotFound)
+	second, err := ReserveOwnedAgentDSHRequestWithToolScope(7, session.SessionId, dshRequestTwo, "account-read", time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, "account-read", second.ToolScope, "a subsequent request has independent permissions")
+	_, err = GetOwnedAgentDSHRequest(8, session.SessionId, dshRequestOne)
+	assert.ErrorIs(t, err, ErrAgentDSHRequestNotFound)
+	_, err = RequestOwnedAgentDSHCancellation(7, session.SessionId, dshRequestOne, time.Time{})
+	require.NoError(t, err)
+	stopped, err := ReserveOwnedAgentDSHRequestWithToolScope(7, session.SessionId, dshRequestOne, "account-read", time.Time{})
+	require.NoError(t, err)
+	assert.True(t, stopped.CancelRequested)
+	assert.Equal(t, "public-only", stopped.ToolScope, "Stop cannot grant a broader permission")
+	owned, err := GetOwnedAgentDSHSession(7, session.SessionId)
+	require.NoError(t, err)
+	assert.Equal(t, 2, owned.RequestCount, "rejected scope reuse must not reserve another slot")
+}
+
 func TestOwnedDSHCancellationPrecedesAdmissionAndStaysMonotonic(t *testing.T) {
 	setupAgentDSHSessionModelTest(t)
 	now := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
@@ -167,4 +203,37 @@ func TestOwnedDSHCancellationSurvivesReopeningPersistentStorage(t *testing.T) {
 	assert.Equal(t, stopped.CancelRequestedAt, request.CancelRequestedAt)
 	_, err = RequestOwnedAgentDSHCancellation(8, session.SessionId, dshRequestOne, time.Time{})
 	assert.ErrorIs(t, err, ErrAgentDSHSessionNotFound)
+}
+
+func TestOwnedDSHToolScopeSurvivesReopeningPersistentStorage(t *testing.T) {
+	previousDB := DB
+	t.Cleanup(func() { DB = previousDB })
+	path := filepath.Join(t.TempDir(), "agent-tool-scopes.db")
+	open := func() *gorm.DB {
+		db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+		require.NoError(t, err)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(1)
+		t.Cleanup(func() { _ = sqlDB.Close() })
+		return db
+	}
+	DB = open()
+	require.NoError(t, DB.AutoMigrate(&AgentDSHSession{}, &AgentDSHRequest{}))
+	session, err := CreateAgentDSHSession(7, time.Time{})
+	require.NoError(t, err)
+	_, err = ReserveOwnedAgentDSHRequestWithToolScope(7, session.SessionId, dshRequestOne, "evidence-only", time.Time{})
+	require.NoError(t, err)
+	sqlDB, err := DB.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+	DB = open()
+	request, err := GetOwnedAgentDSHRequest(7, session.SessionId, dshRequestOne)
+	require.NoError(t, err)
+	assert.Equal(t, "evidence-only", request.ToolScope)
+	_, err = ReserveOwnedAgentDSHRequestWithToolScope(7, session.SessionId, dshRequestOne, "account-read", time.Time{})
+	assert.ErrorIs(t, err, ErrAgentDSHRequestConflict)
+	requiresIdentity, err := OwnedAgentDSHSessionRequiresToolIdentity(7, session.SessionId)
+	require.NoError(t, err)
+	assert.True(t, requiresIdentity)
 }

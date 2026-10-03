@@ -120,3 +120,64 @@ func TestAgentDSHScopedToolRelayRejectsLegacyAndUnadmittedCallsBeforeGitHub(t *t
 		})
 	}
 }
+
+func TestAgentDSHScopedToolRelayKeepsLaterAccountReadsSeparateFromPublicAndStoppedTurns(t *testing.T) {
+	setupAgentIssueReadTest(t)
+	gin.SetMode(gin.TestMode)
+	session, err := model.CreateAgentDSHSession(42, time.Time{})
+	require.NoError(t, err)
+	ids := []string{"123e4567-e89b-42d3-a456-426614174000", "123e4567-e89b-42d3-a456-426614174001", "123e4567-e89b-42d3-a456-426614174002"}
+	for index, scope := range []string{"public-only", "account-read", "evidence-only"} {
+		_, err := model.ReserveOwnedAgentDSHRequestWithToolScope(42, session.SessionId, ids[index], scope, time.Time{})
+		require.NoError(t, err)
+	}
+	previousTransport := http.DefaultTransport
+	githubReads := 0
+	http.DefaultTransport = agentGitHubRoundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Hostname() != "api.github.com" {
+			return previousTransport.RoundTrip(r)
+		}
+		githubReads++
+		assert.Equal(t, "Bearer account-42-token", r.Header.Get("Authorization"))
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`[]`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	publicReads := 0
+	search := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		publicReads++
+		assert.Empty(t, r.Header.Get("Authorization"))
+		assert.Empty(t, r.Header.Get("Cookie"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"results":[{"title":"public reference","url":"https://example.com/reference","content":"Public evidence."}]}`)
+	}))
+	defer search.Close()
+	t.Setenv("AGENT_WEB_SEARCH_URL", search.URL)
+	send := func(requestID, tool string) string {
+		body, marshalErr := common.Marshal(map[string]any{
+			"version": 2, "session_id": session.SessionId, "request_id": requestID,
+			"tool": tool, "arguments": map[string]any{"query": "public reference", "limit": 5},
+		})
+		require.NoError(t, marshalErr)
+		response := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(response)
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/agent/bridge/v1/tool", strings.NewReader(string(body)))
+		c.Set("id", 42)
+		AgentDSHToolRelay(c)
+		require.Equal(t, http.StatusOK, response.Code)
+		return response.Body.String()
+	}
+	assert.Contains(t, send(ids[0], "web_search"), "https://example.com/reference")
+	assert.Equal(t, 1, publicReads)
+	assert.Zero(t, githubReads)
+	assert.Contains(t, send(ids[2], "web_search"), "tool_scope_denied")
+	assert.Contains(t, send(ids[0], "unregistered_shell"), "tool_scope_denied")
+	assert.Contains(t, send(ids[1], "github_repositories"), `"result"`)
+	assert.Equal(t, 1, githubReads, "only the separate account-authorized request may read account data")
+	assert.Contains(t, send(ids[0], "github_repositories"), "tool_scope_denied", "later account authorization cannot widen the old public request")
+	assert.Contains(t, send(ids[1], "unregistered_shell"), "tool_not_available", "account-read cannot grant an unregistered tool")
+	_, err = model.RequestOwnedAgentDSHCancellation(42, session.SessionId, ids[0], time.Time{})
+	require.NoError(t, err)
+	assert.Contains(t, send(ids[0], "web_search"), "tool_request_cancelled")
+	assert.Equal(t, 1, publicReads, "cancellation must reject before starting another search")
+	assert.Equal(t, 1, githubReads)
+}

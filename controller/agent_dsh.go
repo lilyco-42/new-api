@@ -52,6 +52,7 @@ type agentDSHWireTurnRequest struct {
 	Mode      string                  `json:"mode,omitempty"`
 	Text      string                  `json:"text"`
 	Images    []dto.AgentDSHTurnImage `json:"images,omitempty"`
+	ToolScope string                  `json:"toolScope,omitempty"`
 }
 
 type agentDSHWireTurnResponse struct {
@@ -129,6 +130,9 @@ func AgentDSHTurn(c *gin.Context) {
 	if len(request.Images) > 0 {
 		version = 2
 	}
+	if request.ToolScope != "" {
+		version = 3
+	}
 	wireRequest := agentDSHWireTurnRequest{
 		Version:   version,
 		SessionID: request.SessionID,
@@ -137,6 +141,7 @@ func AgentDSHTurn(c *gin.Context) {
 		Mode:      mode,
 		Text:      request.Text,
 		Images:    request.Images,
+		ToolScope: request.ToolScope,
 	}
 	wireBody, err := common.Marshal(wireRequest)
 	if err != nil || len(wireBody) > agentDSHTurnBodyLimit {
@@ -170,7 +175,11 @@ func AgentDSHTurn(c *gin.Context) {
 	// Reserve the account-owned identity before crossing the runtime boundary.
 	// A persisted Stop must never be cleared by a retry. This admission fence
 	// alone does not settle a task that was already forwarded to DSH.
-	reservation, err := model.ReserveOwnedAgentDSHRequest(c.GetInt("id"), request.SessionID, wireRequest.RequestID, time.Now().UTC())
+	reservation, err := model.ReserveOwnedAgentDSHRequestWithToolScope(c.GetInt("id"), request.SessionID, wireRequest.RequestID, request.ToolScope, time.Now().UTC())
+	if errors.Is(err, model.ErrAgentDSHRequestConflict) {
+		writeAgentError(c, http.StatusConflict, "AGENT_DSH_REQUEST_CONFLICT", "The accepted request changed. Start a new message; the old task was not automatically rerun.")
+		return
+	}
 	if errors.Is(err, model.ErrAgentDSHSessionNotFound) {
 		writeAgentError(c, http.StatusNotFound, "AGENT_DSH_SESSION_NOT_FOUND", "Agent session was not found")
 		return
@@ -231,6 +240,9 @@ func AgentDSHTurn(c *gin.Context) {
 }
 
 func validAgentDSHTurnRequest(request dto.AgentDSHTurnRequest) bool {
+	if !model.ValidAgentDSHToolScope(request.ToolScope) {
+		return false
+	}
 	if len(request.SessionID) != 64 || !modelAgentDSHSessionIDPattern.MatchString(request.SessionID) {
 		return false
 	}
@@ -318,9 +330,36 @@ func AgentDSHToolRelay(c *gin.Context) {
 		return
 	}
 	var request dto.AgentDSHToolRelayRequest
-	if err := common.Unmarshal(body, &request); err != nil || request.Version != 1 || request.Arguments == nil {
+	if err := common.Unmarshal(body, &request); err != nil || (request.Version != 1 && request.Version != 2) || request.Arguments == nil || (request.Version == 1 && request.RequestID != "") {
 		writeAgentDSHToolError(c, "invalid_request", "The tool request is invalid")
 		return
+	}
+	if request.Version == 1 {
+		requiresIdentity, err := model.OwnedAgentDSHSessionRequiresToolIdentity(c.GetInt("id"), request.SessionID)
+		if err != nil {
+			writeAgentDSHToolError(c, "tool_request_not_admitted", "The tool session could not be verified.")
+			return
+		}
+		if requiresIdentity {
+			writeAgentDSHToolError(c, "tool_request_identity_required", "This session requires an exact admitted request identity. Upgrade the hosted Agent before using its tools.")
+			return
+		}
+	} else {
+		admission, err := model.GetOwnedAgentDSHRequest(c.GetInt("id"), request.SessionID, request.RequestID)
+		if err != nil {
+			writeAgentDSHToolError(c, "tool_request_not_admitted", "The tool request could not be verified.")
+			return
+		}
+		if admission.CancelRequested {
+			writeAgentDSHToolError(c, "tool_request_cancelled", "Stop was requested for this message. No new tool was executed.")
+			return
+		}
+		allowed := admission.ToolScope == "" || admission.ToolScope == "account-read" ||
+			(admission.ToolScope == "public-only" && (request.Tool == "web_search" || request.Tool == "web_fetch"))
+		if !allowed {
+			writeAgentDSHToolError(c, "tool_scope_denied", "This request does not permit that tool. Answer from the permitted evidence; do not switch to a personal account or device.")
+			return
+		}
 	}
 	result, code, message := executeAgentDSHTool(c, request.Tool, request.Arguments)
 	if code != "" {

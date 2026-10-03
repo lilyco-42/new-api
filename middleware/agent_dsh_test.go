@@ -198,6 +198,48 @@ func TestAgentDSHToolAuthBindsSignedToolCallsToTheSessionOwner(t *testing.T) {
 	assert.Contains(t, response.Body.String(), fmt.Sprintf(`"id":%d`, user.Id))
 }
 
+func TestAgentDSHToolAuthCoversExactRequestIdentityWithTheSignature(t *testing.T) {
+	setupAgentDSHMiddlewareTest(t)
+	gin.SetMode(gin.TestMode)
+	secret := "0123456789abcdef0123456789abcdef"
+	t.Setenv("LAIN42_DSH_BRIDGE_SECRET", secret)
+	user := createAgentDSHTestUser(t, "agent-dsh-request-owner")
+	session, err := model.CreateAgentDSHSession(user.Id, time.Time{})
+	require.NoError(t, err)
+	body := fmt.Sprintf(`{"version":2,"session_id":%q,"request_id":"123e4567-e89b-42d3-a456-426614174000","tool":"web_search","arguments":{"query":"rust"}}`, session.SessionId)
+	router := gin.New()
+	router.POST(agentDSHToolRelayPath, AgentDSHToolAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"id": c.GetInt("id")})
+	})
+	for index, test := range []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{"signed exact identity", body, http.StatusOK},
+		{"changed identity with original signature", strings.Replace(body, "426614174000", "426614174001", 1), http.StatusUnauthorized},
+		{"missing identity", strings.Replace(body, `"request_id":"123e4567-e89b-42d3-a456-426614174000",`, "", 1), http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, agentDSHToolRelayPath, strings.NewReader(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			timestamp := fmt.Sprintf("%d", time.Now().UTC().Unix())
+			nonce := fmt.Sprintf("%032x", index+800)
+			digest := sha256.Sum256([]byte(body))
+			canonical := fmt.Sprintf("v1\n%s\n%s\nPOST\n%s\n%s", timestamp, nonce, agentDSHToolRelayPath, hex.EncodeToString(digest[:]))
+			request.Header.Set("X-Lain42-Timestamp", timestamp)
+			request.Header.Set("X-Lain42-Nonce", nonce)
+			request.Header.Set("X-Lain42-Signature", common.GenerateHMACWithKey([]byte(secret), canonical))
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			assert.Equal(t, test.status, response.Code)
+			if test.status == http.StatusOK {
+				assert.Contains(t, response.Body.String(), fmt.Sprintf(`"id":%d`, user.Id))
+			}
+		})
+	}
+}
+
 func TestAgentDSHRelaysRejectOversizedBodiesBeforeBuffering(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("LAIN42_AGENT_MODEL_RELAY_SECRET", "0123456789abcdef0123456789abcdef")

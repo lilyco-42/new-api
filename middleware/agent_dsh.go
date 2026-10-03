@@ -34,6 +34,7 @@ const (
 
 var (
 	agentDSHSessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{64}$`)
+	agentDSHRequestIDPattern = regexp.MustCompile(model.AgentDSHRequestIDPattern)
 	agentDSHModelPattern     = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,128}$`)
 	agentDSHNoncePattern     = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	agentDSHSignaturePattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -156,7 +157,8 @@ func AgentDSHToolAuth() func(c *gin.Context) {
 			return
 		}
 		var request dto.AgentDSHToolRelayRequest
-		if err := common.Unmarshal(body, &request); err != nil || request.Version != 1 || !agentDSHSessionIDPattern.MatchString(request.SessionID) {
+		if err := common.Unmarshal(body, &request); err != nil || (request.Version != 1 && request.Version != 2) || !agentDSHSessionIDPattern.MatchString(request.SessionID) ||
+			(request.Version == 1 && request.RequestID != "") || (request.Version == 2 && !agentDSHRequestIDPattern.MatchString(request.RequestID)) {
 			writeAgentDSHAuthError(c, http.StatusBadRequest, "agent_relay_invalid_request")
 			return
 		}
