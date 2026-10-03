@@ -149,9 +149,11 @@ describe('Lain42 DSH conversation adapter', () => {
       vi.mocked(api.get).mockResolvedValueOnce(success({ configured: true }) as never)
       vi.mocked(api.post).mockImplementation(async (url) => {
         if (url === '/api/agent/dsh/sessions') return success({ session_id: OTHER_SESSION_ID }) as never
-        if (url === '/api/agent/dsh/turns') return success({
-          session_id: SESSION_ID, request_id: nextRequestId, answer: 'The new message completed.',
-        }) as never
+        if (url === '/api/agent/dsh/turns') {
+          return success({
+            session_id: SESSION_ID, request_id: nextRequestId, answer: 'The new message completed.',
+          }) as never
+        }
         throw new Error('Unexpected request')
       })
       await reloaded.send(request('Continue with a new task.'), message('next-message', 'Continue with a new task.'), new AbortController().signal)
