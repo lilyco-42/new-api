@@ -63,6 +63,34 @@ free commercial API capacity. Sources checked on 2026-10-03:
 - [Model service terms and metadata](https://docs.api.nvidia.com/nim/reference/deepseek-ai-deepseek-v4-flash-0731)
 - [Chat API](https://docs.api.nvidia.com/nim/reference/deepseek-ai-deepseek-v4-flash-infer)
 
+## Independent public research scenario
+
+Choose `evaluation_kind=dsh-research` to run a separate research prototype under
+the same six-request ceiling, provider pin, credential isolation and wallet
+assertions. It does not append requests to the Issue/file scenario.
+
+The actual DSH `web_search` tool must reach public Bing RSS, receive the official
+ast-grep repository source and produce a sourced final answer. Then an actual
+mobile browser signs in, obtains anonymous GitHub public search results, sends
+those results in the current turn and displays the real answer. Neither path
+may read the connected account's synthetic GitHub data or use a paired device.
+
+The browser subsequently approves the public raw HTTPS URL of
+`testdata/lain42-browser-research.html` at the exact triggering SHA. It must
+load the deployed crawler `.wasm`, parse page-only facts while omitting script
+content, send those facts in the same hosted turn, and display a sourced real
+answer. Reload retains the answer without inference; a contextual follow-up
+returns the page's delivery color. DSH restart replay and ledger reconciliation
+remain required. The document is clearly synthetic and contains no user data.
+
+The research artifact adds only declared search/page screenshots and outcome
+booleans/counts. Search/provider/CORS failure fails the lane; no source fixtures,
+auth/storage injection, server page fetch, retry or paid fallback are used to
+make it pass. Screenshots disable animation for capture. Ordinary CI covers
+declined and unreadable page flows separately with labelled external fixtures.
+These checks do not establish universal web access, production OAuth, physical
+Android, or commercial API eligibility.
+
 ## Observed provider retirement and explicit repin
 
 The first prototype at e166229 / run 37094876969 used the local configured

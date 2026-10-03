@@ -36,6 +36,15 @@ const prototypeModel = "nvidia/nemotron-3-super-120b-a12b"
 // and synthetic account-owned GitHub data. This is not production OAuth or a
 // commercial capacity certification. Missing credentials fail, never skip.
 func TestLiveDSHNewAPIPrototype(t *testing.T) {
+	runLiveDSHNewAPIPrototype(t, false)
+}
+
+func TestLiveDSHNewAPIResearchPrototype(t *testing.T) {
+	runLiveDSHNewAPIPrototype(t, true)
+}
+
+func runLiveDSHNewAPIPrototype(t *testing.T, research bool) {
+	t.Helper()
 	key := os.Getenv("LAIN42_PROTOTYPE_NVIDIA_KEY")
 	require.True(t, strings.HasPrefix(key, "nvapi-"), "missing authorized NVIDIA prototype credential")
 	root := os.Getenv("LAIN42_COMPOSITION_DSH_ROOT")
@@ -46,6 +55,8 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	require.NotEmpty(t, evidence)
 	require.NoError(t, os.MkdirAll(evidence, 0700))
 	var providerCalls, githubCalls atomic.Int32
+	var searchCalls atomic.Int32
+	var officialSearchSource atomic.Bool
 	var denial atomic.Int32
 	passed := false
 	mobileBrowser := false
@@ -53,12 +64,18 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 		// Deliberately omit raw requests, responses, runtime logs, credentials and
 		// traces. The optional screenshot contains only declared synthetic data.
 		// Failed inference is recorded as a failure, not empty success.
+		scope := "Real trial inference + actual New API/DSH + Chromium mobile emulation; synthetic GitHub/accounts; not physical Android or production OAuth"
+		if research {
+			scope = "Real trial inference/public search + actual New API/DSH + mobile Chromium client WASM page read; synthetic accounts/document; not physical Android or production OAuth"
+		}
 		result := map[string]any{"passed": passed && !t.Failed(), "model": prototypeModel,
 			"mobile_browser_emulation":      mobileBrowser,
-			"mobile_account_history_switch": mobileBrowser, "foreign_turn_and_cancel_denied": mobileBrowser,
-			"external_attempts": providerCalls.Load(), "github_reads": githubCalls.Load(),
+			"mobile_account_history_switch": mobileBrowser && !research, "foreign_turn_and_cancel_denied": mobileBrowser && !research,
+			"mobile_research_flow": mobileBrowser && research, "public_search_requests": searchCalls.Load(),
+			"official_search_source_returned": officialSearchSource.Load(),
+			"external_attempts":               providerCalls.Load(), "github_reads": githubCalls.Load(),
 			"upstream_denial_status": denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
-			"scope": "Real trial inference + actual New API/DSH + Chromium mobile emulation; synthetic GitHub/accounts; not physical Android or production OAuth"}
+			"scope": scope}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
 		require.NoError(t, marshalErr)
 		require.NoError(t, os.WriteFile(filepath.Join(evidence, "prototype.json"), data, 0600))
@@ -131,6 +148,10 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	t.Cleanup(github.Close)
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = compositionGitHubTransport{delegate: originalTransport, origin: github.URL}
+	if research {
+		t.Setenv("AGENT_WEB_SEARCH_URL", "")
+		http.DefaultTransport = prototypeResearchTransport{delegate: http.DefaultTransport, calls: &searchCalls, official: &officialSearchSource}
+	}
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 	// Keep the actual key only at this external test boundary. The application's
 	// provider adapter still performs a real canonical request and usage billing.
@@ -260,40 +281,58 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 		require.NotContains(t, response.Data.Answer, key)
 		return response.Data.Answer
 	}
+	if research {
+		turn.Text = "Use web_search to find the official ast-grep GitHub repository from the public web. Return its repository name and source link, and explain its purpose in one sentence. Do not use my GitHub account, local CLI or devices."
+	}
 	answer := answerFor(turn)
-	require.Contains(t, answer, "ORBIT_EXPORT_731")
-	require.Contains(t, answer, "DISCUSSION_927")
-	require.Contains(t, answer, issueURL)
-	require.Contains(t, strings.ToLower(answer), "closed")
-	require.Regexp(t, `(?i)persist|stor(?:e|ing)|sav(?:e|ing)`, answer)
-	require.EqualValues(t, 2, githubCalls.Load(), "read actual Issue tool and discussion with the owner's OAuth credential")
-	require.GreaterOrEqual(t, providerCalls.Load(), int32(2), "the real model must continue after the real tool")
-	followup := turn
-	followup.RequestID = "99999999-9999-4999-8999-999999999992"
-	followup.Text = "What was the discussion marker in that Issue? Reply with the marker only; this is a follow-up to what you just read."
-	require.Equal(t, "DISCUSSION_927", strings.TrimSpace(answerFor(followup)))
-	ordinary := turn
-	ordinary.RequestID = "99999999-9999-4999-8999-999999999994"
-	ordinary.Text = "New topic: what is DeepSeek? In one English sentence say whether it is an AI company/model family or an academic search tool. This is stable common knowledge; do not search or revisit the export Issue."
-	ordinaryAnswer := answerFor(ordinary)
-	require.Regexp(t, `(?i)company|model family|models`, ordinaryAnswer)
-	require.NotContains(t, ordinaryAnswer, "ORBIT_EXPORT_731")
-	require.NotContains(t, ordinaryAnswer, "DeepWalker")
-	require.NotContains(t, ordinaryAnswer, "OpenAlex")
-	require.EqualValues(t, 2, githubCalls.Load(), "ordinary chat must not depend on another Issue read")
-	attachment := turn
-	attachment.RequestID = "99999999-9999-4999-8999-999999999993"
-	attachment.Text = "[Lain42 client-prepared attachment]\nFile: note.txt\nATTACHMENT_FACT_548: the delivery color is indigo.\n\nCurrent user request:\nFrom this attached note, give its exact marker and delivery color in one sentence. Ignore the earlier export task for this answer."
-	attachmentAnswer := answerFor(attachment)
-	require.Contains(t, attachmentAnswer, "ATTACHMENT_FACT_548")
-	require.Contains(t, strings.ToLower(attachmentAnswer), "indigo")
-	require.NotContains(t, attachmentAnswer, "ORBIT_EXPORT_731")
-	// The same actual model must also answer a real file selected from the built
-	// mobile UI. Preserve the existing six-request ceiling, with no mocked auth,
-	// website API, final answer or browser storage state.
-	browserScript, err := filepath.Abs("scripts/lain42-live-browser-acceptance.mjs")
+	if research {
+		require.Contains(t, answer, "https://github.com/ast-grep/ast-grep")
+		require.Regexp(t, `(?i)AST|syntax|structural`, answer)
+		require.Positive(t, searchCalls.Load(), "the actual DSH tool must reach the public search service")
+		require.True(t, officialSearchSource.Load(), "the official source must be returned by the actual search service")
+		require.Zero(t, githubCalls.Load(), "public search must not read connected-account GitHub data")
+	} else {
+		require.Contains(t, answer, "ORBIT_EXPORT_731")
+		require.Contains(t, answer, "DISCUSSION_927")
+		require.Contains(t, answer, issueURL)
+		require.Contains(t, strings.ToLower(answer), "closed")
+		require.Regexp(t, `(?i)persist|stor(?:e|ing)|sav(?:e|ing)`, answer)
+		require.EqualValues(t, 2, githubCalls.Load(), "read actual Issue tool and discussion with the owner's OAuth credential")
+		require.GreaterOrEqual(t, providerCalls.Load(), int32(2), "the real model must continue after the real tool")
+		followup := turn
+		followup.RequestID = "99999999-9999-4999-8999-999999999992"
+		followup.Text = "What was the discussion marker in that Issue? Reply with the marker only; this is a follow-up to what you just read."
+		require.Equal(t, "DISCUSSION_927", strings.TrimSpace(answerFor(followup)))
+		ordinary := turn
+		ordinary.RequestID = "99999999-9999-4999-8999-999999999994"
+		ordinary.Text = "New topic: what is DeepSeek? In one English sentence say whether it is an AI company/model family or an academic search tool. This is stable common knowledge; do not search or revisit the export Issue."
+		ordinaryAnswer := answerFor(ordinary)
+		require.Regexp(t, `(?i)company|model family|models`, ordinaryAnswer)
+		require.NotContains(t, ordinaryAnswer, "ORBIT_EXPORT_731")
+		require.NotContains(t, ordinaryAnswer, "DeepWalker")
+		require.NotContains(t, ordinaryAnswer, "OpenAlex")
+		require.EqualValues(t, 2, githubCalls.Load(), "ordinary chat must not depend on another Issue read")
+		attachment := turn
+		attachment.RequestID = "99999999-9999-4999-8999-999999999993"
+		attachment.Text = "[Lain42 client-prepared attachment]\nFile: note.txt\nATTACHMENT_FACT_548: the delivery color is indigo.\n\nCurrent user request:\nFrom this attached note, give its exact marker and delivery color in one sentence. Ignore the earlier export task for this answer."
+		attachmentAnswer := answerFor(attachment)
+		require.Contains(t, attachmentAnswer, "ATTACHMENT_FACT_548")
+		require.Contains(t, strings.ToLower(attachmentAnswer), "indigo")
+		require.NotContains(t, attachmentAnswer, "ORBIT_EXPORT_731")
+	}
+	// Both scenarios use the built mobile UI and the six-request ceiling, with
+	// no mocked auth, website API, final answer or browser storage state.
+	scriptName := "scripts/lain42-live-browser-acceptance.mjs"
+	if research {
+		scriptName = "scripts/lain42-live-research-acceptance.mjs"
+	}
+	browserScript, err := filepath.Abs(scriptName)
 	require.NoError(t, err)
-	browserContext, cancelBrowser := context.WithTimeout(context.Background(), 2*time.Minute)
+	browserLifetime := 2 * time.Minute
+	if research {
+		browserLifetime = 3 * time.Minute
+	}
+	browserContext, cancelBrowser := context.WithTimeout(context.Background(), browserLifetime)
 	defer cancelBrowser()
 	browser := exec.CommandContext(browserContext, "node", browserScript, controlPlane.URL)
 	for _, value := range os.Environ() {
@@ -304,8 +343,14 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
 	require.NoError(t, browser.Run())
 	mobileBrowser = true
-	require.EqualValues(t, 6, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
-	require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
+	if research {
+		require.GreaterOrEqual(t, providerCalls.Load(), int32(5), "search continuation and three mobile answers require genuine inference")
+		require.LessOrEqual(t, providerCalls.Load(), int32(6), "research keeps the existing request ceiling")
+		require.Zero(t, githubCalls.Load(), "research must not read connected-account GitHub data")
+	} else {
+		require.EqualValues(t, 6, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
+		require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
+	}
 	beforeReplay := providerCalls.Load()
 	stop()
 	_, origin = startCompositionDSH(t, root, work, patch, controlPlane.URL, relaySecret, runtimeOptions)
@@ -329,7 +374,11 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	require.Equal(t, other.Quota, unchanged.Quota)
 	var admissions []model.AgentDSHRequest
 	require.NoError(t, db.Where("user_id = ?", owner.Id).Find(&admissions).Error)
-	require.Len(t, admissions, 5, "foreign probes and replay must not reserve another owner turn")
+	admissionCount := 5
+	if research {
+		admissionCount = 4
+	}
+	require.Len(t, admissions, admissionCount, "probes and replay must not reserve another owner turn")
 	for _, request := range admissions {
 		require.False(t, request.CancelRequested, "foreign cancellation must not alter the owner's durable intent")
 	}
@@ -340,4 +389,35 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	require.NoError(t, db.Model(&model.Token{}).Count(&tokenCount).Error)
 	require.Zero(t, tokenCount)
 	passed = true
+}
+
+// Observe real search responses without substituting data or exposing bodies.
+type prototypeResearchTransport struct {
+	delegate http.RoundTripper
+	calls    *atomic.Int32
+	official *atomic.Bool
+}
+
+func (observer prototypeResearchTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Hostname() != "www.bing.com" && request.URL.Hostname() != "cn.bing.com" {
+		return observer.delegate.RoundTrip(request)
+	}
+	if request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
+		return nil, fmt.Errorf("public search must not receive account credentials")
+	}
+	observer.calls.Add(1)
+	response, err := observer.delegate.RoundTrip(request)
+	if err != nil {
+		return response, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20+1))
+	_ = response.Body.Close()
+	if readErr != nil || len(body) > 1<<20 {
+		return nil, fmt.Errorf("search response unreadable or oversized")
+	}
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	if response.StatusCode == http.StatusOK && bytes.Contains(body, []byte("https://github.com/ast-grep/ast-grep")) {
+		observer.official.Store(true)
+	}
+	return response, nil
 }

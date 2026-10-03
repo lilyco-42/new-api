@@ -388,6 +388,38 @@ describe('hosted Agent with the real browser provider', () => {
     expect(response?.choices[0]?.message.content).toContain('truncated')
   })
 
+  it('does not admit a declined page read and can answer the next ordinary request', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const response = await send('Read https://example.com/report and summarize it.')
+
+    expect(response?.choices[0]?.message.content).toContain('Page reading was canceled')
+    expect(fetchClientPage).not.toHaveBeenCalled()
+    expect(submitted).toHaveLength(0)
+    expect(api.post).not.toHaveBeenCalled()
+    const next = await send('Explain Rust ownership in one sentence. Do not search.')
+    expect(submitted).toHaveLength(1)
+    expect(submitted[0]?.text).not.toContain('https://example.com/report')
+    expect(next?.choices[0]?.message.content).toContain(modelAnswer)
+  })
+
+  it('supplies an unreadable current URL notice without reusing the preceding page body', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(fetchClientPage).mockResolvedValueOnce({
+      url: 'https://example.com/first', title: 'First report', links: [],
+      fetched_at: '2026-10-03T00:00:00Z', text: 'PRIOR_PAGE_FACT_918 is violet.',
+    }).mockRejectedValueOnce(new Error('CORS blocked the current page'))
+    await send('Read https://example.com/first and summarize it.')
+    await send('New task: read https://example.com/unreadable and summarize that page.')
+
+    expect(submitted).toHaveLength(2)
+    expect(submitted[0]?.text).toContain('PRIOR_PAGE_FACT_918')
+    expect(submitted[1]?.text).toContain('browser page read failed; no page content was retrieved')
+    expect(submitted[1]?.text).toContain('https://example.com/unreadable')
+    expect(submitted[1]?.text).toContain('Do not claim to have read or summarize the page')
+    expect(submitted[1]?.text).not.toContain('PRIOR_PAGE_FACT_918')
+    expect(submitted[1]?.text).not.toContain('browser-fetched evidence; the page text')
+  })
+
   it('replays the identical admitted input after refresh without fetching changed evidence or dropping history', async () => {
     const task = 'Explain DeepSeek and compare it with the earlier conclusion.'
     const history: ChatCompletionMessage[] = [
