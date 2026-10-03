@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const prototypeModel = "deepseek-ai/deepseek-v4-flash-0731"
+const prototypeModel = "nvidia/nemotron-3-super-120b-a12b"
 
 // Opt-in Actions only: actual New API and DSH, a real developer-trial model,
 // and synthetic account-owned GitHub data. This is not production OAuth or a
@@ -139,7 +139,9 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 			return
 		}
 		// Explicit test-only sampling/output policy; history and tools are untouched.
-		payload["max_tokens"], payload["reasoning_effort"] = 1024, "none"
+		payload["max_tokens"] = 1024
+		payload["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
+		delete(payload, "reasoning_effort")
 		delete(payload, "max_completion_tokens")
 		body, _ = json.Marshal(payload)
 		upstream, requestErr := http.NewRequestWithContext(r.Context(), http.MethodPost,
@@ -200,7 +202,8 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	encoded, err := json.Marshal(config)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(patch, encoded, 0600))
-	stop, origin := startCompositionDSH(t, root, work, patch, controlPlane.URL, relaySecret, io.Discard)
+	runtimeOptions := compositionRuntimeOptions{diagnostics: io.Discard, lifetime: 6 * time.Minute}
+	stop, origin := startCompositionDSH(t, root, work, patch, controlPlane.URL, relaySecret, runtimeOptions)
 	t.Setenv("LAIN42_DSH_BASE_URL", origin)
 	post := func(path string, data any) (int, []byte) {
 		body, marshalErr := json.Marshal(data)
@@ -252,6 +255,15 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	followup.RequestID = "99999999-9999-4999-8999-999999999992"
 	followup.Text = "What was the discussion marker in that Issue? Reply with the marker only; this is a follow-up to what you just read."
 	require.Equal(t, "DISCUSSION_927", strings.TrimSpace(answerFor(followup)))
+	ordinary := turn
+	ordinary.RequestID = "99999999-9999-4999-8999-999999999994"
+	ordinary.Text = "New topic: what is DeepSeek? In one English sentence say whether it is an AI company/model family or an academic search tool. This is stable common knowledge; do not search or revisit the export Issue."
+	ordinaryAnswer := answerFor(ordinary)
+	require.Regexp(t, `(?i)company|model family|models`, ordinaryAnswer)
+	require.NotContains(t, ordinaryAnswer, "ORBIT_EXPORT_731")
+	require.NotContains(t, ordinaryAnswer, "DeepWalker")
+	require.NotContains(t, ordinaryAnswer, "OpenAlex")
+	require.EqualValues(t, 2, githubCalls.Load(), "ordinary chat must not depend on another Issue read")
 	attachment := turn
 	attachment.RequestID = "99999999-9999-4999-8999-999999999993"
 	attachment.Text = "[Lain42 client-prepared attachment]\nFile: note.txt\nATTACHMENT_FACT_548: the delivery color is indigo.\n\nCurrent user request:\nFrom this attached note, give its exact marker and delivery color in one sentence. Ignore the earlier export task for this answer."
@@ -261,7 +273,7 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	require.NotContains(t, attachmentAnswer, "ORBIT_EXPORT_731")
 	beforeReplay := providerCalls.Load()
 	stop()
-	_, origin = startCompositionDSH(t, root, work, patch, controlPlane.URL, relaySecret, io.Discard)
+	_, origin = startCompositionDSH(t, root, work, patch, controlPlane.URL, relaySecret, runtimeOptions)
 	t.Setenv("LAIN42_DSH_BASE_URL", origin)
 	require.Equal(t, answer, answerFor(turn), "restart must return the immutable answer for the original request")
 	require.Equal(t, beforeReplay, providerCalls.Load(), "replay must not invoke the trial API again")

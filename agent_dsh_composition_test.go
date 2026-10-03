@@ -477,9 +477,19 @@ func (fixture compositionGitHubTransport) RoundTrip(request *http.Request) (*htt
 }
 
 // Start only the repository's supported built dsh profile, with a private home.
-func startCompositionDSH(t *testing.T, root, work, patch, controlPlane, secret string, diagnostics ...io.Writer) (func(), string) {
+type compositionRuntimeOptions struct {
+	diagnostics io.Writer
+	lifetime    time.Duration
+}
+
+func startCompositionDSH(t *testing.T, root, work, patch, controlPlane, secret string, options ...compositionRuntimeOptions) (func(), string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	lifetime := 4 * time.Minute
+	diagnostics := io.Writer(os.Stderr)
+	if len(options) > 0 {
+		lifetime, diagnostics = options[0].lifetime, options[0].diagnostics
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), lifetime)
 	command := exec.CommandContext(ctx, "node", "--no-experimental-strip-types", filepath.Join(root, "apps/cli/lib/bin.js"),
 		"--profile", "web", "--patch", patch, "--host", "127.0.0.1", "--port", "0", "--no-open")
 	command.Dir = work
@@ -499,10 +509,7 @@ func startCompositionDSH(t *testing.T, root, work, patch, controlPlane, secret s
 	command.Env = filtered
 	stdout, err := command.StdoutPipe()
 	require.NoError(t, err)
-	command.Stderr = os.Stderr
-	if len(diagnostics) > 0 {
-		command.Stderr = diagnostics[0]
-	}
+	command.Stderr = diagnostics
 	require.NoError(t, command.Start())
 	done := make(chan error, 1)
 	ready := make(chan string, 1)
