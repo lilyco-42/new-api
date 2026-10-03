@@ -4,12 +4,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -46,13 +48,16 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	var providerCalls, githubCalls atomic.Int32
 	var denial atomic.Int32
 	passed := false
+	mobileBrowser := false
 	t.Cleanup(func() {
 		// Deliberately omit raw requests, responses, runtime logs, credentials and
-		// traces. Failed inference is recorded as a failure, not empty success.
+		// traces. The optional screenshot contains only declared synthetic data.
+		// Failed inference is recorded as a failure, not empty success.
 		result := map[string]any{"passed": passed && !t.Failed(), "model": prototypeModel,
-			"external_attempts": providerCalls.Load(), "github_reads": githubCalls.Load(),
+			"mobile_browser_emulation": mobileBrowser,
+			"external_attempts":        providerCalls.Load(), "github_reads": githubCalls.Load(),
 			"upstream_denial_status": denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
-			"scope": "Real trial inference + actual New API/DSH; synthetic GitHub and accounts; no browser/production OAuth certification"}
+			"scope": "Real trial inference + actual New API/DSH + Chromium mobile emulation; synthetic GitHub/accounts; not physical Android or production OAuth"}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
 		require.NoError(t, marshalErr)
 		require.NoError(t, os.WriteFile(filepath.Join(evidence, "prototype.json"), data, 0600))
@@ -73,6 +78,7 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	common.RedisEnabled, common.MemoryCacheEnabled, common.BatchUpdateEnabled = false, false, false
 	common.LogConsumeEnabled, common.DataExportEnabled = true, false
 	common.CryptoSecret = "synthetic-prototype-at-rest-secret"
+	common.SessionCookieSecure = false
 	common.RetryTimes = 0
 	common.SetPerformanceMonitorConfig(common.PerformanceMonitorConfig{})
 	setting.ModelRequestRateLimitEnabled, constant.CountToken = false, false
@@ -87,10 +93,17 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	owner := model.User{Username: "prototype-owner", Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
 		Group: "default", AuthVersion: 1, Quota: 100000, AffCode: "prototype-owner-aff", Setting: `{"billing_preference":"wallet_only"}`}
 	owner.SetAccessToken(token)
+	passwordHash, err := common.Password2Hash("synthetic-prototype-browser-password")
+	require.NoError(t, err)
+	owner.Password = passwordHash
 	require.NoError(t, db.Create(&owner).Error)
 	other := model.User{Username: "prototype-other", Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
 		Group: "default", AuthVersion: 1, Quota: 12345, AffCode: "prototype-other-aff"}
 	require.NoError(t, db.Create(&other).Error)
+	require.NoError(t, db.Create(&model.User{Username: "prototype-root", Password: passwordHash,
+		Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1, AffCode: "prototype-root-aff"}).Error)
+	model.CheckSetup()
+	require.True(t, constant.Setup)
 	const githubKey = "synthetic-prototype-github-key"
 	const relaySecret = "synthetic-prototype-model-relay-secret"
 	const issueURL = "https://github.com/owner/project/issues/2"
@@ -271,6 +284,24 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	require.Contains(t, attachmentAnswer, "ATTACHMENT_FACT_548")
 	require.Contains(t, strings.ToLower(attachmentAnswer), "indigo")
 	require.NotContains(t, attachmentAnswer, "ORBIT_EXPORT_731")
+	// The same actual model must also answer a real file selected from the built
+	// mobile UI. Preserve the existing six-request ceiling, with no mocked auth,
+	// website API, final answer or browser storage state.
+	browserScript, err := filepath.Abs("scripts/lain42-live-browser-acceptance.mjs")
+	require.NoError(t, err)
+	browserContext, cancelBrowser := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancelBrowser()
+	browser := exec.CommandContext(browserContext, "node", browserScript, controlPlane.URL)
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "LAIN42_PROTOTYPE_NVIDIA_KEY=") {
+			browser.Env = append(browser.Env, value)
+		}
+	}
+	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
+	require.NoError(t, browser.Run())
+	mobileBrowser = true
+	require.EqualValues(t, 6, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
+	require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
 	beforeReplay := providerCalls.Load()
 	stop()
 	_, origin = startCompositionDSH(t, root, work, patch, controlPlane.URL, relaySecret, runtimeOptions)

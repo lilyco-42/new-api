@@ -282,10 +282,19 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
-      - name: Create server embed placeholder (no browser claim in this lane)
+      - name: Set up frontend package manager
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.4.0'
+      - name: Build the actual frontend for mobile real-model acceptance
+        working-directory: web
         run: |
-          mkdir -p web/dist
-          touch web/dist/index.html
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun run build
+      - name: Install Chromium for mobile emulation
+        working-directory: .ci-dsh
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
       - name: Check prototype formatting
         run: test -z "$(gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go)"
       - name: Verify real inference, Issue continuation, context, attachment, replay and owner wallet
@@ -293,13 +302,17 @@ jobs:
           LAIN42_PROTOTYPE_NVIDIA_KEY: ${{ secrets.LAIN42_PROTOTYPE_NVIDIA_KEY }}
           LAIN42_COMPOSITION_DSH_ROOT: ${{ github.workspace }}/.ci-dsh
           LAIN42_PROTOTYPE_EVIDENCE_DIR: ${{ runner.temp }}/lain42-prototype-evidence
-        run: go test -tags 'lain42composition lain42live' . -run '^TestLiveDSHNewAPIPrototype$' -count=1 -v -timeout=6m
+        run: |
+          node --check scripts/lain42-live-browser-acceptance.mjs
+          go test -tags 'lain42composition lain42live' . -run '^TestLiveDSHNewAPIPrototype$' -count=1 -v -timeout=6m
       - name: Save only whitelisted synthetic prototype evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: lain42-real-prototype-${{ github.sha }}
-          path: ${{ runner.temp }}/lain42-prototype-evidence/prototype.json
+          path: |
+            ${{ runner.temp }}/lain42-prototype-evidence/prototype.json
+            ${{ runner.temp }}/lain42-prototype-evidence/mobile-real-model.png
           if-no-files-found: warn
           retention-days: 7
 

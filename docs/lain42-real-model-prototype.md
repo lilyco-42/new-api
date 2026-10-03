@@ -32,12 +32,18 @@ Required outcomes:
 - Answer the latest client-prepared text attachment instruction without replacing
   it with the earlier export task. The existing browser fixture gate separately
   tests actual file selection and client attachment conversion.
+- Log in through the built frontend on a Pixel 7 Chromium viewport, choose a
+  synthetic text file, receive the real model's file facts in the assistant
+  message, and retain that answer after reload without another inference. This
+  adds one request within the same six-request ceiling; no auth/store/API/answer
+  is injected or intercepted, and the browser driver does not inherit the key.
 - Restart DSH and replay the identical final answer with no extra inference.
 - Reconcile actual owner charges with wallet and consume logs, leave the other
   account's wallet unchanged, and create no persistent user API token.
 
-The artifact contains only whitelisted outcome/count/scope fields. It omits keys,
-raw model inputs/outputs, runtime logs, screenshots and traces. Provider denial
+The artifact contains whitelisted outcome/count/scope fields and a screenshot of
+the declared synthetic mobile conversation. It omits keys, raw network inputs/
+outputs, runtime logs, cookies and traces. Provider denial
 stops external requests and leaves a failed gate with its HTTP status (or `-1`
 for a transport failure). A successful run proves this bounded prototype;
 it does not prove production OAuth, physical Android, all-resource user isolation,
