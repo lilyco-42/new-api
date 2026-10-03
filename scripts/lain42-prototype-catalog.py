@@ -26,7 +26,8 @@ try:
         catalog = json.loads(payload)
         ids = {row.get("id") for row in catalog.get("data", []) if isinstance(row, dict)}
         candidates = ["deepseek-ai/deepseek-v4-flash-0731", "nvidia/deepseek-v4.1-flash",
-                      "nvidia/nemotron-3-super-120b-a12b"]
+                      "nvidia/nemotron-3-super-120b-a12b",
+                      "nvidia/nemotron-3.5-lightning-30b-a3b", "moonshotai/kimi-k3"]
         result.update(status=response.status, candidates={model: model in ids for model in candidates})
 except urllib.error.HTTPError as error:
     result["status"] = error.code
