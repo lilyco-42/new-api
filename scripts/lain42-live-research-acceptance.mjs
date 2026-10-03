@@ -1,5 +1,6 @@
 /** Actual mobile UI, public sources, client WASM parsing and real DSH answers. */
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
@@ -18,6 +19,7 @@ const context = await browser.newContext({ ...devices['Pixel 7'], locale: 'en-US
 const page = await context.newPage();
 const errors = [];
 const turns = [];
+let firstReplay;
 let publicSearchResponse = false;
 page.on('pageerror', error => errors.push(error.message));
 page.on('response', response => {
@@ -62,6 +64,7 @@ try {
     const answer = (await response.json()).data.answer;
     assert.equal(typeof answer, 'string');
     assert.ok(answer.length);
+    if (!firstReplay) firstReplay = { request: response.request().postDataJSON(), answer };
     return answer;
   }
   const searchAnswer = await send('请用网页搜索查 GitHub 上 ast-grep 的官方仓库，给出仓库名称、用途和来源链接。不要搜索我的个人仓库，不要调用本地 CLI 或设备。');
@@ -106,6 +109,11 @@ try {
   assert.ok(layout.scroll <= layout.width + 1);
   assert.deepEqual(errors, []);
   await page.screenshot({ path: join(evidence, 'mobile-wasm-page.png'), fullPage: true, animations: 'disabled' });
+  if (process.env.LAIN42_RESEARCH_REPLAY_PATH) {
+    // Private Go test temp file, excluded from the artifact allowlist. No headers,
+    // authentication credentials or network trace are recorded.
+    writeFileSync(process.env.LAIN42_RESEARCH_REPLAY_PATH, JSON.stringify(firstReplay), { mode: 0o600 });
+  }
   console.log('Real mobile public search, approved client WASM page read, sourced answers, reload and follow-up passed.');
 } finally {
   // Only synthetic screenshots are exported; no traces, credentials or bodies.

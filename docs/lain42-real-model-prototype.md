@@ -97,6 +97,15 @@ or use a different relevant public source rather than repeat the same query or
 invent sources. This distinguishes no results from a transport/provider failure;
 it does not guarantee that a model will obey, or prove why a live search failed.
 
+Choose `evaluation_kind=dsh-client-research` for independent browser search and
+URL/WASM acceptance. It uses the same actual signed-in mobile interface, three
+genuine model answers, source checks, reload, restart replay and wallet checks,
+without the preceding hosted Bing search. A private temporary file carries the
+first synthetic/public browser turn for immutable restart replay; it is excluded
+from exported artifacts and contains no authentication headers or credentials.
+The artifact marks `client_research_only=true`; a pass cannot clear the separate
+hosted public-search gate. Both lanes keep the original six-request ceiling.
+
 ## Observed provider retirement and explicit repin
 
 The first prototype at e166229 / run 37094876969 used the local configured

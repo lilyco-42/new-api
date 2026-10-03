@@ -36,15 +36,21 @@ const prototypeModel = "nvidia/nemotron-3-super-120b-a12b"
 // and synthetic account-owned GitHub data. This is not production OAuth or a
 // commercial capacity certification. Missing credentials fail, never skip.
 func TestLiveDSHNewAPIPrototype(t *testing.T) {
-	runLiveDSHNewAPIPrototype(t, false)
+	runLiveDSHNewAPIPrototype(t, "issue")
 }
 
 func TestLiveDSHNewAPIResearchPrototype(t *testing.T) {
-	runLiveDSHNewAPIPrototype(t, true)
+	runLiveDSHNewAPIPrototype(t, "research")
 }
 
-func runLiveDSHNewAPIPrototype(t *testing.T, research bool) {
+func TestLiveDSHNewAPIClientResearchPrototype(t *testing.T) {
+	runLiveDSHNewAPIPrototype(t, "client-research")
+}
+
+func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	t.Helper()
+	research := scenario != "issue"
+	clientOnly := scenario == "client-research"
 	key := os.Getenv("LAIN42_PROTOTYPE_NVIDIA_KEY")
 	require.True(t, strings.HasPrefix(key, "nvapi-"), "missing authorized NVIDIA prototype credential")
 	root := os.Getenv("LAIN42_COMPOSITION_DSH_ROOT")
@@ -68,10 +74,14 @@ func runLiveDSHNewAPIPrototype(t *testing.T, research bool) {
 		if research {
 			scope = "Real trial inference/public search + actual New API/DSH + mobile Chromium client WASM page read; synthetic accounts/document; not physical Android or production OAuth"
 		}
+		if clientOnly {
+			scope = "Independent mobile Chromium public GitHub search/client WASM page read + actual New API/DSH/trial inference; synthetic accounts/document; does not test hosted Bing search, physical Android or production OAuth"
+		}
 		result := map[string]any{"passed": passed && !t.Failed(), "model": prototypeModel,
 			"mobile_browser_emulation":      mobileBrowser,
 			"mobile_account_history_switch": mobileBrowser && !research, "foreign_turn_and_cancel_denied": mobileBrowser && !research,
 			"mobile_research_flow": mobileBrowser && research, "public_search_requests": searchCalls.Load(),
+			"client_research_only":            clientOnly,
 			"official_search_source_returned": officialSearchSource.Load(),
 			"external_attempts":               providerCalls.Load(), "github_reads": githubCalls.Load(),
 			"upstream_denial_status": denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
@@ -284,14 +294,17 @@ func runLiveDSHNewAPIPrototype(t *testing.T, research bool) {
 	if research {
 		turn.Text = "Use web_search to find the official ast-grep GitHub repository from the public web. Return its repository name and source link, and explain its purpose in one sentence. Do not use my GitHub account, local CLI or devices."
 	}
-	answer := answerFor(turn)
-	if research {
+	answer := ""
+	if !clientOnly {
+		answer = answerFor(turn)
+	}
+	if research && !clientOnly {
 		require.Contains(t, answer, "https://github.com/ast-grep/ast-grep")
 		require.Regexp(t, `(?i)AST|syntax|structural`, answer)
 		require.Positive(t, searchCalls.Load(), "the actual DSH tool must reach the public search service")
 		require.True(t, officialSearchSource.Load(), "the official source must be returned by the actual search service")
 		require.Zero(t, githubCalls.Load(), "public search must not read connected-account GitHub data")
-	} else {
+	} else if !research {
 		require.Contains(t, answer, "ORBIT_EXPORT_731")
 		require.Contains(t, answer, "DISCUSSION_927")
 		require.Contains(t, answer, issueURL)
@@ -320,7 +333,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, research bool) {
 		require.Contains(t, strings.ToLower(attachmentAnswer), "indigo")
 		require.NotContains(t, attachmentAnswer, "ORBIT_EXPORT_731")
 	}
-	// Both scenarios use the built mobile UI and the six-request ceiling, with
+	// All scenarios use the built mobile UI and the six-request ceiling, with
 	// no mocked auth, website API, final answer or browser storage state.
 	scriptName := "scripts/lain42-live-browser-acceptance.mjs"
 	if research {
@@ -340,10 +353,31 @@ func runLiveDSHNewAPIPrototype(t *testing.T, research bool) {
 			browser.Env = append(browser.Env, value)
 		}
 	}
+	// The replay payload contains only this synthetic/public browser turn and
+	// answer. Keep it in the private test temp directory, outside the artifacts.
+	replayPath := filepath.Join(t.TempDir(), "client-research-replay.json")
+	if clientOnly {
+		browser.Env = append(browser.Env, "LAIN42_RESEARCH_REPLAY_PATH="+replayPath)
+	}
 	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
 	require.NoError(t, browser.Run())
 	mobileBrowser = true
-	if research {
+	if clientOnly {
+		require.EqualValues(t, 3, providerCalls.Load(), "client search, page answer and follow-up each use one genuine inference")
+		require.Zero(t, githubCalls.Load(), "client research must not read connected-account GitHub data")
+		require.Zero(t, searchCalls.Load(), "client-only acceptance must not be labelled hosted Bing acceptance")
+		replayData, err := os.ReadFile(replayPath)
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(replayData), 128*1024)
+		var replay struct {
+			Request dto.AgentDSHTurnRequest `json:"request"`
+			Answer  string                  `json:"answer"`
+		}
+		require.NoError(t, common.Unmarshal(replayData, &replay))
+		require.Contains(t, replay.Request.Text, "https://github.com/ast-grep/ast-grep")
+		require.Contains(t, replay.Answer, "https://github.com/ast-grep/ast-grep")
+		turn, answer = replay.Request, replay.Answer
+	} else if research {
 		require.GreaterOrEqual(t, providerCalls.Load(), int32(5), "search continuation and three mobile answers require genuine inference")
 		require.LessOrEqual(t, providerCalls.Load(), int32(6), "research keeps the existing request ceiling")
 		require.Zero(t, githubCalls.Load(), "research must not read connected-account GitHub data")
@@ -377,6 +411,9 @@ func runLiveDSHNewAPIPrototype(t *testing.T, research bool) {
 	admissionCount := 5
 	if research {
 		admissionCount = 4
+	}
+	if clientOnly {
+		admissionCount = 3
 	}
 	require.Len(t, admissions, admissionCount, "probes and replay must not reserve another owner turn")
 	for _, request := range admissions {
