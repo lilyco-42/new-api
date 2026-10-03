@@ -95,6 +95,8 @@ jobs:
       - name: Lint Agent conversation changes
         run: >-
           bunx oxlint -c .oxlintrc.json
+          src/lib/http-client.ts
+          src/lib/__tests__/http-client-auth.test.ts
           src/features/agent/agent-dsh-conversation.ts
           src/features/agent/agent-dsh-input-budget.ts
           src/features/agent/agent-dsh-utils.ts
