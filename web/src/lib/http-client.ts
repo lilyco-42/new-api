@@ -101,8 +101,15 @@ api.interceptors.response.use(
     const config = error?.config as ApiRequestConfig | undefined
     const skipErrorHandler = config?.skipErrorHandler
     const status = error?.response?.status
+    // A connected service rejecting its credential does not expire the
+    // website session. Only the known GitHub read errors have this boundary;
+    // middleware session errors and unclassified 401s still refresh normally.
+    const githubAuthorizationFailure =
+      config?.url?.startsWith('/api/agent/github/') &&
+      (error?.response?.data?.code === 'AGENT_GITHUB_NOT_CONNECTED' ||
+        error?.response?.data?.code === 'AGENT_GITHUB_REQUEST_FAILED')
 
-    if (status === 401) {
+    if (status === 401 && !githubAuthorizationFailure) {
       if (config && !config.skipAuthRefresh && !config.authRetry) {
         config.authRetry = true
         const outcome = await refreshAuthentication()
