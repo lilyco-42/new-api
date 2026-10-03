@@ -27,6 +27,8 @@ export type PlaygroundMessageLayoutMode = 'alternating' | 'left'
 export interface MessageVersion {
   id: string
   content: string
+  /** Bounded executor observations, separate from generated text; never tool authorization. */
+  executionContext?: string
   /**
    * Request-only content parts (for example image attachments). These are
    * deliberately omitted from localStorage by the storage schema because
@@ -56,6 +58,8 @@ export interface Message {
   isContentComplete?: boolean
   status?: MessageStatus
   errorCode?: string | null
+  /** Stop delivery state; never evidence that background execution settled. */
+  stopState?: 'requested' | 'unconfirmed' | 'not-submitted'
 }
 
 // API payload types
@@ -130,6 +134,19 @@ export interface LocalToolProvider {
     signal: AbortSignal
   ) => boolean | Promise<boolean>
   invoke: (call: ChatCompletionToolCall, signal: AbortSignal) => Promise<string>
+}
+
+/** Optional authenticated turn service used by a focused Agent workspace. */
+export interface HostedTurnProvider {
+  /** Explicit Stop for this observer's original request; independent of socket abort. */
+  cancel?: (signal: AbortSignal) => Promise<'requested' | 'not-submitted'>
+  send: (
+    payload: ChatCompletionRequest,
+    messages: Message[],
+    signal: AbortSignal
+  ) => Promise<ChatCompletionResponse | null>
+  /** Drop remote turn state when a request falls back to a local-only path. */
+  reset: () => void
 }
 
 export interface ContentPart {

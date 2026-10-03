@@ -1,8 +1,9 @@
 # Browser-side search and crawling
 
-The Agent's public-source search and page reader run on the user's device. The
-web tool names and argument schemas remain the Agent-facing contract; this
-folder contains the browser runtime behind those tools.
+The Agent's indexed search and page reader run on the user's device. Broad web
+search uses the configured Lain42 provider. The web tool names and argument
+schemas remain the Agent-facing contract; this folder contains the browser
+runtime behind those tools.
 
 - `client-crawler.ts` performs bounded HTTPS reads with `credentials: omit`,
   refuses redirects, then sends the response bytes through `crawler_core.wasm`
@@ -18,9 +19,12 @@ folder contains the browser runtime behind those tools.
   OpenAlex results also need lexical overlap with the query before they are
   shown. RustCC, CodeReset, GHFind, blogs, and forums are links only, not search
   adapters. Each source normalizes results to title, URL, snippet, and source,
-  and partial source failures do not discard successful results.
-- No page fetch or search query is proxied through the Lain42 server. The
-  extracted text is returned to the Agent conversation for the selected model.
+  and partial source failures do not discard successful results. Broad web
+  searches use the configured Lain42 provider; only the search query is sent,
+  not connected-account credentials or cookies.
+- Page fetches and crawls run in the browser and are not proxied through Lain42.
+  Extracted text and search results are returned to the Agent conversation for
+  the selected model.
 
 Browser `fetch` is subject to the target site's CORS policy. WebAssembly does
 not bypass that policy; the browser host provides network access to the module.

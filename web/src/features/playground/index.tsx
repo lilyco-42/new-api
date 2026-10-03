@@ -18,13 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
+import { MESSAGE_ROLES, MESSAGE_STATUS } from './constants'
 import {
   useChatHandler,
   usePlaygroundConversation,
   usePlaygroundOptions,
   usePlaygroundState,
 } from './hooks'
-import type { LocalToolProvider } from './types'
+import type { HostedTurnProvider, LocalToolProvider } from './types'
 
 export interface PlaygroundProps {
   /** Optional instruction message for a focused agent workspace. */
@@ -37,6 +38,8 @@ export interface PlaygroundProps {
   emptyStateDescription?: string
   /** Optional desktop-only tool bridge. It is unavailable in a normal browser. */
   localToolProvider?: LocalToolProvider
+  /** Optional server-owned Agent turn runtime; null falls back to the existing chat path. */
+  hostedTurnProvider?: HostedTurnProvider
   /** Keep unrelated Agent prompts from inheriting stale topics or failed turns. */
   agentMode?: boolean
 }
@@ -47,6 +50,7 @@ export function Playground({
   emptyStateTitle,
   emptyStateDescription,
   localToolProvider,
+  hostedTurnProvider,
   agentMode = false,
 }: PlaygroundProps = {}) {
   const {
@@ -69,6 +73,7 @@ export function Playground({
     parameterEnabled,
     onMessageUpdate: updateMessages,
     localToolProvider,
+    hostedTurnProvider,
     isolateAgentTurnContext: agentMode,
   })
 
@@ -87,16 +92,43 @@ export function Playground({
   })
 
   const handleClearMessages = () => {
+    hostedTurnProvider?.reset()
     handleEditOpenChange(false)
     clearMessages()
   }
 
+  const handleRegenerateWithHostedRecovery = (
+    message: Parameters<typeof handleRegenerateMessage>[0]
+  ) => {
+    // Retry a failed observation with its accepted identity. Regenerating a
+    // completed answer deliberately starts a new execution instead.
+    if (
+      message.from !== MESSAGE_ROLES.ASSISTANT ||
+      message.status !== MESSAGE_STATUS.ERROR
+    ) {
+      hostedTurnProvider?.reset()
+    }
+    handleRegenerateMessage(message)
+  }
+
+  const handleDeleteWithHostedReset = (
+    message: Parameters<typeof handleDeleteMessage>[0]
+  ) => {
+    hostedTurnProvider?.reset()
+    handleDeleteMessage(message)
+  }
+
+  const handleEditWithHostedReset = (content: string, submit: boolean) => {
+    hostedTurnProvider?.reset()
+    applyEdit(content, submit)
+  }
+
   const handleChooseModel = () => {
-    const selector = Array.from(
-      document.querySelectorAll<HTMLButtonElement>(
+    const selector = [
+      ...document.querySelectorAll<HTMLButtonElement>(
         '[data-agent-model-selector-trigger="true"]'
-      )
-    ).find((element) => element.getClientRects().length > 0)
+      ),
+    ].find((element) => element.getClientRects().length > 0)
 
     if (!selector) return
     selector.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -120,16 +152,20 @@ export function Playground({
           emptyStateTitle={emptyStateTitle}
           messages={messages}
           isLoadingMessages={isLoadingMessages}
-          onRegenerateMessage={handleRegenerateMessage}
+          onRegenerateMessage={handleRegenerateWithHostedRecovery}
           onEditMessage={handleEditMessage}
-          onDeleteMessage={handleDeleteMessage}
+          onDeleteMessage={handleDeleteWithHostedReset}
           onSelectPrompt={handleSendMessage}
           onChooseModel={handleChooseModel}
           isGenerating={isGenerating}
           editingKey={editingMessageKey}
           onCancelEdit={handleEditOpenChange}
-          onSaveEdit={(newContent) => applyEdit(newContent, false)}
-          onSaveEditAndSubmit={(newContent) => applyEdit(newContent, true)}
+          onSaveEdit={(newContent) =>
+            handleEditWithHostedReset(newContent, false)
+          }
+          onSaveEditAndSubmit={(newContent) =>
+            handleEditWithHostedReset(newContent, true)
+          }
         />
       </div>
 

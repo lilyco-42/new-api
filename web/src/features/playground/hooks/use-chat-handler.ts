@@ -37,12 +37,15 @@ import {
   updateCurrentVersionContent,
 } from '../lib'
 import type {
+  ChatCompletionResponse,
   LocalToolProvider,
   Message,
   PlaygroundConfig,
   ParameterEnabled,
+  HostedTurnProvider,
 } from '../types'
 import { runLocalToolLoop, type LocalToolLoopEvent } from './local-tool-loop'
+import { resolveLocalToolPreflight } from './hosted-turn-routing'
 import { useStreamRequest } from './use-stream-request'
 
 interface UseChatHandlerOptions {
@@ -50,6 +53,7 @@ interface UseChatHandlerOptions {
   parameterEnabled: ParameterEnabled
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
   localToolProvider?: LocalToolProvider
+  hostedTurnProvider?: HostedTurnProvider
   isolateAgentTurnContext?: boolean
 }
 
@@ -107,12 +111,14 @@ export function useChatHandler({
   parameterEnabled,
   onMessageUpdate,
   localToolProvider,
+  hostedTurnProvider,
   isolateAgentTurnContext = false,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
   const { sendStreamRequest, stopStream, isStreaming } = useStreamRequest()
   const [isRequesting, setIsRequesting] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const hostedRequestProviderRef = useRef<{ controller: AbortController; provider: HostedTurnProvider } | null>(null)
   const requestGenerationRef = useRef(0)
   const pendingStreamChunksRef = useRef<PendingStreamChunks>({
     generation: 0,
@@ -207,14 +213,14 @@ export function useChatHandler({
   )
 
   const getDisplayError = useCallback(
-    (error: string) => {
+    (error: string, errorCode?: string) => {
       if (KNOWN_ERROR_MESSAGES.has(error)) {
         return t(error)
       }
 
       // Upstream channels commonly surface transient 429/5xx errors as bare
       // Axios status strings. Turn those into useful recovery guidance.
-      const actionableErrorKey = getActionableRequestErrorKey(error)
+      const actionableErrorKey = getActionableRequestErrorKey(error, errorCode)
       if (actionableErrorKey) return t(actionableErrorKey)
 
       const connectionClosedSuffix = `: ${ERROR_MESSAGES.CONNECTION_CLOSED}`
@@ -267,7 +273,7 @@ export function useChatHandler({
       if (generation !== requestGenerationRef.current) return
       flushStreamUpdates(generation)
       setIsRequesting(false)
-      const displayError = getDisplayError(error)
+      const displayError = getDisplayError(error, errorCode)
       toast.error(displayError)
       const errorTitle = t(ERROR_MESSAGES.API_REQUEST_ERROR)
       onMessageUpdate((prev) => {
@@ -375,14 +381,39 @@ export function useChatHandler({
             )
           }
         }
-        const response = localToolProvider
-          ? await runLocalToolLoop(
-              payload,
-              localToolProvider,
-              abortController.signal,
-              onToolEvent
-            )
-          : await sendChatCompletion(payload, abortController.signal)
+        const localPreflight = resolveLocalToolPreflight(
+          localToolProvider,
+          payload.messages,
+          hostedTurnProvider
+        )
+        let response: ChatCompletionResponse
+        if (localPreflight) {
+          hostedTurnProvider?.reset()
+          response = localPreflight
+        } else {
+          if (hostedTurnProvider) {
+            hostedRequestProviderRef.current = { controller: abortController, provider: hostedTurnProvider }
+          }
+          const hostedResponse = hostedTurnProvider
+            ? await hostedTurnProvider.send(payload, messages, abortController.signal)
+            : null
+          if (abortController.signal.aborted || requestGenerationRef.current !== generation) {
+            return
+          }
+          if (hostedResponse) {
+            response = hostedResponse
+          } else {
+            hostedTurnProvider?.reset()
+            response = localToolProvider
+              ? await runLocalToolLoop(
+                  payload,
+                  localToolProvider,
+                  abortController.signal,
+                  onToolEvent
+                )
+              : await sendChatCompletion(payload, abortController.signal)
+          }
+        }
         if (
           abortController.signal.aborted ||
           requestGenerationRef.current !== generation
@@ -419,6 +450,7 @@ export function useChatHandler({
       } finally {
         if (requestGenerationRef.current === generation) {
           abortControllerRef.current = null
+          hostedRequestProviderRef.current = null
           setIsRequesting(false)
         }
       }
@@ -428,6 +460,7 @@ export function useChatHandler({
       parameterEnabled,
       isolateAgentTurnContext,
       localToolProvider,
+      hostedTurnProvider,
       stopStream,
       discardPendingStreamUpdates,
       onMessageUpdate,
@@ -444,18 +477,33 @@ export function useChatHandler({
         (localToolProvider.isAvailable() || localToolProvider.preflight)
       ) {
         void sendNonStreamingChat(messages)
+      } else if (hostedTurnProvider) {
+        void sendNonStreamingChat(messages)
       } else if (config.stream) {
         sendStreamingChat(messages)
       } else {
         sendNonStreamingChat(messages)
       }
     },
-    [config.stream, localToolProvider, sendStreamingChat, sendNonStreamingChat]
+    [
+      config.stream,
+      localToolProvider,
+      hostedTurnProvider,
+      sendStreamingChat,
+      sendNonStreamingChat,
+    ]
   )
 
   // Stop generation
   const stopGeneration = useCallback(() => {
     const stoppedGeneration = requestGenerationRef.current
+    const stoppedController = abortControllerRef.current
+    // Request cancellation before aborting observation, retaining the original identity.
+    const originalProvider = hostedRequestProviderRef.current
+    const cancellation = stoppedController && originalProvider?.controller === stoppedController && originalProvider.provider.cancel
+      ? originalProvider.provider.cancel(stoppedController.signal)
+      : undefined
+    hostedRequestProviderRef.current = null
     flushStreamUpdates(stoppedGeneration)
     const idleGeneration = stoppedGeneration + 1
     requestGenerationRef.current = idleGeneration
@@ -468,10 +516,23 @@ export function useChatHandler({
       if (requestGenerationRef.current !== idleGeneration) return prev
       return updateLastAssistantMessage(prev, (message) =>
         isAssistantMessagePending(message)
-          ? completeAssistantMessage(message)
+          ? { ...completeAssistantMessage(message), ...(cancellation ? { stopState: 'requested' as const } : {}) }
           : message
       )
     })
+    if (cancellation) {
+      void cancellation.then((stopState) => {
+        onMessageUpdate((prev) => {
+          if (requestGenerationRef.current !== idleGeneration) return prev
+          return updateLastAssistantMessage(prev, (message) => ({ ...message, stopState }))
+        })
+      }).catch(() => {
+        onMessageUpdate((prev) => {
+          if (requestGenerationRef.current !== idleGeneration) return prev
+          return updateLastAssistantMessage(prev, (message) => ({ ...message, stopState: 'unconfirmed' }))
+        })
+      })
+    }
   }, [
     stopStream,
     flushStreamUpdates,

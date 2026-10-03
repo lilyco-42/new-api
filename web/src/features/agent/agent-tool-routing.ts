@@ -17,10 +17,10 @@ function latestUserText(messages: ChatCompletionMessage[]): string {
     if (message?.role !== 'user') continue
     if (typeof message.content === 'string') return message.content.trim()
     if (Array.isArray(message.content)) {
-      return message.content
-        .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
-        .join('\n')
-        .trim()
+      // The request precedes attachment parts. Attached text remains model
+      // evidence, but cannot grant access to account or device tools.
+      const text = message.content.find((part) => part.type === 'text')?.text?.trim() ?? ''
+      return /^\[Attached\b/iu.test(text) ? '' : text
     }
     return ''
   }
@@ -53,7 +53,7 @@ function explicitlyDeclinesPageRead(text: string): boolean {
   )
 }
 
-function explicitlyRequestsBrowserWebSearch(text: string): boolean {
+export function explicitlyRequestsBrowserWebSearch(text: string): boolean {
   return /(?:浏览器(?:端|中)?(?:的)?(?:网页)?搜索|网页搜索(?:功能)?|用网页搜索|search (?:the )?web|web search)/iu.test(
     text
   )
@@ -76,20 +76,22 @@ export function requestsKnownAIEntityDefinition(text: string): boolean {
 
 function explicitlyDeclinesAccountRepositories(text: string): boolean {
   return (
-    /(?:不要|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|访问|读取)?\s*(?:我的|我自己的|我账号的|我账户的).{0,8}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /(?:不要|不用|别|不许|禁止|避免|排除)\s*(?:搜索|查找|搜|查看|列出|访问|读取|阅读)?\s*(?:我的|我自己的|我账号的|我账户的|(?:我|本人)(?:通过|已通过|在)).{0,48}(?:github\s*)?(?:仓库|项目|repositories|repository|repos?)/iu.test(
       text
     ) ||
-    /\b(?:do not|don't|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access)\s+)?my(?: own)?\s+(?:personal\s+)?(?:github\s+)?(?:repositories|repository|repos?)\b/iu.test(
+    /\b(?:do not|don't|don’t|dont|without|avoid|exclude)\s+(?:(?:search|find|look up|browse|read|access|list|fetch|inspect|query|show|view)\s+)?(?:my(?: own)?\s+(?:personal\s+)?(?:github\s+)?|(?:my|the)\s+connected\s+github\s+(?:account(?:'s|’s)?\s+)?)(?:repositories|repository|repos?)\b/iu.test(
       text
     )
   )
 }
 
-function targetsAccountRepositories(text: string): boolean {
+export function targetsAccountRepositories(text: string): boolean {
   const explicitlyTargetsAccount =
-    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:仓库|repositories|repository|repos?)/iu.test(
+    /\bmy(?: own)?\s+(?:github\s+)?(?:repositories|repository|repos?)\b|(?:我的|我自己的|我账号的|我账户的).{0,12}(?:github\s*)?(?:项目|仓库|repositories|repository|repos?)/iu.test(
       text
-    )
+    ) ||
+    /(?:我|本人)(?:通过|已通过|在).{0,24}(?:github\s*)?oauth.{0,16}(?:授权|连接).{0,12}仓库|\b(?:my|the)\s+connected\s+github\s+(?:account(?:'s|’s)?\s+)?(?:repositories|repository|repos?)\b/iu.test(text) ||
+    /\bgh\s+repo\b.{0,16}(?:我的|我自己的)项目/iu.test(text)
 
   return (
     explicitlyTargetsAccount && !explicitlyDeclinesAccountRepositories(text)
@@ -100,20 +102,11 @@ export function getGitHubReadIntent(
   value: string
 ): GitHubReadIntent | null {
   const text = value.trim()
-  if (!text || isQuestionAboutToolBehavior(text)) {
+  if (/(?:不要|不用|别|禁止|不许)\s*(?:读取|阅读|查看|列出|获取)|\b(?:do not|don't|don’t)\s+(?:read|fetch|list|view|access)\b/iu.test(text)) {
     return null
   }
-
-  const mentionsRepositories =
-    /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text)
-  const explicitlyReadsRepositories =
-    mentionsRepositories &&
-    /(?:查看|看|列出|浏览|获取|读取|show|list|view|browse|get|read|fetch|inspect)/iu.test(
-      text
-    ) &&
-    !/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)
-  if (explicitlyReadsRepositories) {
-    return 'repositories'
+  if (!text || isQuestionAboutToolBehavior(text) || /(?:项目看板|项目板|github\s+projects\b|project\s+boards?\b)/iu.test(text)) {
+    return null
   }
 
   if (
@@ -123,9 +116,10 @@ export function getGitHubReadIntent(
   ) {
     return 'status'
   }
+  if (explicitGitHubIssueTarget(text)) return 'issues'
   if (
     /(?:issue|issues|工单|议题|问题列表)/iu.test(text) &&
-    /(?:查看|列出|搜索|读取|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
+    /(?:查看|列出|搜索|读取|阅读|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
       text
     )
   ) {
@@ -133,19 +127,32 @@ export function getGitHubReadIntent(
   }
   if (
     /(?:pull\s*requests?|\bprs?\b|拉取请求|合并请求)/iu.test(text) &&
-    /(?:查看|列出|搜索|读取|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
+    /(?:查看|列出|搜索|读取|阅读|获取|查|show|list|search|read|fetch|get|look up|check)/iu.test(
       text
     )
   ) {
     return 'pull_requests'
   }
+  const mentionsRepositories =
+    /(?:github\s*)?(?:仓库|repositories|repository|repos?\b)/iu.test(text) ||
+    (/github\s*项目/iu.test(text) && targetsAccountRepositories(text))
+  const explicitlyReadsRepositories =
+    mentionsRepositories &&
+    /(?:查看|看|列出|浏览|获取|读取|阅读|show|list|view|browse|get|read|fetch|inspect)/iu.test(
+      text
+    ) &&
+    !/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)
+  if (explicitlyReadsRepositories) {
+    return 'repositories'
+  }
+
   if (mentionsRepositories) {
     if (/(?:搜索|搜一下|搜寻|查找|search|find|look up)/iu.test(text)) {
       return 'repository_search'
     }
     if (
       /(?:查看|看|列出|浏览|获取|show|list|view|browse|get)/iu.test(text) ||
-      /(?:读取|read|fetch|inspect)/iu.test(text) ||
+      /(?:读取|阅读|read|fetch|inspect)/iu.test(text) ||
       /(?:我的|我自己的|我账号的|my(?: own)?)/iu.test(text)
     ) {
       return 'repositories'
@@ -154,14 +161,53 @@ export function getGitHubReadIntent(
   return null
 }
 
+/** Read exactly one user-supplied GitHub Issue URL; attachments are not read grants. */
+export function explicitGitHubIssueTarget(text: string): { repo: string; number: number } | undefined {
+  if (/(?:不要|不用|无需|别|禁止|不许).{0,8}(?:读取|阅读|访问|查看|查询)|\b(?:do not|don't|don’t|without)\s+(?:read|fetch|access|inspect|query)/iu.test(text)) return undefined
+  if (!/^https:\/\/\S+$/iu.test(text.trim()) &&
+    !/(?:修复|排查|诊断|阅读|读取|查看|检查|分析|解决|\bfix\b|\bread\b|\bfetch\b|\binspect\b|\bcheck\b|\banaly[sz]e\b)/iu.test(text)) return undefined
+  const targets = new Map<string, { repo: string; number: number }>()
+  for (const match of text.matchAll(/https:\/\/[^\s<>]+/giu)) {
+    try {
+      const url = new URL(match[0].replace(/[)\]。。，,;!！?？]+$/u, ''))
+      const path = /^\/([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)\/issues\/([1-9]\d*)\/?$/u.exec(url.pathname)
+      if (url.hostname !== 'github.com' || url.port || url.username || url.password || !path || path[2] === '.' || path[2] === '..') continue
+      const number = Number(path[3])
+      if (!Number.isSafeInteger(number) || number > 2147483647) continue
+      const repo = `${path[1]}/${path[2]}`.toLowerCase()
+      targets.set(`${repo}#${number}`, { repo, number })
+    } catch {
+      // Malformed links are never interpreted as repository read grants.
+    }
+  }
+  return targets.size === 1 ? targets.values().next().value : undefined
+}
+
+/** A read may target exactly one repository named by the user, never a model guess. */
+export function explicitGitHubRepository(text: string): string | null {
+  const repositories = new Set<string>()
+  for (const match of text.matchAll(/https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/giu)) {
+    repositories.add(`${match[1]}/${match[2]}`.toLowerCase())
+  }
+  const withoutURLs = text.replaceAll(/https?:\/\/[^\s<>]+/giu, ' ')
+  for (const match of withoutURLs.matchAll(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/gu)) {
+    const candidate = match[0].toLowerCase()
+    // Common requested output formats are not an additional repository grant.
+    // A real repository with one of these names can still use its explicit URL.
+    if (['before/after', 'owner/name', 'ci/cd'].includes(candidate)) continue
+    repositories.add(candidate)
+  }
+  return repositories.size === 1 ? [...repositories][0] ?? null : null
+}
+
 export function explicitlyTargetsLocalGitHub(text: string): boolean {
   const targetPattern =
-    /(?:在|使用|通过|让|调用|运行|交给|use|via|run|on).{0,24}(?:本机|本地|我的设备|配对设备|Radxa|A7A|gh\s*CLI|GitHub\s*CLI|terminal|local\s+(?:device|cli|gh)|paired\s+device|desktop)/giu
+    /(?:在|使用|通过|让|调用|运行|交给|use|via|run|on)[^。.!?！？;；\n]{0,24}(?:本机|本地|我的设备|配对设备|Radxa|A7A|gh\s*CLI|GitHub\s*CLI|terminal|local\s+(?:device|cli|gh)|paired\s+device|desktop)/giu
   for (const match of text.matchAll(targetPattern)) {
     const prefixStart = Math.max(0, (match.index ?? 0) - 16)
     const prefix = text.slice(prefixStart, match.index)
     if (
-      /(?:不要|别|不许|禁止|避免|do not|don't|dont|avoid)\s*$/iu.test(
+      /(?:不要|别|不许|禁止|避免|不(?:要求|需要|必)(?:你)?(?:修改文件或)?|do not|don't|dont|avoid)\s*$/iu.test(
         prefix
       )
     ) {
@@ -187,7 +233,7 @@ function toolIntent(name: string): GitHubReadIntent | null {
   ) {
     return 'repository_search'
   }
-  if (name === 'github.oauth.issues.list' || name === 'github.issues.list') {
+  if (name === 'github.oauth.issues.list' || name === 'github.oauth.issues.read' || name === 'github.issues.list') {
     return 'issues'
   }
   if (
@@ -204,9 +250,37 @@ export function shouldRunGitHubTool(
   messages: ChatCompletionMessage[],
   source: 'oauth' | 'local'
 ): boolean {
-  const request = latestUserText(messages)
+  const request = source === 'oauth'
+    ? browserGitHubReadRequestText(messages)
+    : latestUserText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(call.function.name) !== intent) return false
+  if (source === 'oauth' && intent === 'issues') {
+    const target = explicitGitHubIssueTarget(request)
+    if (call.function.name === 'github.oauth.issues.read') {
+      try {
+        const args = JSON.parse(call.function.arguments) as Record<string, unknown>
+        if (!target || typeof args.repo !== 'string' || args.repo.toLowerCase() !== target.repo || args.number !== target.number) return false
+      } catch {
+        return false
+      }
+    } else if (target) return false
+  }
+  if (
+    source === 'oauth' && request !== latestUserText(messages) &&
+    (intent === 'issues' || intent === 'pull_requests')
+  ) {
+    const repository = explicitGitHubRepository(request)
+    try {
+      const args: unknown = JSON.parse(call.function.arguments)
+      if (!repository || !args || typeof args !== 'object' || !('repo' in args) ||
+        typeof args.repo !== 'string' || args.repo.toLowerCase() !== repository.toLowerCase()) {
+        return false
+      }
+    } catch {
+      return false
+    }
+  }
   if (
     intent === 'repository_search' &&
     explicitlyRequestsBrowserWebSearch(request) &&
@@ -215,7 +289,7 @@ export function shouldRunGitHubTool(
     return false
   }
   if (intent === 'repositories' && call.function.name === 'github.oauth.repositories.list') {
-    return true
+    return targetsAccountRepositories(request)
   }
   const localRequested = explicitlyTargetsLocalGitHub(request)
   return source === 'local' ? localRequested : !localRequested
@@ -232,6 +306,9 @@ export function shouldRunLocalAgentTool(
 ): boolean {
   const text = latestUserText(messages)
   if (!text || isQuestionAboutToolBehavior(text)) return false
+
+  // Website OAuth tools do not require a paired device or its gh login.
+  if (name.startsWith('github.oauth.')) return false
 
   if (name.startsWith('github.')) {
     return shouldRunGitHubTool(
@@ -305,9 +382,13 @@ export function shouldAdvertiseBrowserGitHubTool(
   messages: ChatCompletionMessage[],
   bridgeConnected: boolean
 ): boolean {
-  const request = latestUserText(messages)
+  const request = browserGitHubReadRequestText(messages)
   const intent = getGitHubReadIntent(request)
   if (!intent || toolIntent(name) !== intent) return false
+  if (intent === 'issues') {
+    const target = explicitGitHubIssueTarget(request)
+    if ((name === 'github.oauth.issues.read') !== Boolean(target)) return false
+  }
   if (
     intent === 'repository_search' &&
     explicitlyRequestsBrowserWebSearch(request) &&
@@ -317,7 +398,7 @@ export function shouldAdvertiseBrowserGitHubTool(
   }
   const localRequested = explicitlyTargetsLocalGitHub(request)
   if (name === 'github.oauth.repositories.list') {
-    return intent === 'repositories'
+    return targetsAccountRepositories(request)
   }
   if (name.startsWith('github.oauth.')) {
     return !localRequested || !bridgeConnected
@@ -386,10 +467,144 @@ export function latestUserRequestText(
   return latestUserText(messages)
 }
 
+export type PendingRepositoryChoices = {
+  intent: 'issues' | 'pull_requests'
+  returnedCount: number
+  repositories: Array<{ full_name: string; html_url: string }>
+  executionContext: string
+}
+
+export function readPendingGitHubRepositoryChoices(
+  messages: ChatCompletionMessage[]
+): PendingRepositoryChoices | undefined {
+  let latestUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {
+      latestUserIndex = index
+      break
+    }
+  }
+  let assistantIndex = latestUserIndex - 1
+  while (assistantIndex >= 0 && messages[assistantIndex]?.role !== 'assistant') assistantIndex -= 1
+  const recordMessage = messages[assistantIndex + 1]
+  if (recordMessage?.role !== 'system' || recordMessage.name !== 'lain42_execution_record' ||
+    typeof recordMessage.content !== 'string' || new TextEncoder().encode(recordMessage.content).byteLength > 4608) {
+    return undefined
+  }
+
+  const json = recordMessage.content.split('\n').find((line) => line.startsWith('{'))
+  if (!json || new TextEncoder().encode(json).byteLength > 4096) return undefined
+  try {
+    const record: unknown = JSON.parse(json)
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return undefined
+    const value = record as Record<string, unknown>
+    const parameters = value.parameters
+    if (value.source !== 'website GitHub OAuth' || value.resource !== 'repositories' ||
+      value.scope !== 'this page only' || value.outcome !== 'read completed' || value.local_gh_used !== false ||
+      (value.pending_intent !== 'issues' && value.pending_intent !== 'pull_requests') ||
+      value.repository_order !== 'updated' ||
+      !Number.isSafeInteger(value.returned_count) || Number(value.returned_count) < 1 || Number(value.returned_count) > 10 ||
+      typeof value.fetched_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/u.test(value.fetched_at) ||
+      !parameters || typeof parameters !== 'object' || Array.isArray(parameters) ||
+      !Number.isSafeInteger((parameters as Record<string, unknown>).limit) ||
+      Number((parameters as Record<string, unknown>).limit) < 1 || Number((parameters as Record<string, unknown>).limit) > 20 ||
+      !Array.isArray(value.repository_choices) || value.repository_choices.length < 1 ||
+      value.repository_choices.length > Number(value.returned_count) || value.repository_choices.length > 10) return undefined
+
+    const repositories: PendingRepositoryChoices['repositories'] = []
+    for (const choice of value.repository_choices) {
+      if (!choice || typeof choice !== 'object' || Array.isArray(choice)) return undefined
+      const entry = choice as Record<string, unknown>
+      if (typeof entry.full_name !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(entry.full_name) ||
+        typeof entry.html_url !== 'string') return undefined
+      const url = new URL(entry.html_url)
+      if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password ||
+        url.search || url.hash || url.pathname.toLowerCase() !== `/${entry.full_name}`.toLowerCase()) return undefined
+      repositories.push({ full_name: entry.full_name, html_url: url.toString() })
+    }
+    return { intent: value.pending_intent, returnedCount: Number(value.returned_count), repositories, executionContext: json }
+  } catch {
+    return undefined
+  }
+}
+
+function selectedRepositoryFromChoices(
+  messages: ChatCompletionMessage[]
+): { intent: 'issues' | 'pull_requests'; repository: string } | undefined {
+  const choices = readPendingGitHubRepositoryChoices(messages)
+  if (!choices) return undefined
+  const latest = latestUserText(messages).trim()
+  const numeric = /^(?:第\s*)?(\d{1,2})(?:\s*(?:个|项|号|[.)]))?$/u.exec(latest) ??
+    /^(?:我选|选|选择|就选)\s*(?:第\s*)?(\d{1,2})(?:\s*(?:个|项|号))?$/u.exec(latest)
+  const chineseOrdinal = /^(?:我选|选|选择|就选)?\s*第?([一二三四五六七八九十])(?:个|项|号)?$/u.exec(latest)
+  const chineseNumbers: Record<string, number> = {
+    一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
+  }
+  const explicit = /^(?:https:\/\/github\.com\/)?([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/?$/iu.exec(latest)
+  let choiceNumber: number | undefined
+  if (numeric?.[1]) choiceNumber = Number(numeric[1])
+  else if (chineseOrdinal?.[1]) choiceNumber = chineseNumbers[chineseOrdinal[1]]
+  const selected = choiceNumber !== undefined
+    ? choices.repositories[choiceNumber - 1]
+    : choices.repositories.find((repository) => repository.full_name.toLowerCase() === explicit?.[1]?.toLowerCase())
+  return selected ? { intent: choices.intent, repository: selected.full_name } : undefined
+}
+
+/** Preserve a user's immediate read request, without inheriting device or attachment authorization. */
+export function browserGitHubReadRequestText(messages: ChatCompletionMessage[]): string {
+  const latest = latestUserText(messages)
+  const selection = selectedRepositoryFromChoices(messages)
+  if (selection) {
+    return `读取 ${selection.repository} 的 ${selection.intent === 'issues' ? 'issues' : 'pull requests'}`
+  }
+  if (getGitHubReadIntent(latest)) return latest
+  const continuesReading =
+    /^(?:请|麻烦)?(?:你(?:自己|来)?|继续|接着)?(?:阅读|读取|查看|读)(?:一下|吧)?[。.!！?？]*$/u.test(latest) ||
+    /^(?:please\s+)?(?:read|check)(?:\s+(?:it|them))?(?:\s+(?:yourself|again))?[.!?]*$/iu.test(latest)
+  if (!continuesReading) return latest
+
+  const autonomousRead =
+    /^(?:请|麻烦)?(?:你自己|你来|你)(?:阅读|读取|查看|读)(?:一下|吧)?[。.!！?？]*$/u.test(latest) ||
+    /^(?:please\s+)?read(?:\s+(?:it|them))?\s+yourself[.!?]*$/iu.test(latest)
+  const pendingChoices = readPendingGitHubRepositoryChoices(messages)
+  const preferredRepository = pendingChoices?.repositories[0]
+  if (autonomousRead && pendingChoices && preferredRepository) {
+    return `读取 ${preferredRepository.full_name} 的 ${pendingChoices.intent === 'issues' ? 'issues' : 'pull requests'}`
+  }
+
+  let foundLatest = false
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.role !== 'user') continue
+    if (!foundLatest) {
+      if (Array.isArray(message.content) && (message.content.length !== 1 || message.content[0]?.type !== 'text')) {
+        return latest
+      }
+      foundLatest = true
+      continue
+    }
+    const previous = latestUserText([message])
+    if (explicitlyTargetsLocalGitHub(previous) || /(?:不要|不用|无需|别|禁止|do not|don't|without)/iu.test(previous)) {
+      return latest
+    }
+    const intent = getGitHubReadIntent(previous)
+    if (intent === 'repositories' && targetsAccountRepositories(previous)) return previous
+    if ((intent === 'issues' || intent === 'pull_requests') &&
+      (explicitGitHubRepository(previous) || targetsAccountRepositories(previous))) {
+      return previous
+    }
+    return latest
+  }
+  return latest
+}
+
 export function shouldAdvertiseWebAgentTool(
   name: string,
   messages: ChatCompletionMessage[]
 ): boolean {
+  if (toolIntent(name)) {
+    return shouldAdvertiseBrowserGitHubTool(name, messages, false)
+  }
   return shouldRunWebAgentTool(
     {
       id: 'routing-check',

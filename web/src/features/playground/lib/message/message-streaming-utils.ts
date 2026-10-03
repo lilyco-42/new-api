@@ -21,6 +21,7 @@ import { t } from 'i18next'
 import { ERROR_MESSAGES, MESSAGE_ROLES, MESSAGE_STATUS } from '../../constants'
 import type { ChatCompletionResponse, Message } from '../../types'
 import { parseThinkTags } from './message-reasoning-utils'
+import { responseExecutionContext } from './response-execution-context'
 import {
   completeAssistantTiming,
   completeReasoningTiming,
@@ -190,12 +191,9 @@ export function applyChatCompletionChoice(
   choice: ChatCompletionChoice
 ): Message {
   const content = choice.message?.content
-  const textContent =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? getTextContent(content)
-        : ''
+  let textContent = ''
+  if (typeof content === 'string') textContent = content
+  else if (Array.isArray(content)) textContent = getTextContent(content)
 
   return completeAssistantTiming({
     ...finalizeMessage(
@@ -216,7 +214,10 @@ export function applyChatCompletionResponse(
     return null
   }
 
-  return applyChatCompletionChoice(message, choice)
+  const updated = applyChatCompletionChoice(message, choice)
+  const context = responseExecutionContext(response)
+  if (!context) return updated
+  return { ...updated, versions: [{ ...getCurrentVersion(updated), executionContext: context }] }
 }
 
 /**

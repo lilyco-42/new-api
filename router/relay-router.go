@@ -66,6 +66,17 @@ func SetRelayRouter(router *gin.Engine) {
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 	}
+	// DSH model calls are authenticated by a server-only HMAC and are bound to
+	// a New API account-owned session before entering the normal quota pipeline.
+	dshModelRouter := router.Group("/v1/agent")
+	dshModelRouter.Use(middleware.RouteTag("relay"))
+	dshModelRouter.Use(middleware.SystemPerformanceCheck())
+	dshModelRouter.Use(middleware.AgentDSHModelAuth())
+	dshModelRouter.Use(middleware.ModelRequestRateLimit())
+	dshModelRouter.Use(middleware.Distribute())
+	{
+		dshModelRouter.POST("/chat/completions", controller.Playground)
+	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())

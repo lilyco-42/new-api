@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -257,14 +258,61 @@ type agentGitHubSearchResponse struct {
 }
 
 type agentGitHubActivity struct {
-	Number    int    `json:"number"`
-	Title     string `json:"title"`
-	URL       string `json:"url"`
-	State     string `json:"state"`
-	UpdatedAt string `json:"updated_at,omitempty"`
+	Number        int    `json:"number"`
+	Repository    string `json:"repository,omitempty"`
+	Title         string `json:"title"`
+	URL           string `json:"url"`
+	State         string `json:"state"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+	Body          string `json:"body,omitempty"`
+	BodyTruncated bool   `json:"body_truncated,omitempty"`
 }
 
-var agentGitHubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+// Share the bounded evidence contract between browser reads and hosted DSH tools.
+func normalizeAgentGitHubActivity(raw []map[string]any, pulls bool) []agentGitHubActivity {
+	items := make([]agentGitHubActivity, 0, len(raw))
+	for _, item := range raw {
+		if _, isPullRequest := item["pull_request"]; isPullRequest && !pulls {
+			continue
+		}
+		number, _ := item["number"].(float64)
+		title, _ := item["title"].(string)
+		htmlURL, _ := item["html_url"].(string)
+		itemState, _ := item["state"].(string)
+		updated, _ := item["updated_at"].(string)
+		body, _ := item["body"].(string)
+		repositoryURL, _ := item["repository_url"].(string)
+		truncated := len(body) > 4096
+		if truncated {
+			end := 4096
+			for end > 0 && !utf8.RuneStart(body[end]) {
+				end--
+			}
+			body = body[:end]
+		}
+		if title != "" && htmlURL != "" {
+			items = append(items, agentGitHubActivity{Number: int(number), Repository: githubRepositoryNameFromAPIURL(repositoryURL), Title: title, URL: htmlURL, State: itemState, UpdatedAt: updated, Body: body, BodyTruncated: truncated})
+		}
+	}
+	return items
+}
+
+func githubRepositoryNameFromAPIURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "api.github.com" {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) != 3 || parts[0] != "repos" || !agentGitHubRepoPattern.MatchString(parts[1]+"/"+parts[2]) {
+		return ""
+	}
+	return parts[1] + "/" + parts[2]
+}
+
+var (
+	agentGitHubRepoPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	agentGitHubLoginPattern = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+)
 
 func AgentGitHubRepositoriesList(c *gin.Context) {
 	limit := parseBoundedAgentInt(c.Query("limit"), 10, 1, maxAgentGitHubItems)
@@ -303,6 +351,49 @@ func AgentGitHubRepositoriesSearch(c *gin.Context) {
 func AgentGitHubIssues(c *gin.Context)       { agentGitHubActivityList(c, false) }
 func AgentGitHubPullRequests(c *gin.Context) { agentGitHubActivityList(c, true) }
 
+// AgentGitHubIssuesSearch reads the connected account's most recently updated
+// open issues across repositories it owns. The account identity comes only
+// from the credential attached to the authenticated New API user.
+func AgentGitHubIssuesSearch(c *gin.Context) {
+	credential, _, err := model.GetAgentGitHubCredential(c.GetInt("id"))
+	if errors.Is(err, gorm.ErrRecordNotFound) || credential == nil {
+		writeAgentError(c, http.StatusUnauthorized, "AGENT_GITHUB_NOT_CONNECTED", "GitHub is not connected for this account")
+		return
+	}
+	if err != nil {
+		writeAgentError(c, http.StatusInternalServerError, "AGENT_GITHUB_STATUS_FAILED", "GitHub authorization status is unavailable")
+		return
+	}
+	login := strings.TrimSpace(credential.Login)
+	if login == "" || !agentGitHubLoginPattern.MatchString(login) {
+		writeAgentError(c, http.StatusUnauthorized, "AGENT_GITHUB_NOT_CONNECTED", "The connected GitHub account could not be verified")
+		return
+	}
+	limit := parseBoundedAgentInt(c.Query("limit"), 10, 1, maxAgentGitHubItems)
+	query := url.Values{}
+	query.Set("q", "user:"+login+" is:issue is:open")
+	query.Set("sort", "updated")
+	query.Set("order", "desc")
+	query.Set("per_page", strconv.Itoa(limit))
+	endpoint := "https://api.github.com/search/issues?" + query.Encode()
+	var result struct {
+		TotalCount        int              `json:"total_count"`
+		IncompleteResults bool             `json:"incomplete_results"`
+		Items             []map[string]any `json:"items"`
+	}
+	if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &result); err != nil {
+		writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", "GitHub issue search failed")
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"login":              login,
+		"query":              "user:" + login + " is:issue is:open",
+		"total_count":        result.TotalCount,
+		"incomplete_results": result.IncompleteResults,
+		"items":              normalizeAgentGitHubActivity(result.Items, false),
+	})
+}
+
 func agentGitHubActivityList(c *gin.Context, pulls bool) {
 	repo := strings.TrimSpace(c.Query("repo"))
 	if !agentGitHubRepoPattern.MatchString(repo) {
@@ -324,18 +415,14 @@ func agentGitHubActivityList(c *gin.Context, pulls bool) {
 		writeAgentError(c, http.StatusBadGateway, "AGENT_GITHUB_REQUEST_FAILED", "GitHub activity request failed")
 		return
 	}
-	items := make([]agentGitHubActivity, 0, len(raw))
-	for _, item := range raw {
-		number, _ := item["number"].(float64)
-		title, _ := item["title"].(string)
-		htmlURL, _ := item["html_url"].(string)
-		itemState, _ := item["state"].(string)
-		updated, _ := item["updated_at"].(string)
-		if title != "" && htmlURL != "" {
-			items = append(items, agentGitHubActivity{Number: int(number), Title: title, URL: htmlURL, State: itemState, UpdatedAt: updated})
-		}
-	}
+	items := normalizeAgentGitHubActivity(raw, pulls)
 	common.ApiSuccess(c, gin.H{"repo": repo, "items": items})
+}
+
+type agentGitHubHTTPError struct{ StatusCode int }
+
+func (err *agentGitHubHTTPError) Error() string {
+	return fmt.Sprintf("github returned status %d", err.StatusCode)
 }
 
 func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader, output any) error {
@@ -355,7 +442,7 @@ func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader,
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("github returned status %d", response.StatusCode)
+		return &agentGitHubHTTPError{StatusCode: response.StatusCode}
 	}
 	return common.DecodeJson(io.LimitReader(response.Body, 2<<20), output)
 }
