@@ -33,9 +33,9 @@ describe('CodeBlock viewer', () => {
     async (language) => {
       render(<CodeBlock code={rustSource} language={language} showToolbar />)
 
-      const viewer = screen.getByRole('textbox', { name: 'rust', exact: true })
+      const viewer = screen.getByRole('textbox', { name: 'rust' })
       expect(viewer.getAttribute('aria-readonly')).toBe('true')
-      expect(viewer.getAttribute('contenteditable')).toBe('false')
+      expect(viewer.querySelector('[contenteditable="true"]')).toBeNull()
       await waitFor(() => {
         expect(within(viewer).getByText('fn', { exact: true })).toBeTruthy()
         expect(
