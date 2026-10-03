@@ -35,6 +35,22 @@ jobs:
             go.sum
             relaykit/go.sum
 
+      - name: Capture formatted bounded-prototype source for reviewed Actions-only repair
+        run: |
+          mkdir -p "$RUNNER_TEMP/lain42-prototype-formatted"
+          gofmt agent_dsh_live_prototype_test.go > "$RUNNER_TEMP/lain42-prototype-formatted/agent_dsh_live_prototype_test.go"
+
+      - name: Save only the formatted prototype source
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lain42-prototype-formatted-${{ github.sha }}
+          path: ${{ runner.temp }}/lain42-prototype-formatted/agent_dsh_live_prototype_test.go
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Check bounded-prototype formatting before builds
+        run: test -z "$(gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go)"
+
       - name: Create frontend embed placeholder
         run: |
           mkdir -p web/dist

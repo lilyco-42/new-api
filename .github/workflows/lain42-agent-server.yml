@@ -268,6 +268,8 @@ jobs:
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version-file: go.mod
+      - name: Check prototype formatting before runtime builds
+        run: test -z "$(gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go)"
       - name: Set up DSH package manager
         uses: pnpm/action-setup@v4
         with:
@@ -298,8 +300,6 @@ jobs:
       - name: Install Chromium for mobile emulation
         working-directory: .ci-dsh
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
-      - name: Check prototype formatting
-        run: test -z "$(gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go)"
       - name: Verify real inference, Issue continuation, context, attachment, replay and owner wallet
         env:
           LAIN42_PROTOTYPE_NVIDIA_KEY: ${{ secrets.LAIN42_PROTOTYPE_NVIDIA_KEY }}
