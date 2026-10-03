@@ -269,7 +269,9 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Check prototype formatting before runtime builds
-        run: test -z "$(gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go)"
+        run: |
+          gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go
+          test -z "$(gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go)"
       - name: Set up DSH package manager
         uses: pnpm/action-setup@v4
         with:
