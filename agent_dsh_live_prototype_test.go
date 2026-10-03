@@ -49,10 +49,15 @@ func TestLiveDSHNewAPIClientResearchPrototype(t *testing.T) {
 	runLiveDSHNewAPIPrototype(t, "client-research")
 }
 
+func TestLiveDSHNewAPIHostedResearchPrototype(t *testing.T) {
+	runLiveDSHNewAPIPrototype(t, "hosted-research")
+}
+
 func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	t.Helper()
 	research := scenario != "issue"
 	clientOnly := scenario == "client-research"
+	hostedOnly := scenario == "hosted-research"
 	key := os.Getenv("LAIN42_PROTOTYPE_NVIDIA_KEY")
 	require.True(t, strings.HasPrefix(key, "nvapi-"), "missing authorized NVIDIA prototype credential")
 	root := os.Getenv("LAIN42_COMPOSITION_DSH_ROOT")
@@ -80,11 +85,15 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		if clientOnly {
 			scope = "Independent mobile Chromium public GitHub search/client WASM page read + actual New API/DSH/trial inference; synthetic accounts/document; does not test hosted Bing search, physical Android or production OAuth"
 		}
+		if hostedOnly {
+			scope = "Independent hosted public Bing search/tool continuation + actual New API/DSH/trial inference, restart replay and wallet; synthetic accounts; does not test browser search, WASM, mobile or production OAuth"
+		}
 		result := map[string]any{"passed": passed && !t.Failed(), "model": prototypeModel,
 			"mobile_browser_emulation":      mobileBrowser,
 			"mobile_account_history_switch": mobileBrowser && !research, "foreign_turn_and_cancel_denied": mobileBrowser && !research,
 			"mobile_research_flow": mobileBrowser && research, "public_search_requests": searchCalls.Load(),
 			"client_research_only":                  clientOnly,
+			"hosted_research_only":                  hostedOnly,
 			"official_search_source_returned":       officialSearchSource.Load(),
 			"public_search_empty_rss_responses":     searchObservation.empty.Load(),
 			"public_search_invalid_rss_responses":   searchObservation.invalid.Load(),
@@ -340,57 +349,63 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		require.Contains(t, strings.ToLower(attachmentAnswer), "indigo")
 		require.NotContains(t, attachmentAnswer, "ORBIT_EXPORT_731")
 	}
-	// All scenarios use the built mobile UI and the six-request ceiling, with
-	// no mocked auth, website API, final answer or browser storage state.
-	scriptName := "scripts/lain42-live-browser-acceptance.mjs"
-	if research {
-		scriptName = "scripts/lain42-live-research-acceptance.mjs"
-	}
-	browserScript, err := filepath.Abs(scriptName)
-	require.NoError(t, err)
-	browserLifetime := 2 * time.Minute
-	if research {
-		browserLifetime = 3 * time.Minute
-	}
-	browserContext, cancelBrowser := context.WithTimeout(context.Background(), browserLifetime)
-	defer cancelBrowser()
-	browser := exec.CommandContext(browserContext, "node", browserScript, controlPlane.URL)
-	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "LAIN42_PROTOTYPE_NVIDIA_KEY=") {
-			browser.Env = append(browser.Env, value)
+	if !hostedOnly {
+		// Browser scenarios use the built mobile UI and the six-request ceiling,
+		// without mocked auth, website API, final answer or browser storage state.
+		scriptName := "scripts/lain42-live-browser-acceptance.mjs"
+		if research {
+			scriptName = "scripts/lain42-live-research-acceptance.mjs"
 		}
-	}
-	// The replay payload contains only this synthetic/public browser turn and
-	// answer. Keep it in the private test temp directory, outside the artifacts.
-	replayPath := filepath.Join(t.TempDir(), "client-research-replay.json")
-	if clientOnly {
-		browser.Env = append(browser.Env, "LAIN42_RESEARCH_REPLAY_PATH="+replayPath)
-	}
-	browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
-	require.NoError(t, browser.Run())
-	mobileBrowser = true
-	if clientOnly {
-		require.EqualValues(t, 3, providerCalls.Load(), "client search, page answer and follow-up each use one genuine inference")
-		require.Zero(t, githubCalls.Load(), "client research must not read connected-account GitHub data")
-		require.Zero(t, searchCalls.Load(), "client-only acceptance must not be labelled hosted Bing acceptance")
-		replayData, err := os.ReadFile(replayPath)
+		browserScript, err := filepath.Abs(scriptName)
 		require.NoError(t, err)
-		require.LessOrEqual(t, len(replayData), 128*1024)
-		var replay struct {
-			Request dto.AgentDSHTurnRequest `json:"request"`
-			Answer  string                  `json:"answer"`
+		browserLifetime := 2 * time.Minute
+		if research {
+			browserLifetime = 3 * time.Minute
 		}
-		require.NoError(t, common.Unmarshal(replayData, &replay))
-		require.Contains(t, replay.Request.Text, "https://github.com/ast-grep/ast-grep")
-		require.Contains(t, replay.Answer, "https://github.com/ast-grep/ast-grep")
-		turn, answer = replay.Request, replay.Answer
-	} else if research {
-		require.GreaterOrEqual(t, providerCalls.Load(), int32(5), "search continuation and three mobile answers require genuine inference")
-		require.LessOrEqual(t, providerCalls.Load(), int32(6), "research keeps the existing request ceiling")
-		require.Zero(t, githubCalls.Load(), "research must not read connected-account GitHub data")
+		browserContext, cancelBrowser := context.WithTimeout(context.Background(), browserLifetime)
+		defer cancelBrowser()
+		browser := exec.CommandContext(browserContext, "node", browserScript, controlPlane.URL)
+		for _, value := range os.Environ() {
+			if !strings.HasPrefix(value, "LAIN42_PROTOTYPE_NVIDIA_KEY=") {
+				browser.Env = append(browser.Env, value)
+			}
+		}
+		// The replay payload contains only this synthetic/public browser turn and
+		// answer. Keep it in the private test temp directory, outside the artifacts.
+		replayPath := filepath.Join(t.TempDir(), "client-research-replay.json")
+		if clientOnly {
+			browser.Env = append(browser.Env, "LAIN42_RESEARCH_REPLAY_PATH="+replayPath)
+		}
+		browser.Stdout, browser.Stderr = os.Stdout, os.Stderr
+		require.NoError(t, browser.Run())
+		mobileBrowser = true
+		if clientOnly {
+			require.EqualValues(t, 3, providerCalls.Load(), "client search, page answer and follow-up each use one genuine inference")
+			require.Zero(t, githubCalls.Load(), "client research must not read connected-account GitHub data")
+			require.Zero(t, searchCalls.Load(), "client-only acceptance must not be labelled hosted Bing acceptance")
+			replayData, err := os.ReadFile(replayPath)
+			require.NoError(t, err)
+			require.LessOrEqual(t, len(replayData), 128*1024)
+			var replay struct {
+				Request dto.AgentDSHTurnRequest `json:"request"`
+				Answer  string                  `json:"answer"`
+			}
+			require.NoError(t, common.Unmarshal(replayData, &replay))
+			require.Contains(t, replay.Request.Text, "https://github.com/ast-grep/ast-grep")
+			require.Contains(t, replay.Answer, "https://github.com/ast-grep/ast-grep")
+			turn, answer = replay.Request, replay.Answer
+		} else if research {
+			require.GreaterOrEqual(t, providerCalls.Load(), int32(5), "search continuation and three mobile answers require genuine inference")
+			require.LessOrEqual(t, providerCalls.Load(), int32(6), "research keeps the existing request ceiling")
+			require.Zero(t, githubCalls.Load(), "research must not read connected-account GitHub data")
+		} else {
+			require.EqualValues(t, 6, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
+			require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
+		}
 	} else {
-		require.EqualValues(t, 6, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
-		require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
+		require.GreaterOrEqual(t, providerCalls.Load(), int32(2), "hosted search requires genuine tool continuation")
+		require.LessOrEqual(t, providerCalls.Load(), int32(6), "hosted research keeps the existing request ceiling")
+		require.Zero(t, githubCalls.Load(), "hosted public research must not read connected-account GitHub data")
 	}
 	beforeReplay := providerCalls.Load()
 	stop()
@@ -421,6 +436,9 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	}
 	if clientOnly {
 		admissionCount = 3
+	}
+	if hostedOnly {
+		admissionCount = 1
 	}
 	require.Len(t, admissions, admissionCount, "probes and replay must not reserve another owner turn")
 	for _, request := range admissions {

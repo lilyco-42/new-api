@@ -106,6 +106,16 @@ from exported artifacts and contains no authentication headers or credentials.
 The artifact marks `client_research_only=true`; a pass cannot clear the separate
 hosted public-search gate. Both lanes keep the original six-request ceiling.
 
+Choose `evaluation_kind=dsh-hosted-research` for independent hosted-search
+acceptance. It requires actual public Bing evidence, a sourced final answer,
+zero connected-account GitHub reads, restart replay without more inference,
+and account ledger reconciliation, under the unchanged six-request ceiling.
+It performs no browser search or URL/WASM phase. Its artifact explicitly marks
+`hosted_research_only=true` and `mobile_research_flow=false`. Both independent
+lanes must pass at the candidate revision; one cannot clear the other. The
+original combined lane remains available as a separate, stricter scenario;
+previous failures are not reclassified as successes.
+
 The hosted search observer exports only counts for empty RSS, invalid RSS,
 non-200 responses and repeated normalized queries at the same origin. Query
 identities remain in test-process memory, and unchanged responses still reach
