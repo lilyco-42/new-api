@@ -187,7 +187,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 				Role    string          `json:"role"`
 				Content json.RawMessage `json:"content"`
 			} `json:"messages"`
-			Tools    []json.RawMessage `json:"tools"`
+			Tools []json.RawMessage `json:"tools"`
 		}
 		if json.Unmarshal(body, &inference) != nil {
 			http.Error(w, "invalid model messages", http.StatusBadRequest)
