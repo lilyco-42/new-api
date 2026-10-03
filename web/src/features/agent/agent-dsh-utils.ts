@@ -23,7 +23,7 @@ export function hasAccountScopedNamespace(namespace: string): boolean {
 export function hasOtherPendingRequest(
   storageNamespace: string,
   currentRequestKey: string,
-  storage: Pick<Storage, 'length' | 'key'> | null
+  storage: Pick<Storage, 'length' | 'key' | 'getItem'> | null
 ): boolean {
   const prefix = `${storageNamespace}${DSH_REQUEST_KEY_SUFFIX}`
   const keys = new Set(
@@ -39,7 +39,18 @@ export function hasOtherPendingRequest(
       // In-memory request records are still enough when browser storage is blocked.
     }
   }
-  return [...keys].some((key) => key !== currentRequestKey)
+  return [...keys].some((key) => {
+    if (key === currentRequestKey) return false
+    let value = memoryStorage.get(key) ?? null
+    try {
+      value = storage?.getItem(key) ?? value
+    } catch {
+      // A blocked store can still retain the in-memory Stop record.
+    }
+    // Keep the stopped message's retry guard without resetting the conversation
+    // for a later message. Unknown or unstopped records retain recovery handling.
+    return parseRequestRecord(value)?.cancelRequested !== true
+  })
 }
 
 export async function fingerprintText(value: string): Promise<string> {
