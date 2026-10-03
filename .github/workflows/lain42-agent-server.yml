@@ -38,6 +38,7 @@ on:
           - continuity
           - grounding
           - workflow
+          - dsh-prototype
 
 permissions:
   contents: read
@@ -161,7 +162,7 @@ jobs:
           compression-level: 0
 
   evaluate:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluate_only && github.repository == 'lilyco-42/new-api' && github.ref == 'refs/heads/feat/agent-dsh-control-plane' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluate_only && inputs.evaluation_kind != 'dsh-prototype' && github.repository == 'lilyco-42/new-api' && github.ref == 'refs/heads/feat/agent-dsh-control-plane' }}
     name: Live model task continuity (limited scope)
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -227,4 +228,76 @@ jobs:
           name: agent-context-evaluation-${{ github.sha }}
           path: web/evaluation-results/*.json
           if-no-files-found: error
+          retention-days: 7
+
+  dsh-prototype:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluate_only && inputs.evaluation_kind == 'dsh-prototype' && github.repository == 'lilyco-42/new-api' && github.ref == 'refs/heads/feat/agent-dsh-control-plane' }}
+    name: Actual DSH and New API with bounded trial inference
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GOWORK: 'off'
+      DSH_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exact New API candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require the dedicated authorized prototype key
+        env:
+          PROTOTYPE_KEY: ${{ secrets.LAIN42_PROTOTYPE_NVIDIA_KEY }}
+        shell: bash
+        run: |
+          if [[ "$PROTOTYPE_KEY" != nvapi-* ]]; then
+            echo '::error::The authorized NVIDIA prototype credential is missing. This gate does not skip or fall back to a paid provider.'
+            exit 1
+          fi
+      - name: Checkout supported pinned DSH
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: lilyco-42/deepseek-harness
+          ref: 8c46372eca41f7a55efb2006013ebb1987827052
+          path: .ci-dsh
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - name: Set up DSH package manager
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: .ci-dsh/package.json
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .ci-dsh/pnpm-lock.yaml
+      - name: Install native compiler
+        run: sudo apt-get update -qq && sudo apt-get install -y musl-tools
+      - name: Build the immutable actual DSH runtime
+        working-directory: .ci-dsh
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: Create server embed placeholder (no browser claim in this lane)
+        run: |
+          mkdir -p web/dist
+          touch web/dist/index.html
+      - name: Check prototype formatting
+        run: test -z "$(gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go)"
+      - name: Verify real inference, Issue continuation, context, attachment, replay and owner wallet
+        env:
+          LAIN42_PROTOTYPE_NVIDIA_KEY: ${{ secrets.LAIN42_PROTOTYPE_NVIDIA_KEY }}
+          LAIN42_COMPOSITION_DSH_ROOT: ${{ github.workspace }}/.ci-dsh
+          LAIN42_PROTOTYPE_EVIDENCE_DIR: ${{ runner.temp }}/lain42-prototype-evidence
+        run: go test -tags 'lain42composition lain42live' . -run '^TestLiveDSHNewAPIPrototype$' -count=1 -v -timeout=6m
+      - name: Save only whitelisted synthetic prototype evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: lain42-real-prototype-${{ github.sha }}
+          path: ${{ runner.temp }}/lain42-prototype-evidence/prototype.json
+          if-no-files-found: warn
           retention-days: 7

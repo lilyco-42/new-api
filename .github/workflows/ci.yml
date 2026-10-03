@@ -43,6 +43,9 @@ jobs:
       - name: Vet root module
         run: go vet ./...
 
+      - name: Compile and vet opt-in real-provider acceptance without making live requests
+        run: go vet -tags 'lain42composition lain42live' .
+
       - name: Vet relaykit independently
         working-directory: relaykit
         run: go vet ./...

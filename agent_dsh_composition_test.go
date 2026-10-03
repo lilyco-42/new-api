@@ -477,7 +477,7 @@ func (fixture compositionGitHubTransport) RoundTrip(request *http.Request) (*htt
 }
 
 // Start only the repository's supported built dsh profile, with a private home.
-func startCompositionDSH(t *testing.T, root, work, patch, controlPlane, secret string) (func(), string) {
+func startCompositionDSH(t *testing.T, root, work, patch, controlPlane, secret string, diagnostics ...io.Writer) (func(), string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	command := exec.CommandContext(ctx, "node", "--no-experimental-strip-types", filepath.Join(root, "apps/cli/lib/bin.js"),
@@ -488,9 +488,21 @@ func startCompositionDSH(t *testing.T, root, work, patch, controlPlane, secret s
 		"LAIN42_DSH_BRIDGE_SECRET="+secret, "LAIN42_AGENT_MODEL_RELAY_SECRET="+secret,
 		"LAIN42_AGENT_TOOL_RELAY_URL="+controlPlane+"/api/agent/bridge/v1/tool",
 		"HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=", "NODE_OPTIONS=", "NODE_PATH=", "TSX_TSCONFIG_PATH=")
+	// The optional prototype key belongs only to the test's upstream boundary;
+	// the DSH child must know only the synthetic model-relay credential.
+	filtered := command.Env[:0]
+	for _, value := range command.Env {
+		if !strings.HasPrefix(value, "LAIN42_PROTOTYPE_NVIDIA_KEY=") {
+			filtered = append(filtered, value)
+		}
+	}
+	command.Env = filtered
 	stdout, err := command.StdoutPipe()
 	require.NoError(t, err)
 	command.Stderr = os.Stderr
+	if len(diagnostics) > 0 {
+		command.Stderr = diagnostics[0]
+	}
 	require.NoError(t, command.Start())
 	done := make(chan error, 1)
 	ready := make(chan string, 1)
