@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -63,6 +65,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	var providerCalls, githubCalls atomic.Int32
 	var searchCalls atomic.Int32
 	var officialSearchSource atomic.Bool
+	searchObservation := &prototypeSearchObservation{queries: make(map[string]struct{})}
 	var denial atomic.Int32
 	passed := false
 	mobileBrowser := false
@@ -81,9 +84,13 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			"mobile_browser_emulation":      mobileBrowser,
 			"mobile_account_history_switch": mobileBrowser && !research, "foreign_turn_and_cancel_denied": mobileBrowser && !research,
 			"mobile_research_flow": mobileBrowser && research, "public_search_requests": searchCalls.Load(),
-			"client_research_only":            clientOnly,
-			"official_search_source_returned": officialSearchSource.Load(),
-			"external_attempts":               providerCalls.Load(), "github_reads": githubCalls.Load(),
+			"client_research_only":                  clientOnly,
+			"official_search_source_returned":       officialSearchSource.Load(),
+			"public_search_empty_rss_responses":     searchObservation.empty.Load(),
+			"public_search_invalid_rss_responses":   searchObservation.invalid.Load(),
+			"public_search_non_200_responses":       searchObservation.nonOK.Load(),
+			"public_search_repeated_origin_queries": searchObservation.repeated.Load(),
+			"external_attempts":                     providerCalls.Load(), "github_reads": githubCalls.Load(),
 			"upstream_denial_status": denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
 			"scope": scope}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
@@ -160,7 +167,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	http.DefaultTransport = compositionGitHubTransport{delegate: originalTransport, origin: github.URL}
 	if research {
 		t.Setenv("AGENT_WEB_SEARCH_URL", "")
-		http.DefaultTransport = prototypeResearchTransport{delegate: http.DefaultTransport, calls: &searchCalls, official: &officialSearchSource}
+		http.DefaultTransport = prototypeResearchTransport{delegate: http.DefaultTransport, calls: &searchCalls, official: &officialSearchSource, observation: searchObservation}
 	}
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 	// Keep the actual key only at this external test boundary. The application's
@@ -430,9 +437,18 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 
 // Observe real search responses without substituting data or exposing bodies.
 type prototypeResearchTransport struct {
-	delegate http.RoundTripper
-	calls    *atomic.Int32
-	official *atomic.Bool
+	delegate    http.RoundTripper
+	calls       *atomic.Int32
+	official    *atomic.Bool
+	observation *prototypeSearchObservation
+}
+
+// Only counts leave the test process. Query identities remain in memory, scoped
+// to the search origin so an ordinary cross-origin redirect is not a repeat.
+type prototypeSearchObservation struct {
+	empty, invalid, nonOK, repeated atomic.Int32
+	mu                              sync.Mutex
+	queries                         map[string]struct{}
 }
 
 func (observer prototypeResearchTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -443,6 +459,13 @@ func (observer prototypeResearchTransport) RoundTrip(request *http.Request) (*ht
 		return nil, fmt.Errorf("public search must not receive account credentials")
 	}
 	observer.calls.Add(1)
+	queryIdentity := request.URL.Hostname() + "\x00" + strings.ToLower(strings.Join(strings.Fields(request.URL.Query().Get("q")), " "))
+	observer.observation.mu.Lock()
+	if _, exists := observer.observation.queries[queryIdentity]; exists {
+		observer.observation.repeated.Add(1)
+	}
+	observer.observation.queries[queryIdentity] = struct{}{}
+	observer.observation.mu.Unlock()
 	response, err := observer.delegate.RoundTrip(request)
 	if err != nil {
 		return response, err
@@ -453,8 +476,29 @@ func (observer prototypeResearchTransport) RoundTrip(request *http.Request) (*ht
 		return nil, fmt.Errorf("search response unreadable or oversized")
 	}
 	response.Body = io.NopCloser(bytes.NewReader(body))
-	if response.StatusCode == http.StatusOK && bytes.Contains(body, []byte("https://github.com/ast-grep/ast-grep")) {
-		observer.official.Store(true)
+	if response.StatusCode != http.StatusOK {
+		observer.observation.nonOK.Add(1)
+		return response, nil
+	}
+	var feed struct {
+		XMLName xml.Name `xml:"rss"`
+		Channel struct {
+			Items []struct {
+				Link string `xml:"link"`
+			} `xml:"item"`
+		} `xml:"channel"`
+	}
+	if xml.Unmarshal(body, &feed) != nil {
+		observer.observation.invalid.Add(1)
+		return response, nil
+	}
+	if len(feed.Channel.Items) == 0 {
+		observer.observation.empty.Add(1)
+	}
+	for _, item := range feed.Channel.Items {
+		if strings.TrimRight(strings.TrimSpace(item.Link), "/") == "https://github.com/ast-grep/ast-grep" {
+			observer.official.Store(true)
+		}
 	}
 	return response, nil
 }

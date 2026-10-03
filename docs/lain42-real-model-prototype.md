@@ -106,6 +106,14 @@ from exported artifacts and contains no authentication headers or credentials.
 The artifact marks `client_research_only=true`; a pass cannot clear the separate
 hosted public-search gate. Both lanes keep the original six-request ceiling.
 
+The hosted search observer exports only counts for empty RSS, invalid RSS,
+non-200 responses and repeated normalized queries at the same origin. Query
+identities remain in test-process memory, and unchanged responses still reach
+the real tool. Cross-origin redirects are distinct observations. The official
+source check requires an actual RSS item link, not a substring in arbitrary
+HTML. These diagnostics distinguish failure classes without exporting prompts
+or response bodies; counts alone do not prove search relevance or model quality.
+
 ## Observed provider retirement and explicit repin
 
 The first prototype at e166229 / run 37094876969 used the local configured
