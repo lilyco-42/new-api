@@ -64,8 +64,8 @@ release gates.
 
 ## Bounded genuine-provider evaluation
 
-The opt-in Actions prototype uses the catalog-positive
-`moonshotai/kimi-k3` free development endpoint. Issue reading has
+The opt-in Actions prototype now evaluates the catalog-positive
+`z-ai/glm-5.3-flash` NVIDIA trial endpoint. Issue reading has
 `account-read`; public research has `public-only`; follow-up, ordinary chat and
 prepared attachments have `evidence-only`. The Issue scenario checks the actual
 model request contains no tools on those later turns and the admitted scopes
@@ -74,18 +74,18 @@ remain independent. A real mobile-emulated attachment must submit evidence-only.
 This changes only isolated acceptance configuration, not production channels.
 Six external attempts, 1024 output tokens, 64 KiB input, 2 MiB response and a
 50-second provider timeout remain the ceilings. No retries, new key or paid
-fallback are allowed. The official [Kimi K3 page](https://build.nvidia.com/moonshotai/kimi-k3)
-offers a free prototype endpoint; the [NVIDIA FAQ](https://docs.api.nvidia.com/nim/docs/product)
-distinguishes development/testing access from production entitlement. The current
-candidate still requires its own genuine-model Actions result. Synthetic GitHub
-fixtures cannot certify production OAuth, and Chromium emulation cannot certify
-physical Android.
+fallback are allowed. The official [GLM-5.3-Flash model card](https://build.nvidia.com/z-ai/glm-5-3-flash/modelcard)
+documents tool calling, and the [NVIDIA endpoint page](https://build.nvidia.com/z-ai/glm-5-3-flash/playground)
+identifies the trial endpoint. This is development evaluation only; NVIDIA's
+[product terms](https://docs.api.nvidia.com/nim/docs/product) distinguish
+development/testing access from production entitlement. This candidate still
+requires its own genuine-model Actions result. Synthetic GitHub fixtures cannot
+certify production OAuth, and Chromium emulation cannot certify physical Android.
 
 The latest Kimi K3 trial on New API head `65ae6ca` returned only punctuation
 (`!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`) on its first response: no GitHub fixture
 was read and no answer assertion passed. It was not a provider denial, and the
-unchanged Kimi request must not be retried. The metadata-only candidate list now
-also checks `z-ai/glm-5.3-flash` and `openai/gpt-oss-20b`, which their official
-NVIDIA pages list as free prototype endpoints. Catalog presence is only a
-prerequisite, not proof that this account can call them or that they support the
-production workload. Each would still need its own bounded Actions evaluation.
+unchanged Kimi request must not be retried. The metadata-only Actions catalog
+run `37190705449` found `z-ai/glm-5.3-flash` and `openai/gpt-oss-20b` present.
+This is catalog metadata only, not proof of account entitlement or workload
+suitability. GLM is the single next bounded candidate; gpt-oss remains untried.

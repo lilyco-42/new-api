@@ -34,7 +34,7 @@ import (
 
 // Catalog-positive free development endpoint, pinned for this isolated gate.
 // A successful trial does not establish production/commercial entitlement.
-const prototypeModel = "moonshotai/kimi-k3"
+const prototypeModel = "z-ai/glm-5.3-flash"
 
 // OpenAI-compatible adapters may emit modern tools or legacy functions. A
 // malformed definition field is not evidence that a model has no tools.
