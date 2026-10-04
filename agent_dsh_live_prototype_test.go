@@ -34,7 +34,7 @@ import (
 
 // Catalog-positive free development endpoint, pinned for this isolated gate.
 // A successful trial does not establish production/commercial entitlement.
-const prototypeModel = "nvidia/nemotron-3.5-lightning-30b-a3b"
+const prototypeModel = "moonshotai/kimi-k3"
 
 // OpenAI-compatible adapters may emit modern tools or legacy functions. A
 // malformed definition field is not evidence that a model has no tools.

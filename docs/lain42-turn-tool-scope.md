@@ -65,7 +65,7 @@ release gates.
 ## Bounded genuine-provider evaluation
 
 The opt-in Actions prototype uses the catalog-positive
-`nvidia/nemotron-3.5-lightning-30b-a3b` development endpoint. Issue reading has
+`moonshotai/kimi-k3` free development endpoint. Issue reading has
 `account-read`; public research has `public-only`; follow-up, ordinary chat and
 prepared attachments have `evidence-only`. The Issue scenario checks the actual
 model request contains no tools on those later turns and the admitted scopes
@@ -74,7 +74,7 @@ remain independent. A real mobile-emulated attachment must submit evidence-only.
 This changes only isolated acceptance configuration, not production channels.
 Six external attempts, 1024 output tokens, 64 KiB input, 2 MiB response and a
 50-second provider timeout remain the ceilings. No retries, new key or paid
-fallback are allowed. The official [model page](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b)
+fallback are allowed. The official [Kimi K3 page](https://build.nvidia.com/moonshotai/kimi-k3)
 offers a free prototype endpoint; the [NVIDIA FAQ](https://docs.api.nvidia.com/nim/docs/product)
 distinguishes development/testing access from production entitlement. The current
 candidate still requires its own genuine-model Actions result. Synthetic GitHub
