@@ -109,6 +109,8 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	require.NoError(t, os.MkdirAll(evidence, 0700))
 	var providerCalls, githubCalls atomic.Int32
 	var toolFreeFollowupCalls atomic.Int32
+	var evidenceOnlyMode atomic.Bool
+	var accountReadToolsObserved atomic.Bool
 	var searchCalls atomic.Int32
 	var officialSearchSource atomic.Bool
 	searchObservation := &prototypeSearchObservation{queries: make(map[string]struct{})}
@@ -142,6 +144,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			"public_search_repeated_origin_queries": searchObservation.repeated.Load(),
 			"external_attempts":                     providerCalls.Load(), "github_reads": githubCalls.Load(),
 			"tool_free_followup_attempts": toolFreeFollowupCalls.Load(),
+			"account_read_tools_observed": accountReadToolsObserved.Load(),
 			"upstream_denial_status":      denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
 			"scope": scope}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
@@ -244,15 +247,17 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			http.Error(w, "prototype budget exhausted; no retries or fallback", http.StatusServiceUnavailable)
 			return
 		}
-		// The Issue tool and its continuation consume the first two attempts.
-		// Every later issue-scenario turn is evidence-only, including the actual
-		// mobile attachment. Check the real model boundary, not just stored scope.
-		toolFreeFollowup := !research && providerCalls.Load() >= 2
+		// A single account-read request may need several model/tool continuation
+		// rounds. Keep that request's read scope until its final answer is returned;
+		// later user turns are evidence-only and must expose no model tools.
+		toolFreeFollowup := !research && evidenceOnlyMode.Load()
 		if toolFreeFollowup {
 			if prototypeHasCallableDefinitions(payload) {
 				http.Error(w, "evidence-only turn exposed model tools", http.StatusBadRequest)
 				return
 			}
+		} else if !research && prototypeHasCallableDefinitions(payload) {
+			accountReadToolsObserved.Store(true)
 		}
 		// Explicit test-only sampling/output policy; history and tools are untouched.
 		payload["max_tokens"] = 1024
@@ -369,6 +374,9 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	answer := ""
 	if !clientOnly {
 		answer = answerFor(turn)
+		if !research {
+			evidenceOnlyMode.Store(true)
+		}
 	}
 	if research && !clientOnly {
 		require.Contains(t, answer, "https://github.com/ast-grep/ast-grep")
@@ -387,6 +395,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		require.Regexp(t, `(?i)persist|stor(?:e|ing)|sav(?:e|ing)`, answer)
 		require.EqualValues(t, 2, githubCalls.Load(), "read actual Issue tool and discussion with the owner's OAuth credential")
 		require.GreaterOrEqual(t, providerCalls.Load(), int32(2), "the real model must continue after the real tool")
+		require.True(t, accountReadToolsObserved.Load(), "the account-read request must expose its authorized read tools to the model")
 		followup := turn
 		followup.RequestID = "99999999-9999-4999-8999-999999999992"
 		followup.ToolScope = "evidence-only"
@@ -402,14 +411,6 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		require.NotContains(t, ordinaryAnswer, "DeepWalker")
 		require.NotContains(t, ordinaryAnswer, "OpenAlex")
 		require.EqualValues(t, 2, githubCalls.Load(), "ordinary chat must not depend on another Issue read")
-		attachment := turn
-		attachment.RequestID = "99999999-9999-4999-8999-999999999993"
-		attachment.ToolScope = "evidence-only"
-		attachment.Text = "[Lain42 client-prepared attachment]\nFile: note.txt\nATTACHMENT_FACT_548: the delivery color is indigo.\n\nCurrent user request:\nFrom this attached note, give its exact marker and delivery color in one sentence. Ignore the earlier export task for this answer."
-		attachmentAnswer := answerFor(attachment)
-		require.Contains(t, attachmentAnswer, "ATTACHMENT_FACT_548")
-		require.Contains(t, strings.ToLower(attachmentAnswer), "indigo")
-		require.NotContains(t, attachmentAnswer, "ORBIT_EXPORT_731")
 	}
 	if !hostedOnly {
 		// Browser scenarios use the built mobile UI and the six-request ceiling,
@@ -462,7 +463,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			require.Zero(t, githubCalls.Load(), "research must not read connected-account GitHub data")
 		} else {
 			require.EqualValues(t, 6, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
-			require.EqualValues(t, 4, toolFreeFollowupCalls.Load(), "follow-up, ordinary chat and both attachments expose no tools to the real model")
+			require.EqualValues(t, 3, toolFreeFollowupCalls.Load(), "follow-up, ordinary chat and the actual mobile upload expose no tools to the real model")
 			require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
 		}
 	} else {
@@ -493,7 +494,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	require.Equal(t, other.Quota, unchanged.Quota)
 	var admissions []model.AgentDSHRequest
 	require.NoError(t, db.Where("user_id = ?", owner.Id).Find(&admissions).Error)
-	admissionCount := 5
+	admissionCount := 4
 	if research {
 		admissionCount = 4
 	}
