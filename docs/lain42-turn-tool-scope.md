@@ -80,3 +80,12 @@ distinguishes development/testing access from production entitlement. The curren
 candidate still requires its own genuine-model Actions result. Synthetic GitHub
 fixtures cannot certify production OAuth, and Chromium emulation cannot certify
 physical Android.
+
+The latest Kimi K3 trial on New API head `65ae6ca` returned only punctuation
+(`!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`) on its first response: no GitHub fixture
+was read and no answer assertion passed. It was not a provider denial, and the
+unchanged Kimi request must not be retried. The metadata-only candidate list now
+also checks `z-ai/glm-5.3-flash` and `openai/gpt-oss-20b`, which their official
+NVIDIA pages list as free prototype endpoints. Catalog presence is only a
+prerequisite, not proof that this account can call them or that they support the
+production workload. Each would still need its own bounded Actions evaluation.
