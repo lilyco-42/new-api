@@ -147,7 +147,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			"account_read_tools_observed": accountReadToolsObserved.Load(),
 			"upstream_denial_status":      max(denial.Load(), 0),
 			"upstream_transport_failure":  denial.Load() == -1,
-			"request_ceiling": 6, "output_token_ceiling": 1024,
+			"request_ceiling":             6, "output_token_ceiling": 1024,
 			"scope": scope}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
 		require.NoError(t, marshalErr)
