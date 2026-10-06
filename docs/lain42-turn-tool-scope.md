@@ -37,8 +37,9 @@ the relay payload version and exact identity. One-use nonces are unchanged.
 
 ## Integration gate
 
-The candidate pins DSH `5abc327fb1092d1f357975bb38efeb83910e7063`, whose full
-Actions run `37131875749` passed. It binds permission to the logged active prompt
+The candidate pins DSH `66d6a692715811f7abf90c17fa2d79f108bb9d74`. Its PR CI
+run `37472483983` and release/package/compatibility checks passed; live-provider
+E2E was skipped because credentials were unavailable. It binds permission to the logged active prompt
 and narrows both model-visible tools and dispatch. The browser now carries scope
 in a version-3 immutable retry snapshot and submits the saved scope on retries.
 Ordinary chat and prepared evidence (including explicit read-failure notices)
