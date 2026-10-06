@@ -455,6 +455,38 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 			return nil, "github_request_failed", "GitHub issue read failed; no issue content was confirmed."
 		}
 		return result, "", ""
+	case "github_issues_search":
+		if !agentDSHGitHubConnected(c.GetInt("id")) {
+			return nil, "github_not_connected", "Connect GitHub to search issues for this account."
+		}
+		var args agentDSHToolRepositoryArgs
+		if !decodeAgentDSHToolArgs(arguments, &args) {
+			return nil, "invalid_arguments", "The issue search arguments are invalid."
+		}
+		credential, _, err := model.GetAgentGitHubCredential(c.GetInt("id"))
+		if err != nil || credential == nil || !agentGitHubLoginPattern.MatchString(strings.TrimSpace(credential.Login)) {
+			return nil, "github_not_connected", "The connected GitHub account could not be verified."
+		}
+		login := strings.TrimSpace(credential.Login)
+		limit := boundAgentDSHToolLimit(args.Limit, 10, maxAgentGitHubItems)
+		query := url.Values{}
+		query.Set("q", "user:"+login+" is:issue is:open")
+		query.Set("sort", "updated")
+		query.Set("order", "desc")
+		query.Set("per_page", strconv.Itoa(limit))
+		var result struct {
+			TotalCount        int              `json:"total_count"`
+			IncompleteResults bool             `json:"incomplete_results"`
+			Items             []map[string]any `json:"items"`
+		}
+		if err := agentGitHubRequest(c, http.MethodGet, "https://api.github.com/search/issues?"+query.Encode(), nil, &result); err != nil {
+			return nil, "github_request_failed", "GitHub issue search failed; no issue content was confirmed."
+		}
+		return gin.H{
+			"login": login, "query": "user:" + login + " is:issue is:open",
+			"total_count": result.TotalCount, "incomplete_results": result.IncompleteResults,
+			"items": normalizeAgentGitHubActivity(result.Items, false),
+		}, "", ""
 	case "github_issues", "github_pull_requests":
 		if !agentDSHGitHubConnected(c.GetInt("id")) {
 			return nil, "github_not_connected", "Connect GitHub to use account repository tools."

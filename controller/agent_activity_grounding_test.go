@@ -176,6 +176,53 @@ func TestAgentDSHGitHubActivityUsesTheSameBodyContractAndAccountCredential(t *te
 	assert.Equal(t, requestsBefore, requestCount, "another account must not inherit the connected account's credential")
 }
 
+func TestAgentDSHGlobalIssueSearchUsesOnlyConnectedAccountAndReturnsIssueBody(t *testing.T) {
+	setupAgentDSHControllerTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.AgentGitHubCredential{}))
+	previousSecret := common.CryptoSecret
+	common.CryptoSecret = "isolated-dsh-issue-search-test-secret"
+	t.Cleanup(func() { common.CryptoSecret = previousSecret })
+	require.NoError(t, model.SaveAgentGitHubCredential(42, "provider-42", "lilyco-42", "repo", "account-42-token"))
+	previousTransport := http.DefaultTransport
+	requestCount := 0
+	http.DefaultTransport = agentGitHubRoundTripper(func(request *http.Request) (*http.Response, error) {
+		requestCount++
+		assert.Equal(t, "/search/issues", request.URL.Path)
+		assert.Equal(t, "user:lilyco-42 is:issue is:open", request.URL.Query().Get("q"))
+		assert.Equal(t, "updated", request.URL.Query().Get("sort"))
+		assert.Equal(t, "desc", request.URL.Query().Get("order"))
+		assert.Equal(t, "3", request.URL.Query().Get("per_page"))
+		assert.Equal(t, "Bearer account-42-token", request.Header.Get("Authorization"))
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{
+		"total_count":1,"incomplete_results":false,"items":[
+			{"number":17,"title":"Restore batch after reconnect","html_url":"https://github.com/lilyco-42/rembg-ui/issues/17","repository_url":"https://api.github.com/repos/lilyco-42/rembg-ui","body":"The batch disappears after reconnect.","state":"open"}
+		]}`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/agent/dsh/tools", nil)
+	c.Set("id", 42)
+	result, code, message := executeAgentDSHTool(c, "github_issues_search", map[string]any{"limit": 3})
+	require.Empty(t, code, message)
+	data, ok := result.(gin.H)
+	require.True(t, ok)
+	assert.Equal(t, "lilyco-42", data["login"])
+	assert.Equal(t, 1, data["total_count"])
+	items, ok := data["items"].([]agentGitHubActivity)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	assert.Equal(t, "lilyco-42/rembg-ui", items[0].Repository)
+	assert.Equal(t, "The batch disappears after reconnect.", items[0].Body)
+	assert.Equal(t, 1, requestCount)
+
+	unauthorized, _ := gin.CreateTestContext(httptest.NewRecorder())
+	unauthorized.Request = httptest.NewRequest(http.MethodPost, "/api/agent/dsh/tools", nil)
+	unauthorized.Set("id", 43)
+	_, code, _ = executeAgentDSHTool(unauthorized, "github_issues_search", map[string]any{"limit": 3})
+	assert.Equal(t, "github_not_connected", code)
+	assert.Equal(t, 1, requestCount, "a different account must not reuse the connected account identity or token")
+}
+
 func TestAgentGitHubActivityBoundsBodyWithoutBreakingUTF8(t *testing.T) {
 	previousTransport := http.DefaultTransport
 	body := strings.Repeat("修复", 3000)
