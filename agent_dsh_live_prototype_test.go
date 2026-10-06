@@ -34,7 +34,7 @@ import (
 
 // Catalog-positive free development endpoint, pinned for this isolated gate.
 // A successful trial does not establish production/commercial entitlement.
-const prototypeModel = "z-ai/glm-5.3-flash"
+const prototypeModel = "openai/gpt-oss-20b"
 
 // OpenAI-compatible adapters may emit modern tools or legacy functions. A
 // malformed definition field is not evidence that a model has no tools.
@@ -145,7 +145,9 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			"external_attempts":                     providerCalls.Load(), "github_reads": githubCalls.Load(),
 			"tool_free_followup_attempts": toolFreeFollowupCalls.Load(),
 			"account_read_tools_observed": accountReadToolsObserved.Load(),
-			"upstream_denial_status":      denial.Load(), "request_ceiling": 6, "output_token_ceiling": 1024,
+			"upstream_denial_status":      max(denial.Load(), 0),
+			"upstream_transport_failure":  denial.Load() == -1,
+			"request_ceiling": 6, "output_token_ceiling": 1024,
 			"scope": scope}
 		data, marshalErr := json.MarshalIndent(result, "", "  ")
 		require.NoError(t, marshalErr)
@@ -356,7 +358,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		RequestID: "99999999-9999-4999-8999-999999999991", ToolScope: "account-read", Text: "Read " + issueURL + " and its discussion. Summarize the current state, quote both diagnostic markers exactly, propose the discussed fix, and cite the Issue URL. Do not just report OAuth status."}
 	answerFor := func(request dto.AgentDSHTurnRequest) string {
 		status, body := post("/api/agent/dsh/turns", request)
-		require.Equal(t, http.StatusOK, status, "hosted turn failed; upstream denial status=%d", denial.Load())
+		require.Equal(t, http.StatusOK, status, "hosted turn failed; upstream HTTP denial=%d, transport failure=%t", max(denial.Load(), 0), denial.Load() == -1)
 		var response struct {
 			Success bool
 			Data    struct{ Answer string }

@@ -65,7 +65,7 @@ release gates.
 ## Bounded genuine-provider evaluation
 
 The opt-in Actions prototype now evaluates the catalog-positive
-`z-ai/glm-5.3-flash` NVIDIA trial endpoint. Issue reading has
+`openai/gpt-oss-20b` NVIDIA trial endpoint. Issue reading has
 `account-read`; public research has `public-only`; follow-up, ordinary chat and
 prepared attachments have `evidence-only`. The Issue scenario checks the actual
 model request contains no tools on those later turns and the admitted scopes
@@ -74,8 +74,8 @@ remain independent. A real mobile-emulated attachment must submit evidence-only.
 This changes only isolated acceptance configuration, not production channels.
 Six external attempts, 1024 output tokens, 64 KiB input, 2 MiB response and a
 50-second provider timeout remain the ceilings. No retries, new key or paid
-fallback are allowed. The official [GLM-5.3-Flash model card](https://build.nvidia.com/z-ai/glm-5-3-flash/modelcard)
-documents tool calling, and the [NVIDIA endpoint page](https://build.nvidia.com/z-ai/glm-5-3-flash/playground)
+fallback are allowed. The official [GPT-OSS-20B model card](https://build.nvidia.com/openai/gpt-oss-20b/modelcard)
+documents tool use and the [NVIDIA endpoint page](https://build.nvidia.com/openai/gpt-oss-20b/playground)
 identifies the trial endpoint. This is development evaluation only; NVIDIA's
 [product terms](https://docs.api.nvidia.com/nim/docs/product) distinguish
 development/testing access from production entitlement. This candidate still
@@ -87,5 +87,8 @@ The latest Kimi K3 trial on New API head `65ae6ca` returned only punctuation
 was read and no answer assertion passed. It was not a provider denial, and the
 unchanged Kimi request must not be retried. The metadata-only Actions catalog
 run `37190705449` found `z-ai/glm-5.3-flash` and `openai/gpt-oss-20b` present.
-This is catalog metadata only, not proof of account entitlement or workload
-suitability. GLM is the single next bounded candidate; gpt-oss remains untried.
+GLM's only trial `37424316857` failed at the transport layer before a model
+answer or GitHub read; artifact `11394940750` records one attempt and no HTTP
+denial. The sanitized harness now reports transport failure separately from
+provider HTTP status. GPT-OSS-20B is the next distinct bounded candidate; its
+catalog presence is not entitlement or acceptance proof.
