@@ -59,6 +59,8 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	const unlinkedIssueAnswer = "No issue content was read for this account. Connect GitHub on this website; local gh login and a paired device are not required."
 	const accountIssueFollowUp = "What should I persist for the issue you just read?"
 	const accountIssueFollowUpAnswer = "Persist the completed item IDs in the batch manifest from Issue #17. Source: " + accountIssueURL
+	const accountCodePrefix = "fn resume_batch() { /* SOURCE_CODE_FACT_17: completed IDs kept in memory only */ }\n// "
+	accountCodeText := accountCodePrefix + strings.Repeat("<", 64*1024-len(accountCodePrefix))
 	common.IsMasterNode = true
 	common.SQLitePath = filepath.Join(t.TempDir(), "composition.db")
 	t.Setenv("SQL_DSN", "local")
@@ -157,9 +159,8 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 				http.Error(w, "repository source was not pinned to the resolved commit", http.StatusBadRequest)
 				return
 			}
-			code := "fn resume_batch() { /* SOURCE_CODE_FACT_17: completed IDs kept in memory only */ }"
 			encoded, encodeErr := common.Marshal(map[string]any{"type": "file", "path": "src/batch.rs", "sha": accountCommit,
-				"size": len(code), "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(code))})
+				"size": len(accountCodeText), "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(accountCodeText))})
 			if encodeErr != nil {
 				http.Error(w, "repository source fixture could not be encoded", http.StatusInternalServerError)
 				return

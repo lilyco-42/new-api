@@ -190,7 +190,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: lilyco-42/deepseek-harness
-          ref: eec378500f71cdaa3559a299239f9ec8098e49ab
+          ref: 3f5ed100f28f863f351611703ba53053248ab41b
           path: .ci-dsh
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0

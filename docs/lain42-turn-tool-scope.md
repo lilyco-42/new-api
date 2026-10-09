@@ -38,7 +38,7 @@ the relay payload version and exact identity. One-use nonces are unchanged.
 ## Integration gate
 
 The repository-content candidate pins DSH
-`eec378500f71cdaa3559a299239f9ec8098e49ab`; its new checks have not yet run.
+`3f5ed100f28f863f351611703ba53053248ab41b`; its new checks have not yet run.
 Predecessor `66d6a692715811f7abf90c17fa2d79f108bb9d74` passed PR CI
 `37472483983` and release/package/compatibility checks; live-provider E2E was
 skipped because credentials were unavailable. Those results do not validate the
@@ -76,6 +76,13 @@ before its final answer includes both Issue and code URLs. This read accepts an
 optional ref and a repository-relative file or directory path. It returns at most
 64 KiB of UTF-8 file text or 40 directory entries; discovery metadata is not file
 content. Subsequent reads should reuse the resolved commit to avoid branch drift.
+The complete repository-content relay response is bounded at 512 KiB to allow
+JSON escaping of the supported text size; other tools remain at 256 KiB. The
+composition serves a 64 KiB file with escape-heavy text to exercise that wire
+path, rather than relying only on a small JS-encoded fixture. DSH cancels a body
+whose declared or streamed size exceeds its operation's limit and exposes no
+partial result. These new checks remain unexecuted until Actions admits this
+candidate.
 The relay rejects traversal, unsupported content and redirects without following
 download URLs. It uses the admitted account's OAuth credential, never a paired
 device or another user's token. Public-only and evidence-only scopes deny this
