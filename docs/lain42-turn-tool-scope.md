@@ -63,6 +63,18 @@ public-source, later account-read, cancellation/restart and account-isolation
 checks in Actions. Production OAuth and commercial model capacity remain separate
 release gates.
 
+The composition lane also exercises an account-read request with no supplied
+repository or Issue number. The built DSH runtime must call
+`lain42_github_issues_search`, select a returned `owner/name` and number, call
+`lain42_github_issue`, and receive both its detail and discussion before producing
+an answer with the source URL. A second account without a GitHub connection must
+receive an honest connection notice without reading the first account's data.
+Both completed outcomes must replay after a runtime restart without new model
+requests, GitHub reads or charges. An evidence-only follow-up uses the restored
+answer and cannot reopen account tools. External GitHub and model responses in
+this lane remain fixtures; passing it does not prove real-model tool selection,
+production OAuth or real-device mobile usability.
+
 ## Bounded genuine-provider evaluation
 
 The opt-in Actions prototype now evaluates the catalog-positive
