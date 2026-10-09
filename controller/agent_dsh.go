@@ -438,6 +438,27 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 			return nil, "github_request_failed", "GitHub repository search failed."
 		}
 		return gin.H{"items": result.Items, "query": query}, "", ""
+	case "github_content":
+		if !agentDSHGitHubConnected(c.GetInt("id")) {
+			return nil, "github_not_connected", "Connect GitHub in this website account to read repository files."
+		}
+		var args struct {
+			Repo string `json:"repo"`
+			Path string `json:"path"`
+			Ref  string `json:"ref"`
+		}
+		if !decodeAgentDSHToolArgs(arguments, &args) || !service.ValidAgentRepositoryContentTarget(args.Repo, args.Path, args.Ref) {
+			return nil, "invalid_arguments", "Provide owner/name, a repository-relative path, and an optional ref."
+		}
+		_, token, err := model.GetAgentGitHubCredential(c.GetInt("id"))
+		if err != nil || token == "" {
+			return nil, "github_not_connected", "GitHub authorization is unavailable for this account."
+		}
+		result, err := service.ReadAgentRepositoryContent(c.Request.Context(), args.Repo, args.Path, args.Ref, token)
+		if err != nil {
+			return nil, "github_content_unavailable", "The repository content could not be verified. No file content was confirmed."
+		}
+		return result, "", ""
 	case "github_issue":
 		if !agentDSHGitHubConnected(c.GetInt("id")) {
 			return nil, "github_not_connected", "Connect GitHub to use account issue tools."

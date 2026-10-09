@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,7 +53,9 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	const recoveryAnswer = "The original task completed after its observer disconnected."
 	const accountIssuesPrompt = "Read the recent open issues in my GitHub repositories and propose a fix."
 	const accountIssueURL = "https://github.com/owner/project/issues/17"
-	const accountIssueAnswer = "Issue #17 loses completed item IDs on refresh. Persist the manifest after each completed item and restore it before retrying. Source: " + accountIssueURL + ". No comment or repository change was published."
+	const accountCommit = "0123456789012345678901234567890123456789"
+	const accountCodeURL = "https://github.com/owner/project/blob/" + accountCommit + "/src/batch.rs"
+	const accountIssueAnswer = "Issue #17 loses completed item IDs on refresh. The read code keeps them only in memory. Persist the manifest after each completed item and restore it before retrying. Sources: " + accountIssueURL + " and " + accountCodeURL + ". No comment or repository change was published."
 	const unlinkedIssueAnswer = "No issue content was read for this account. Connect GitHub on this website; local gh login and a paired device are not required."
 	const accountIssueFollowUp = "What should I persist for the issue you just read?"
 	const accountIssueFollowUpAnswer = "Persist the completed item IDs in the batch manifest from Issue #17. Source: " + accountIssueURL
@@ -143,6 +146,25 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 			_, _ = io.WriteString(w, `{"number":17,"state":"open","title":"Browser batch recovery","body":"DETAIL_ISSUE_FACT_17: only completed item IDs belong in the durable batch manifest.","comments":1,"html_url":"`+accountIssueURL+`"}`)
 		case "/repos/owner/project/issues/17/comments":
 			_, _ = io.WriteString(w, `[{"body":"DISCUSSION_ISSUE_FACT_17: restore the saved manifest before retrying.","user":{"login":"maintainer"}}]`)
+		case "/repos/owner/project/commits":
+			if r.URL.Query().Get("sha") != "main" || r.URL.Query().Get("per_page") != "1" {
+				http.Error(w, "repository ref was not resolved with a bounded commit query", http.StatusBadRequest)
+				return
+			}
+			_, _ = io.WriteString(w, `[{"sha":"`+accountCommit+`"}]`)
+		case "/repos/owner/project/contents/src/batch.rs":
+			if r.URL.Query().Get("ref") != accountCommit {
+				http.Error(w, "repository source was not pinned to the resolved commit", http.StatusBadRequest)
+				return
+			}
+			code := "fn resume_batch() { /* SOURCE_CODE_FACT_17: completed IDs kept in memory only */ }"
+			encoded, encodeErr := common.Marshal(map[string]any{"type": "file", "path": "src/batch.rs", "sha": accountCommit,
+				"size": len(code), "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(code))})
+			if encodeErr != nil {
+				http.Error(w, "repository source fixture could not be encoded", http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write(encoded)
 		default:
 			http.Error(w, "unexpected GitHub resource", http.StatusNotFound)
 		}
@@ -276,7 +298,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 				}
 			case 1:
 				if strings.Contains(toolResults[0], "github_not_connected") {
-					if strings.Contains(string(body), "BROWSER_ISSUE_FACT_17") || strings.Contains(string(body), "DETAIL_ISSUE_FACT_17") || strings.Contains(string(body), accountIssueAnswer) {
+					if strings.Contains(string(body), "BROWSER_ISSUE_FACT_17") || strings.Contains(string(body), "DETAIL_ISSUE_FACT_17") || strings.Contains(string(body), "SOURCE_CODE_FACT_17") || strings.Contains(string(body), accountIssueAnswer) {
 						http.Error(w, "unlinked account inherited another account's Issue evidence", http.StatusBadRequest)
 						return
 					}
@@ -291,6 +313,12 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 			case 2:
 				if !strings.Contains(toolResults[1], "DETAIL_ISSUE_FACT_17") || !strings.Contains(toolResults[1], "DISCUSSION_ISSUE_FACT_17") || !strings.Contains(toolResults[1], accountIssueURL) {
 					http.Error(w, "selected Issue detail and discussion did not reach final inference", http.StatusBadRequest)
+					return
+				}
+				toolName, toolID, arguments = "lain42_github_content", "read-account-code-17", `{"repo":"owner/project","path":"src/batch.rs","ref":"main"}`
+			case 3:
+				if !strings.Contains(toolResults[2], "SOURCE_CODE_FACT_17") || !strings.Contains(toolResults[2], accountCodeURL) || !strings.Contains(toolResults[2], accountCommit) {
+					http.Error(w, "commit-pinned repository code did not reach final inference", http.StatusBadRequest)
 					return
 				}
 				delta = map[string]any{"role": "assistant", "content": accountIssueAnswer}
@@ -591,7 +619,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 	require.NoError(t, db.First(&imageOwner, owner.Id).Error)
 	require.Equal(t, owner.Quota-9*40, imageOwner.Quota, "scoped image replay is charged only once")
 	// No repository or Issue number is supplied by the caller. The actual DSH
-	// loop must search the account, select the returned Issue, read its discussion,
+	// loop must search the account, select the returned Issue, read its discussion and code,
 	// and continue with an answer. The other account has no linked credential.
 	accountIssueSession, unlinkedIssueSession := create(tokenA), create(tokenB)
 	accountIssueTurn := dto.AgentDSHTurnRequest{SessionID: accountIssueSession,
@@ -610,9 +638,9 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		require.Contains(t, body, turn.answer)
 		require.NotContains(t, body, "synthetic-owner-github-token")
 	}
-	require.EqualValues(t, 22, providerCalls.Load(), "account search and detail need three inferences; honest unlinked recovery needs two")
+	require.EqualValues(t, 23, providerCalls.Load(), "account search, detail and code need four inferences; honest unlinked recovery needs two")
 	require.EqualValues(t, 2, accountIssueSearchCalls.Load(), "only the owner can perform browser-prepared and model-driven Issue searches")
-	require.EqualValues(t, 6, githubCalls.Load(), "model-driven search, detail and discussion must use only the linked account")
+	require.EqualValues(t, 8, githubCalls.Load(), "model-driven search, detail, discussion and pinned code must use only the linked account")
 	status, body = post(tokenB, "/api/agent/dsh/turns", accountIssueTurn)
 	require.Equal(t, http.StatusNotFound, status, body)
 	stop()
@@ -623,20 +651,20 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, body)
 		require.Contains(t, body, turn.answer)
 	}
-	require.EqualValues(t, 22, providerCalls.Load(), "both account outcomes must replay after runtime restart without inference")
-	require.EqualValues(t, 6, githubCalls.Load(), "durable replay and foreign access must not repeat account reads")
+	require.EqualValues(t, 23, providerCalls.Load(), "both account outcomes must replay after runtime restart without inference")
+	require.EqualValues(t, 8, githubCalls.Load(), "durable replay and foreign access must not repeat account reads")
 	issueFollowUp := dto.AgentDSHTurnRequest{SessionID: accountIssueSession,
 		RequestID: "88888888-8888-4888-8888-888888888888", Model: turnA.Model,
 		Text: accountIssueFollowUp, ToolScope: "evidence-only"}
 	status, body = post(tokenA, "/api/agent/dsh/turns", issueFollowUp)
 	require.Equal(t, http.StatusOK, status, body)
 	require.Contains(t, body, accountIssueFollowUpAnswer)
-	require.EqualValues(t, 23, providerCalls.Load(), "a follow-up must use the recovered Issue context once")
-	require.EqualValues(t, 6, githubCalls.Load(), "an evidence-only follow-up must not search account data again")
+	require.EqualValues(t, 24, providerCalls.Load(), "a follow-up must use the recovered Issue context once")
+	require.EqualValues(t, 8, githubCalls.Load(), "an evidence-only follow-up must not search account data again")
 	for _, account := range []struct {
 		user  model.User
 		calls int
-	}{{owner, 13}, {other, 8}} {
+	}{{owner, 14}, {other, 8}} {
 		var updated model.User
 		require.NoError(t, db.First(&updated, account.user.Id).Error)
 		require.Equal(t, account.user.Quota-account.calls*40, updated.Quota)

@@ -37,9 +37,12 @@ the relay payload version and exact identity. One-use nonces are unchanged.
 
 ## Integration gate
 
-The candidate pins DSH `66d6a692715811f7abf90c17fa2d79f108bb9d74`. Its PR CI
-run `37472483983` and release/package/compatibility checks passed; live-provider
-E2E was skipped because credentials were unavailable. It binds permission to the logged active prompt
+The repository-content candidate pins DSH
+`eec378500f71cdaa3559a299239f9ec8098e49ab`; its new checks have not yet run.
+Predecessor `66d6a692715811f7abf90c17fa2d79f108bb9d74` passed PR CI
+`37472483983` and release/package/compatibility checks; live-provider E2E was
+skipped because credentials were unavailable. Those results do not validate the
+new candidate. The scoped relay binds permission to the logged active prompt
 and narrows both model-visible tools and dispatch. The browser now carries scope
 in a version-3 immutable retry snapshot and submits the saved scope on retries.
 Ordinary chat and prepared evidence (including explicit read-failure notices)
@@ -67,7 +70,17 @@ The composition lane also exercises an account-read request with no supplied
 repository or Issue number. The built DSH runtime must call
 `lain42_github_issues_search`, select a returned `owner/name` and number, call
 `lain42_github_issue`, and receive both its detail and discussion before producing
-an answer with the source URL. A second account without a GitHub connection must
+an answer with the source URL. The candidate extends that loop with
+`lain42_github_content`: related source must reach the model at a resolved commit
+before its final answer includes both Issue and code URLs. This read accepts an
+optional ref and a repository-relative file or directory path. It returns at most
+64 KiB of UTF-8 file text or 40 directory entries; discovery metadata is not file
+content. Subsequent reads should reuse the resolved commit to avoid branch drift.
+The relay rejects traversal, unsupported content and redirects without following
+download URLs. It uses the admitted account's OAuth credential, never a paired
+device or another user's token. Public-only and evidence-only scopes deny this
+account read before upstream HTTP. The tool does not modify files or publish a PR.
+A second account without a GitHub connection must
 receive an honest connection notice without reading the first account's data.
 Both completed outcomes must replay after a runtime restart without new model
 requests, GitHub reads or charges. An evidence-only follow-up uses the restored
