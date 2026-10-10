@@ -417,6 +417,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	if !hostedOnly {
 		// Browser scenarios use the built mobile UI and the six-request ceiling,
 		// without mocked auth, website API, final answer or browser storage state.
+		beforeBrowser := providerCalls.Load()
 		scriptName := "scripts/lain42-live-browser-acceptance.mjs"
 		if research {
 			scriptName = "scripts/lain42-live-research-acceptance.mjs"
@@ -464,7 +465,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			require.LessOrEqual(t, providerCalls.Load(), int32(6), "research keeps the existing request ceiling")
 			require.Zero(t, githubCalls.Load(), "research must not read connected-account GitHub data")
 		} else {
-			require.EqualValues(t, 6, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
+			require.Equal(t, beforeBrowser+1, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
 			require.EqualValues(t, 3, toolFreeFollowupCalls.Load(), "follow-up, ordinary chat and the actual mobile upload expose no tools to the real model")
 			require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
 		}
