@@ -138,10 +138,10 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			scope = "Independent hosted public repository-index search/tool continuation + actual New API/DSH/trial inference, restart replay and wallet; synthetic accounts; does not certify general Bing relevance, browser search, WASM, mobile or production OAuth"
 		}
 		result := map[string]any{"passed": passed && !t.Failed(), "model": prototypeModel,
-			"account_issue_discovery_requested":     accountIssues,
-			"account_issue_searches":                accountIssueSearches.Load(),
-			"mobile_browser_emulation":      mobileBrowser,
-			"mobile_account_history_switch": mobileBrowser && !research, "foreign_turn_and_cancel_denied": mobileBrowser && !research,
+			"account_issue_discovery_requested": accountIssues,
+			"account_issue_searches":            accountIssueSearches.Load(),
+			"mobile_browser_emulation":          mobileBrowser,
+			"mobile_account_history_switch":     mobileBrowser && !research, "foreign_turn_and_cancel_denied": mobileBrowser && !research,
 			"mobile_research_flow": mobileBrowser && research, "public_search_requests": searchCalls.Load(),
 			"client_research_only":                  clientOnly,
 			"hosted_research_only":                  hostedOnly,
