@@ -32,9 +32,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Catalog-positive free development endpoint, pinned for this isolated gate.
+// Officially available free development endpoint, pinned for this isolated gate.
 // A successful trial does not establish production/commercial entitlement.
-const prototypeModel = "openai/gpt-oss-20b"
+const prototypeModel = "nvidia/nemotron-3-super-120b-a12b"
 
 // OpenAI-compatible adapters may emit modern tools or legacy functions. A
 // malformed definition field is not evidence that a model has no tools.

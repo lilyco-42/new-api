@@ -4,7 +4,7 @@ Run the existing **Build Lain42 Agent Server** workflow on
 `feat/agent-dsh-control-plane` with `evaluate_only=true` and
 `evaluation_kind=dsh-prototype`. It does not package or deploy a server.
 The gate accepts only this branch of the `lilyco-42/new-api` fork. It checks out
-the triggering New API SHA and DSH `8c46372eca41f7a55efb2006013ebb1987827052`.
+the triggering New API SHA and DSH `3f5ed100f28f863f351611703ba53053248ab41b`.
 
 The dedicated `LAIN42_PROTOTYPE_NVIDIA_KEY` Actions secret must contain the
 owner's authorized NVIDIA developer API credential. It is available only to
@@ -29,9 +29,6 @@ Required outcomes:
 - Answer a contextual follow-up in the same session.
 - Answer a new ordinary DeepSeek question as company/model information rather
   than returning the prior Issue or fabricated DeepWalker/OpenAlex definition.
-- Answer the latest client-prepared text attachment instruction without replacing
-  it with the earlier export task. The existing browser fixture gate separately
-  tests actual file selection and client attachment conversion.
 - Log in through the built frontend on a Pixel 7 Chromium viewport, choose a
   synthetic text file, receive the real model's file facts in the assistant
   message, and retain that answer after reload without another inference. This
@@ -50,18 +47,18 @@ Required outcomes:
 The artifact contains whitelisted outcome/count/scope fields and screenshots of
 the declared synthetic mobile conversation and empty B history. It omits keys, raw network inputs/
 outputs, runtime logs, cookies and traces. Provider denial
-stops external requests and leaves a failed gate with its HTTP status (or `-1`
-for a transport failure). A successful run proves this bounded prototype;
+stops external requests and leaves a failed gate with its HTTP status and a
+separate transport-failure flag. A successful run proves this bounded prototype;
 it does not prove production OAuth, physical Android, all-resource user isolation,
 partial-output cancellation billing or commercial supply eligibility.
 
 NVIDIA developer service eligibility is for prototyping/testing, with separate
 production requirements. A model license or catalog listing does not establish
-free commercial API capacity. Sources checked on 2026-10-03:
+free commercial API capacity. Sources checked on 2026-10-10:
 
 - [NIM account and production FAQ](https://docs.api.nvidia.com/nim/docs/product)
-- [Model service terms and metadata](https://docs.api.nvidia.com/nim/reference/deepseek-ai-deepseek-v4-flash-0731)
-- [Chat API](https://docs.api.nvidia.com/nim/reference/deepseek-ai-deepseek-v4-flash-infer)
+- [Current free prototype availability](https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b)
+- [Chat API](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-super-120b-a12b-infer)
 
 ## Independent public research scenario
 
@@ -137,10 +134,28 @@ presence alone still does not prove inference, tools or production eligibility.
 
 Use `evaluation_kind=prototype-catalog` to repeat only this bounded metadata
 diagnostic; it performs one GET, never inference, redirects or raw key logging.
-It saves only three fixed candidate-presence booleans and a status. A catalog
+It saves only fixed candidate-presence booleans and a status. A catalog
 failure is unavailable evidence, not proof that a model is gone.
 
 Current model references:
 
-- [Official prototype endpoint](https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b?nim=self-hosted)
+- [Official prototype endpoint](https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b)
 - [Official thinking toggle](https://docs.nvidia.com/nim/large-language-models/2.0.4/turbo/get-started-nemotron-3-super-120b-a12b.html)
+
+## Current trial candidate — 2026-10-10
+
+The preceding `openai/gpt-oss-20b` candidate reached an Issue-derived answer but
+failed the ordinary DeepSeek factual assertion in run `37437299340`. That failure
+is retained; the assertion and scopes are not weakened. The isolated trial now
+pins Nemotron 3 Super, whose official page currently lists its free prototype
+endpoint as available. This uses the existing authorized secret and the same
+six-call, 1024-token, input, response and timeout bounds; it does not change a
+production channel or introduce runtime fallback. Current request scopes and
+the pinned DSH runtime differ from the earlier successful Nemotron prototype,
+so the historical pass cannot certify this candidate.
+
+Only after the exact candidate's ordinary CI passes may one manual bounded
+trial run. Missing access, denial, transport failure or a quality failure stays
+failed, without an unchanged retry. GPT-OSS 120B is not selected: its official
+page currently marks the free endpoint deprecated despite an API reference
+still existing. No inference has yet validated this repin.
