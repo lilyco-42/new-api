@@ -122,20 +122,22 @@ func TestAgentIssueReadKeepsTheBodyButReportsFailedCommentReads(t *testing.T) {
 }
 
 func TestAgentIssueReadPreservesUpstreamAuthorizationAndNotFoundFailures(t *testing.T) {
-	setupAgentIssueReadTest(t)
-	previousTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = previousTransport })
 	for _, status := range []int{http.StatusUnauthorized, http.StatusNotFound} {
-		http.DefaultTransport = agentGitHubRoundTripper(func(*http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			setupAgentIssueReadTest(t)
+			previousTransport := http.DefaultTransport
+			t.Cleanup(func() { http.DefaultTransport = previousTransport })
+			http.DefaultTransport = agentGitHubRoundTripper(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+			})
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/agent/github/issue?repo=owner/project&number=2", nil)
+			c.Set("id", 42)
+			AgentGitHubIssueRead(c)
+			assert.Equal(t, status, recorder.Code)
+			assert.NotContains(t, recorder.Body.String(), `"items"`)
 		})
-		recorder := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(recorder)
-		c.Request = httptest.NewRequest(http.MethodGet, "/api/agent/github/issue?repo=owner/project&number=2", nil)
-		c.Set("id", 42)
-		AgentGitHubIssueRead(c)
-		assert.Equal(t, status, recorder.Code)
-		assert.NotContains(t, recorder.Body.String(), `"items"`)
 	}
 }
 
