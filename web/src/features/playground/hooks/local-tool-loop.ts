@@ -44,6 +44,19 @@ function availableTools(
   return provider.availableTools?.(messages) ?? provider.tools
 }
 
+function withoutExecutionTools(messages: ChatCompletionMessage[]): ChatCompletionMessage[] {
+  const updated = [...messages]
+  let latestUserIndex = -1
+  for (let index = updated.length - 1; index >= 0; index -= 1) {
+    if (updated[index]?.role === 'user') { latestUserIndex = index; break }
+  }
+  updated.splice(latestUserIndex < 0 ? updated.length : latestUserIndex, 0, {
+    role: 'system', name: 'lain42_runtime_capabilities',
+    content: 'Runtime capability record: no execution tools are available for additional actions in this inference request. You cannot independently open other repository files, fetch more logs, run a command or change anything. Platform-prepared evidence and executor observations may already contain files or logs that Lain42 actually retrieved before this inference. Use those supplied materials and accurately acknowledge the recorded reads; do not say that no file was read when a retrieved file is supplied. Assistant prose alone is not execution proof. If evidence is missing, identify what is missing. Do not invent files, inspected contents, execution steps or successful actions.',
+  })
+  return updated
+}
+
 function unavailableToolResult(): string {
   return JSON.stringify({
     error:
@@ -80,6 +93,17 @@ function stableJson(value: unknown): string {
       .join(',')}}`
   }
   return JSON.stringify(value) ?? 'null'
+}
+
+function webFetchSignature(args: Record<string, unknown>): string {
+  if (typeof args.url !== 'string') return stableJson(args)
+  try {
+    const url = new URL(args.url)
+    url.hash = ''
+    return stableJson({ url: url.toString() })
+  } catch {
+    return stableJson(args)
+  }
 }
 
 function formatGitHubRepositoryList(result: string): string | null {
@@ -175,7 +199,7 @@ function formatBrowserSearchResults(result: string): string | null {
       }
       if (url.protocol !== 'https:' || url.username || url.password) continue
 
-      const title = item.title.trim().slice(0, 240).replace(/[\[\]\\]/gu, '\\$&')
+      const title = item.title.trim().slice(0, 240).replaceAll(/[\[\]\\]/gu, '\\$&')
       if (!title) continue
       const source =
         typeof item.source === 'string' ? item.source.trim().slice(0, 60) : ''
@@ -393,7 +417,7 @@ function parseTextWebSearchToolCall(
   const trimmed = content.trim()
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/iu)
   const serialized = (fenced?.[1] ?? trimmed)
-    .replace(/[“”]/gu, '"')
+    .replaceAll(/[“”]/gu, '"')
     .replaceAll('：', ':')
   let parsed: unknown
   try {
@@ -433,12 +457,9 @@ function parseTextWebSearchToolCall(
 
   const args: Record<string, unknown> = { query: query.trim() }
   if (raw.limit !== undefined) {
-    const limit =
-      typeof raw.limit === 'number'
-        ? raw.limit
-        : typeof raw.limit === 'string' && /^\d+$/u.test(raw.limit.trim())
-          ? Number(raw.limit)
-          : Number.NaN
+    let limit = Number.NaN
+    if (typeof raw.limit === 'number') limit = raw.limit
+    else if (typeof raw.limit === 'string' && /^\d+$/u.test(raw.limit.trim())) limit = Number(raw.limit)
     if (!Number.isSafeInteger(limit)) return null
     args.limit = Math.max(1, Math.min(8, limit))
   }
@@ -446,7 +467,7 @@ function parseTextWebSearchToolCall(
   const rawScope = raw.scope ?? raw.source
   if (rawScope !== undefined) {
     if (typeof rawScope !== 'string') return null
-    const scope = rawScope.trim().toLocaleLowerCase().replace(/[ _-]+/gu, '')
+    const scope = rawScope.trim().toLocaleLowerCase().replaceAll(/[ _-]+/gu, '')
     const normalizedScope: Record<string, string> = {
       auto: 'auto',
       github: 'github',
@@ -496,7 +517,10 @@ export async function runLocalToolLoop(
   )
   assertSignal(signal)
   if (beforeModelResponse) return beforeModelResponse
-  if (!provider.isAvailable()) return request(initialPayload, signal)
+  if (!provider.isAvailable()) {
+    return request({ ...initialPayload, messages: withoutExecutionTools(initialPayload.messages),
+      tools: [], tool_choice: undefined }, signal)
+  }
 
   const messages: ChatCompletionMessage[] = [...initialPayload.messages]
   const preparedContext = await provider.prepareContext?.(
@@ -529,7 +553,7 @@ export async function runLocalToolLoop(
     const response = await request(
       {
         ...initialPayload,
-        messages,
+        messages: withoutExecutionTools(messages),
         stream: false,
         tools: [],
         tool_choice: 'none',
@@ -589,6 +613,7 @@ export async function runLocalToolLoop(
   let totalCalls = 0
   const seenCallIds = new Set<string>()
   const seenSearchCalls = new Set<string>()
+  const seenFetchCalls = new Set<string>()
   const completedResults: Array<{ name: string; result: string }> = []
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
@@ -683,7 +708,24 @@ export async function runLocalToolLoop(
         totalCalls += 1
         continue
       }
-      const signature = stableJson(args)
+      const signature =
+        call.function.name === 'web.fetch'
+          ? webFetchSignature(args)
+          : stableJson(args)
+      if (call.function.name === 'web.fetch' && seenFetchCalls.has(signature)) {
+        mustSynthesize = true
+        const result = JSON.stringify({
+          error:
+            'This exact web.fetch request already completed. Use the page content already returned and answer without fetching again.',
+        })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+        completedResults.push({ name: call.function.name, result })
+        totalCalls += 1
+        continue
+      }
+      if (call.function.name === 'web.fetch') {
+        seenFetchCalls.add(signature)
+      }
       if (
         call.function.name === 'web.search' &&
         seenSearchCalls.has(signature)

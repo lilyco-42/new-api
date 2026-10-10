@@ -101,7 +101,7 @@ function trimMessages(messages: Message[]): Message[] {
 
 function getMessageSize(message: Message): number {
   const versionsSize = message.versions.reduce(
-    (total, version) => total + version.content.length,
+    (total, version) => total + version.content.length + (version.executionContext?.length ?? 0),
     0
   )
   const reasoningSize = message.reasoning?.content.length ?? 0

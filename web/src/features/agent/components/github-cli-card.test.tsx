@@ -241,4 +241,71 @@ describe('GithubCliCard browser OAuth', () => {
       })
     ).not.toBeInTheDocument()
   })
+
+  test.each(['search', 'issues'] as const)(
+    'refreshes a rejected browser grant after a failed %s read without starting local login',
+    async (action) => {
+      const user = userEvent.setup()
+      const openPopup = vi.spyOn(window, 'open').mockReturnValue(null)
+      let rejected = false
+      apiGetMock.mockImplementation(async (path: string) => {
+        if (path === '/api/agent/github/status') {
+          return {
+            data: {
+              success: true,
+              data: {
+                enabled: true,
+                connected: !rejected,
+                login: rejected ? undefined : 'lilyco-42',
+                client_id: 'client-id',
+              },
+            },
+          }
+        }
+        rejected = true
+        throw new Error('GitHub rejected the authorization')
+      })
+
+      render(<GithubCliCard />)
+      await screen.findByText('OAuth connected · lilyco-42')
+      if (action === 'search') {
+        await user.type(
+          screen.getByRole('textbox', { name: 'GitHub search' }),
+          'rust{Enter}'
+        )
+      } else {
+        await user.type(
+          screen.getByRole('textbox', {
+            name: 'Repository for issues and pull requests',
+          }),
+          'owner/project'
+        )
+        await user.click(screen.getByRole('button', { name: 'Issues' }))
+      }
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Connect GitHub in browser' })
+        ).toBeEnabled()
+      )
+      expect(
+        screen.queryByText('OAuth connected · lilyco-42')
+      ).not.toBeInTheDocument()
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        'GitHub rejected the authorization'
+      )
+      expect(apiGetMock.mock.calls.map(([path]) => path)).toEqual([
+        '/api/agent/github/status',
+        action === 'search'
+          ? '/api/agent/github/repositories/search'
+          : '/api/agent/github/issues',
+        '/api/agent/github/status',
+      ])
+      expect(openPopup).not.toHaveBeenCalled()
+      expect(createOAuthFlowMock).not.toHaveBeenCalled()
+      expect(
+        screen.queryByRole('button', { name: 'Check gh login' })
+      ).not.toBeInTheDocument()
+    }
+  )
 })

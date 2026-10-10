@@ -2,6 +2,12 @@
 
 日期：2026-09-22。基线：`1dcadfc`，分支 `agent-ui`。状态：P0-A/P0-B 已有可测试实现，P0-C 已接通网页配对、WSS 桥接和 Radxa headless companion，P0-D 已接通 Tauri 的 MCP stdio/HTTPS 会话和浏览器桥接；本文仍不代表全部功能已经上线。
 
+## 浏览器对话保存与恢复（2026-10-03，候选未部署）
+
+浏览器将已完成的回答、错误和 Stop 状态立即写入当前账号的对话存储，再更新最近对话。未完成的流式更新仍合并保存；`pagehide` 会提交待保存的消息，避免刷新依赖 React 卸载回调。真正未完成且没有答复内容的消息在恢复时显示中断状态，不会自动重新执行。此保证要求浏览器本地存储可用并且写入成功，不能把被浏览器禁用或容量不足的存储当作已保存。
+
+DSH 对已完成回答的响应等待 SessionStore 持久化检查点；网站保存的请求身份用于断线后的不可变重试。浏览器刷新、丢失响应和显式 Stop 是不同操作：响应丢失不会自动形成取消意图，重复请求不得再次调用模型或工具、重复扣费。验证由 Actions 的真实 New API/DSH 组合和浏览器流程执行，外部 HTTP 模型 fixture 不证明真实模型回答质量。
+
 ## 1.2 ZeroStack 轻量本地代码运行时评估（2026-09-24）
 
 - 需求是降低个人设备上的常驻占用，同时保留 Lain42 Web/手机入口、网站模型网关和每用户私有节点。ZeroStack 是本地 Rust coding agent，不是跨平台产品 UI；项目 README 自报 26 MB 二进制、平均约 16 MB / 峰值约 24 MB RAM，这些数据尚未由 Lain42 的 CI 和真实设备复测。来源：[ZeroStack README](https://github.com/gi-dellav/zerostack#performance)。
@@ -10,6 +16,30 @@
 - 现有桥接 v1 只承载一个有界工具请求与结果，不支持 Agent 任务流、增量事件、批准往返和取消。因此 ZeroStack 集成不得伪装成 MCP 工具或直接复用任意命令通道；需要独立、版本化的 `agent.*` 会话能力，绑定网站用户、设备和会话，并有短期凭证、输出/时间上限、取消和审计。
 - 最小验证顺序：先在 GitHub Actions 做可选特性构建与实际二进制/空闲/任务峰值内存测量；再做 ACP approval fail-closed、双用户会话隔离、断线/取消测试；Windows/Linux/macOS 与 ARM64 产物均过 CI 后，才考虑桌面/companion 试用。所有本地构建和测试仍禁止；不操作用户的私人 Radxa，不在这些门槛通过前部署或声称集成完成。
 - 发行门槛：ZeroStack 使用 GPL-3.0-only；若将改动后的二进制随 Lain42 客户端分发，发布前必须确认对应源码、许可证和通知的交付方式。来源：[ZeroStack license](https://github.com/gi-dellav/zerostack/blob/main/LICENSE)。
+
+## 1.3 DSH 与 New API 的账号级服务边界（2026-09-29，New API Actions 通过；配套 DSH CI 待通过；未部署）
+
+- `feat/agent-dsh-control-plane` 正在补 New API 后端一侧：登录用户创建随机不透明 DSH session；New API 校验 session 所有权后才把文本轮次转发到管理员配置的私有 DSH；DSH 的模型调用和只读工具调用分别走独立 HMAC、短时间窗与数据库一次性 nonce。
+- DSH 的模型请求根据 session 反查 New API 账号，并复用 `Playground`、`Distribute` 和现有额度结算路径；GitHub 工具只使用同一账号加密保存的 Agent OAuth 凭据。网页聊天本身不要求配对桌面或 A7A。
+- DSH/New API 两端须独立配置至少 32 字节随机密钥：`LAIN42_DSH_BRIDGE_SECRET` 用于文本轮次与工具中继，`LAIN42_AGENT_MODEL_RELAY_SECRET` 用于模型中继；New API 管理配置 `LAIN42_DSH_BASE_URL`，仅允许 HTTPS（本机回环开发地址例外）。状态接口只回报配置是否完整，不返回地址或密钥。搜索可继续使用 `AGENT_WEB_SEARCH_URL`；未配置时显式 GitHub 查询使用匿名公共仓库索引，其他查询沿用 Bing RSS。
+- 当前后端工具中继仅实现公开网页搜索、公开 URL 读取、GitHub 仓库列表/搜索、Issue 与 PR 只读。DSH 侧另外声明的 GitHub Actions 工具仍返回明确的 `tool_not_available`，不伪装成功。
+- `/agent` 普通文本和本地解析的 Office/PDF 文本已进入 DSH。当前 PR 还扩展了图片 v2 契约：最多 4 张 PNG/JPEG/WebP/GIF、解码合计 8 MiB，并把模型中继上限同步到 12 MiB；图片经 DSH 附件服务验证、规范化后才到模型。桥接仍返回完整答案而不流式传输。GitHub Actions、跨数据库迁移、生产 DSH 连通、实际模型计费和双账号端到端仍待验收；待审 PR 不代表线上已配置、已部署或已完成闭环。
+- 按项目约束，Go 构建与测试只由 GitHub Actions 执行；不在开发机本地编译或运行测试。CI 通过前不合并、不部署，也不宣称交付完成。
+
+## 1.4 `/agent` 接入 DSH 托管对话（2026-09-30，组合回归修复中；未部署）
+
+- 浏览器 Agent 现在为登录账号和会话创建独立的 New API DSH session，并把普通聊天轮次交给 DSH；网站原有的账号模型、配额与用量中继保持入口。New API 未配置 DSH 时，界面回退到现有聊天链路，因此未完成部署配置之前仍可使用原有能力。
+- `POST /api/agent/dsh/turns/cancel` 以当前登录账号、session_id 和原 request_id 记录持久 Stop 意图，再签名发送到私有 DSH 取消路由。HTTP 202 只表示意图已保存；`delivery: pending` 表示未取得有效回执，`delivery: received` 附带原请求范围的运行时回执，均不表示执行已经结束。回执中 `not-found`、`unsupported` 和 `cancellation-requested` 保留各自含义。已记录 Stop 的消息不会经普通重试重新提交，其他账号不能写入意图。浏览器按钮、取消与内部接收的竞态、重启协调及真实终态观察仍须接通验收，不能单凭此端点称网站 Stop 已完成。
+- 浏览器保留已记录 Stop 的原请求快照，后续新消息继续使用当前账号的同一托管会话，不因该 Stop 快照清空历史或重建 session。回到已停止消息重试时仍明确拒绝重提交；收到、待投递、无效或丢失回执均不能清除本地 Stop 意图。无法验证或没有 Stop 标记的旧记录仍保留原有恢复/新会话处理。新消息可被 DSH 排队，这不表示之前的停止已完成结算；浏览器被禁止保存时只保证当前页面的内存状态。
+- 通用、代码、研究、内容四种网页预设分别映射到 DSH 服务端固定的安全 preset。配置托管 DSH 时，问候与普通聊天也提交真实模型；客户端不以固定答复代替推理。明确搜索与具名 AI 实体定义按意图查询浏览器公开索引；泛网页搜索向网站配置的提供方发送查询词，不转发账户凭据或 Cookie。资料送入 DSH 当前轮，再由模型回答；无结果或搜索失败时保留模型基于其他附件的回答，客户端只追加实际取得的合法来源，不替换整段答案。
+- “查看我的 GitHub 仓库”通过网站 OAuth 读取，将仓库元数据作为不可信资料送入 DSH，同轮可结合附件比较，不能止于账号状态或仓库列表。读取要求用户明确指定本人账号/网站 OAuth；一般仓库讨论与附件中的指令不能授予私人资料权限，明确拒绝优先。资料预取、工具展示及执行使用同一判断。本机 `gh` 未登录不妨碍网站 OAuth；显式本机 CLI 仍走既有本人设备审批路径，该路径尚未迁移为统一 DSH 轮次。
+- URL 由用户确认后在浏览器读取。目标站拒绝跨域时传入明确的读取诊断，不自动改成网站服务器抓取；用户可提供正文或附件。网页和附件是资料，不是新的工具授权。
+- 浏览器会先在客户端提取 PDF、DOCX 与 XLSX 文本，再随提问发给 DSH。DOCX 仅提取正文段落；XLSX 提取工作表名称、单元格文本和文件中已保存的公式结果，不计算公式或应用单元格显示格式（日期/货币可能显示为原始值）。所有 DOCX/XLSX 附件共享最多 2,000 个提取字符，并标为不可信资料；ZIP 解析限制单个 XML 部件 1 MiB、选取部件合计 4 MiB、归档条目 2,048 个。原始 DOCX/XLSX 字节不会上传。图像按 DSH 桥接 v2 的上限传递：最多 4 张、PNG/JPEG/WebP/GIF、解码后合计最多 8 MiB；New API 与 DSH 都验证边界，DSH 附件服务再检查实际格式并规范化。超过图像或说明文本上限、或格式不支持时会明确提示，不改走旧模型通道。输入文本仍最多 24 KiB；当前桥接仍不支持流式响应。
+- DSH session/request ID 按账号和聊天命名空间隔离。当前修复将首次提交的正文（含已分配预算的资料和初始历史）、model/mode、session/request ID 与实际来源附注保存为有界版本化快照；重试和刷新直接复用，不重新抓取变化的网页/搜索结果。快照不保存原始图片或 OAuth 密钥；图片重试需原输入仍在消息中。浏览器禁止持久化时仅支持页面生命周期内的内存重试。损坏或只有旧版请求 ID 的记录明确拒绝自动重执行；切换模型/模式或修改指令创建新请求。此处是客户端重试契约，不证明上游供应商 exactly-once；DSH 并发、取消和计费仍需独立验收。
+- 用户指令与附件分开预算，指令本身超过 24 KiB 时明确报错，不能静默回退旧聊天链路。支持资料按 UTF-8 字节预算截断，保留当前任务、不拆 Unicode 码点，并在回答后显示阅读范围提示；网页与附件共享预算。附件中的 URL 不授予网页读取权限。当前实现待最新 Actions 验证，不等于线上已部署。
+- New API PR #25 在 `7d3e89a` 的 Actions [36673916697](https://github.com/lilyco-42/new-api/actions/runs/36673916697) 中后端、前端 typecheck 和 scoped lint 通过；测试准确复现了四条私人仓库越权读取场景。先前四条托管回答归属回归已由 `445917d` 修复。组合测试使用实际浏览器 provider/DSH 适配器，外部模型与网络响应为模拟，不是实时供应商验收。当前修复须在新提交重新通过完整 Actions，不能把失败 run 记为通过。
+- DSH PR #1 当前 head `48c941b7289511afbaebe16cbfb7a3b43117275c` 的完整 CI run [36644644723](https://github.com/lilyco-42/deepseek-harness/actions/runs/36644644723) 正在验证。前一完整 CI [36640531732](https://github.com/lilyco-42/deepseek-harness/actions/runs/36640531732) 中 Linux coverage、静态检查、snapshots/artifacts 及其余已完成门禁通过；Windows Node 24 coverage 在无 stderr 的 Windows ACL FullControl 子进程探针处 60 秒超时（`spawnSync` 返回 `status: null`）。这证明测试子进程挂起，但根因未知，不能当作 ACL 安全缺陷的证据。新 head 给该探针增加了逐步输出和完整 timeout 诊断，仍待新 Actions 结果。Issue policy run [36644644221](https://github.com/lilyco-42/deepseek-harness/actions/runs/36644644221) 与 weighted approval run [36644640987](https://github.com/lilyco-42/deepseek-harness/actions/runs/36644640987) 通过；无供应商凭据，因此真实 DeepSeek E2E run [36644644239](https://github.com/lilyco-42/deepseek-harness/actions/runs/36644644239) 跳过。没有本地构建/测试、生产部署或合并。
+- 没有在本机构建或运行测试。用户提供记录中的浏览器/操作系统、当前线上 Agent 版本、精确复现步骤和复现频率均为 unknown。生产 DSH 配置与连通、真实模型和搜索供应商表现、计费、URL CORS、附件边界及双账号线上端到端仍未验证；PR 未合并、未部署，不代表生产站已完成集成。
 
 ## 1.0 桥接重连结果隔离（2026-09-24）
 
@@ -99,7 +129,7 @@
 
 ## 0.2 本轮增量（2026-09-23）
 
-- 网页搜索返回普通网页标题、摘要和链接，默认从 Bing RSS 获取；查询词不会写入应用日志。管理员可设置 `AGENT_WEB_SEARCH_URL` 指向 SearXNG `/search` JSON 接口。聊天工具和输入框搜索共用这个后端接口，搜索失败时仍提供 Bing 结果页链接。
+- 网页搜索返回实际来源的标题、摘要和链接；查询词不会写入应用日志。管理员可设置 `AGENT_WEB_SEARCH_URL` 指向 SearXNG `/search` JSON 接口，该配置优先。未配置时，含独立 GitHub 或 `site:github.com` 标识的查询从匿名公共仓库索引取证，其余用 Bing RSS。两条后端入口共用选择逻辑，返回实际 provider 与搜索链接；公共索引不会读取 OAuth，不重试或改用用户令牌突破限流。失败和空结果不能当作已读取资料，匿名共享 IP 限流仍是供应风险；一般网页搜索的真实相关性须独立验收。
 - 工作区附件已上线：图片作为图片内容传给模型，文本/代码作为文本内容传递；文件留在浏览器，不先上传到 Lain42 文件存储。限制为单文件 8 MiB、单条消息最多 5 个附件；移动端可在 Tools、Files 和 Preview 间切换。
 - GitHub 网页 OAuth、仓库搜索、Issue 和 PR 只读查询已接入 Agent；本地 `gh` CLI 仍由配对桌面/Radxa 执行，网页不读取本机或浏览器 Cookie。2026-09-24 当前登录账号的浏览器绑定往返显示 `OAuth connected · lilyco-42`，没有暴露 token；这只证明该账号当前连接，不代表其他账号已连接。OAuth `repo` scope 仍比当前只读 API 所需权限宽，迁移到只读 GitHub App 仍是后续安全项。
 - 429 错误现在显示可操作提示并提供切换模型入口；它不能消除上游免费模型限流，模型是否可用仍取决于已配置渠道。
@@ -276,3 +306,11 @@ MCP 协议由 SDK 实现；下面是本产品任务信封，与 MCP 协议版本
 商业验收先看任务完成率、首次接入成功率、每次成功任务模型成本和故障率；目标值在内测建立基线后确定。首个价值是“真能处理开发工作”，不是安装包数量或工具目录长度。
 
 下一步唯一实施起点：P0-E。先用官方 MCP 测试服务和真实 `gh` 完成 A1/A2/A4/A6/A7 的脱敏证据，再补持久审批、防重放和断线任务恢复；在这些证据齐全前不把 Agent 宣称为全链路完成。
+
+## 网站 GitHub OAuth 读取
+
+网站聊天通过当前 New API 账号保存的 GitHub OAuth 授权读取资料，不依赖已配对设备或本机 `gh`。请求“阅读我的项目 Issue 并尝试解决”时，连接器自动搜索该 GitHub 账号拥有的仓库中最近更新的十条开放 Issue，排除 Pull Request，并将正文与来源链接送入同一轮 DSH 请求；组织或协作者仓库不包含在这个默认搜索范围内。
+
+直接粘贴一个 `https://github.com/owner/repo/issues/number` 链接，或明确要求分析该链接时，连接器调用 `/api/agent/github/issue` 按编号读取，包含已关闭 Issue。它不会用最近开放 Issue 列表代替指定问题，也不会尝试通过普通网页 CORS 抓取 GitHub。正文最多 12 KiB，评论最多三条、每条最多 2 KiB，按最早评论排序；响应的截断标记与评论读取错误进入模型上下文。附件中的 URL 与 Issue 正文里的指令不产生新的读取授权。
+
+OAuth 令牌保留在服务端，读取到的 Issue 和评论内容进入用户选择的网站模型。模型给出分析和修改建议，结果显示真实 Issue 来源及读取范围；当前路径不写 GitHub 评论、不修改仓库，也不代表读取了额外的源代码。取消读取不会提交 DSH 任务，已提交请求重试仍使用原先的不可变资料快照。上述候选实现的自动检查使用受控 GitHub 和模型响应，不能代替正式网站上真实 OAuth、模型与双账号组合验收。

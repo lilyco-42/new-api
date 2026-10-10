@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     types: [opened, synchronize, closed]
 
@@ -35,6 +36,25 @@ jobs:
             go.sum
             relaykit/go.sum
 
+      - name: Capture formatted bounded-prototype source for reviewed Actions-only repair
+        run: |
+          mkdir -p "$RUNNER_TEMP/lain42-prototype-formatted"
+          gofmt agent_dsh_live_prototype_test.go > "$RUNNER_TEMP/lain42-prototype-formatted/agent_dsh_live_prototype_test.go"
+          gofmt agent_dsh_composition_test.go > "$RUNNER_TEMP/lain42-prototype-formatted/agent_dsh_composition_test.go"
+
+      - name: Save only the formatted prototype source
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lain42-prototype-formatted-${{ github.sha }}
+          path: ${{ runner.temp }}/lain42-prototype-formatted/*.go
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Check bounded-prototype formatting before builds
+        run: |
+          gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go
+          test -z "$(gofmt -l agent_dsh_live_prototype_test.go agent_dsh_composition_test.go)"
+
       - name: Create frontend embed placeholder
         run: |
           mkdir -p web/dist
@@ -42,6 +62,12 @@ jobs:
 
       - name: Vet root module
         run: go vet ./...
+
+      - name: Compile and vet opt-in real-provider acceptance without making live requests
+        run: go vet -tags 'lain42composition lain42live' .
+
+      - name: Verify prototype callable-definition guard without provider requests
+        run: go test -tags 'lain42composition lain42live' . -run '^TestPrototypeToolDefinitions$' -count=1
 
       - name: Vet relaykit independently
         working-directory: relaykit
@@ -84,5 +110,132 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Check opt-in evaluation types and lint without making live requests
+        run: |
+          bunx tsgo -p tsconfig.agent-evaluation.json
+          bunx oxlint -c .oxlintrc.json scripts/evaluate-agent-context.ts scripts/agent-live-grounding.evaluation.ts scripts/agent-workflow-live.evaluation.ts vitest.agent-live.config.ts
+
+      - name: Lint Agent conversation changes
+        run: >-
+          bunx oxlint -c .oxlintrc.json
+          src/lib/http-client.ts
+          src/lib/__tests__/http-client-auth.test.ts
+          src/features/agent/agent-dsh-conversation.ts
+          src/features/agent/agent-dsh-input-budget.ts
+          src/features/agent/agent-dsh-utils.ts
+          src/features/agent/agent-dsh-tool-scope.ts
+          src/features/agent/agent-dsh-browser-context.ts
+          src/features/agent/agent-tool-routing.ts
+          src/features/agent/agent-prompts.ts
+          src/features/agent/agent-read-observation.ts
+          src/features/agent/agent-workflow-evidence.ts
+          src/features/agent/__tests__/agent-workflow-evidence.test.ts
+          src/features/agent/__tests__/agent-read-observation.test.ts
+          src/features/agent/web-agent-tool-provider.ts
+          src/features/agent/__tests__/agent-dsh-grounding.test.ts
+          src/features/agent/__tests__/agent-dsh.test.ts
+          src/features/agent/__tests__/tool-routing.test.ts
+          src/features/agent/__tests__/web-agent-tool-provider.test.ts
+          src/features/agent/__tests__/conversation-preflight.test.ts
+          src/features/agent/__tests__/github-read-receipt.test.ts
+          src/features/agent/components/github-cli-card.tsx
+          src/features/agent/components/github-cli-card.test.tsx
+          src/features/playground/lib/streaming/payload-builder.ts
+          src/features/playground/lib/streaming/__tests__/payload-builder.test.ts
+          src/features/playground/lib/message/response-execution-context.ts
+          src/features/playground/lib/message/message-utils.ts
+          src/features/playground/lib/message/message-streaming-utils.ts
+          src/features/playground/lib/message/__tests__/execution-context.test.ts
+          src/features/playground/lib/storage/storage.ts
+          src/features/playground/lib/storage/storage-schema.ts
+          src/features/playground/types.ts
+          src/features/playground/index.tsx
+          src/features/playground/hooks/local-tool-loop.ts
+          src/features/playground/hooks/use-chat-handler.ts
+          src/features/playground/hooks/use-playground-state.ts
+          src/features/playground/hooks/__tests__/use-playground-state-persistence.test.tsx
+          src/components/ai-elements/code-block.tsx
+          src/components/ai-elements/__tests__/code-block-viewer.test.tsx
+          src/features/playground/hooks/__tests__/use-chat-handler-stop.test.tsx
+          src/features/playground/components/message/playground-message-content.tsx
+
       - name: Test
         run: bun run test
+
+      - name: Build frontend production bundle
+        run: bun run build
+
+      - name: Save candidate frontend for browser composition acceptance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: composition-web-${{ github.sha }}
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 3
+
+  hosted-dsh-composition:
+    needs: [frontend, backend]
+    name: Built DSH and New API Issue/code read, answer, and replay
+    if: github.event.action != 'closed' || github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GOWORK: 'off'
+      DSH_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout New API candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.action == 'closed' && github.event.pull_request.base.ref || github.ref }}
+      - name: Checkout DSH composition candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: lilyco-42/deepseek-harness
+          ref: 3f5ed100f28f863f351611703ba53053248ab41b
+          path: .ci-dsh
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Set up DSH package manager
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: .ci-dsh/package.json
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .ci-dsh/pnpm-lock.yaml
+      - name: Install native compiler
+        run: sudo apt-get update -qq && sudo apt-get install -y musl-tools
+      - name: Install immutable DSH dependencies
+        working-directory: .ci-dsh
+        run: pnpm install --frozen-lockfile
+      - name: Build actual DSH runtime and Web assets
+        working-directory: .ci-dsh
+        run: pnpm run build
+      - name: Load the same frontend candidate that passed frontend checks
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: composition-web-${{ github.sha }}
+          path: web/dist
+      - name: Install Chromium for desktop and mobile emulation
+        working-directory: .ci-dsh
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+      - name: Verify account-owned Issue tool continuation and durable replay
+        env:
+          LAIN42_COMPOSITION_DSH_ROOT: ${{ github.workspace }}/.ci-dsh
+          LAIN42_BROWSER_EVIDENCE_DIR: ${{ runner.temp }}/lain42-browser-acceptance
+        run: |
+          node --check scripts/lain42-browser-acceptance.mjs
+          go test -tags lain42composition . -run '^TestBuiltDSHNewAPIReadAnswerAndReplay$' -count=1 -v -timeout=8m
+      - name: Save browser acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lain42-browser-acceptance-${{ github.sha }}
+          path: ${{ runner.temp }}/lain42-browser-acceptance
+          if-no-files-found: warn
+          retention-days: 7

@@ -491,6 +491,7 @@ export function GithubCliCard() {
         toast.error(
           error instanceof Error ? error.message : t('GitHub search failed.')
         )
+        void refreshBrowserStatus()
       } finally {
         setSearching(false)
       }
@@ -562,6 +563,7 @@ export function GithubCliCard() {
             ? error.message
             : t('GitHub activity load failed.')
         )
+        void refreshBrowserStatus()
       }
       return
     }

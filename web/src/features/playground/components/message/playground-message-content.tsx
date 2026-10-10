@@ -97,6 +97,13 @@ export function PlaygroundMessageContent({
         getMessageAlignmentClass(alignment)
       )}
     >
+      {message.stopState && (
+        <p role='status' className='text-muted-foreground py-2 text-sm'>
+          {message.stopState === 'requested' && t('Stop requested. Background settlement is not confirmed.')}
+          {message.stopState === 'unconfirmed' && t('Stop delivery could not be confirmed. This message will not be resubmitted.')}
+          {message.stopState === 'not-submitted' && t('Stopped before a hosted task was submitted.')}
+        </p>
+      )}
       {hasSources && (
         <Sources>
           <SourcesTrigger count={sources.length} />
