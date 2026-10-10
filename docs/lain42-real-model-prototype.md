@@ -115,6 +115,22 @@ lanes must pass at the candidate revision; one cannot clear the other. The
 original combined lane remains available as a separate, stricter scenario;
 previous failures are not reclassified as successes.
 
+Choose `evaluation_kind=dsh-account-issues` to test the user's unqualified
+"read an Issue from my projects" request with the real model. No repository,
+Issue number, URL or diagnostic marker is supplied in the instruction. DSH must
+discover an open Issue through the connected account's search tool, then read
+its body and discussion and produce the sourced fix. The external GitHub
+account/Issue remains explicitly synthetic; this is not a real OAuth consent
+exchange. The named-URL Issue scenario is retained independently.
+
+Account discovery adds exactly one authorized search to the expected Issue
+and discussion reads. Follow-up/new-topic and the actual mobile file answer
+must not read GitHub again. The existing six-attempt fence, no-tool assertions,
+mobile login/file/reload/A-to-B-to-A/foreign-denial checks, restart replay and
+exact owner billing remain required. If the real model asks for a repository,
+only reports OAuth status or exceeds the budget, this gate fails; the assertions
+and request budget are not relaxed to make it pass.
+
 RSS-only run 38025202252 failed after six valid nonempty responses did not
 retrieve the official repository. The repair shares source selection with the
 HTTP search endpoint and reuses GitHub's public index; it neither increases the

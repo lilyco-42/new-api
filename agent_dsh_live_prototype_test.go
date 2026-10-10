@@ -81,6 +81,10 @@ func TestLiveDSHNewAPIPrototype(t *testing.T) {
 	runLiveDSHNewAPIPrototype(t, "issue")
 }
 
+func TestLiveDSHNewAPIAccountIssuesPrototype(t *testing.T) {
+	runLiveDSHNewAPIPrototype(t, "account-issues")
+}
+
 func TestLiveDSHNewAPIResearchPrototype(t *testing.T) {
 	runLiveDSHNewAPIPrototype(t, "research")
 }
@@ -95,7 +99,8 @@ func TestLiveDSHNewAPIHostedResearchPrototype(t *testing.T) {
 
 func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	t.Helper()
-	research := scenario != "issue"
+	accountIssues := scenario == "account-issues"
+	research := scenario != "issue" && !accountIssues
 	clientOnly := scenario == "client-research"
 	hostedOnly := scenario == "hosted-research"
 	key := os.Getenv("LAIN42_PROTOTYPE_NVIDIA_KEY")
@@ -108,6 +113,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	require.NotEmpty(t, evidence)
 	require.NoError(t, os.MkdirAll(evidence, 0700))
 	var providerCalls, githubCalls atomic.Int32
+	var accountIssueSearches atomic.Int32
 	var toolFreeFollowupCalls atomic.Int32
 	var evidenceOnlyMode atomic.Bool
 	var accountReadToolsObserved atomic.Bool
@@ -132,6 +138,8 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			scope = "Independent hosted public repository-index search/tool continuation + actual New API/DSH/trial inference, restart replay and wallet; synthetic accounts; does not certify general Bing relevance, browser search, WASM, mobile or production OAuth"
 		}
 		result := map[string]any{"passed": passed && !t.Failed(), "model": prototypeModel,
+			"account_issue_discovery_requested":     accountIssues,
+			"account_issue_searches":                accountIssueSearches.Load(),
 			"mobile_browser_emulation":      mobileBrowser,
 			"mobile_account_history_switch": mobileBrowser && !research, "foreign_turn_and_cancel_denied": mobileBrowser && !research,
 			"mobile_research_flow": mobileBrowser && research, "public_search_requests": searchCalls.Load(),
@@ -203,6 +211,12 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	// model. Use an unambiguous synthetic repository without adding answer facts
 	// to the user instruction; both markers must still come from the Issue tool.
 	const issueURL = "https://github.com/lain42-acceptance/export-workbench/issues/2"
+	issueState := "closed"
+	expectedGitHubReads := int32(2)
+	if accountIssues {
+		issueState = "open"
+		expectedGitHubReads = 3
+	}
 	require.NoError(t, model.SaveAgentGitHubCredential(owner.Id, "prototype-owner", "lain42-acceptance", "repo", githubKey))
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		githubCalls.Add(1)
@@ -212,8 +226,15 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/search/issues":
+			if !accountIssues || r.URL.Query().Get("q") != "user:lain42-acceptance is:issue is:open" || r.URL.Query().Get("sort") != "updated" || r.URL.Query().Get("order") != "desc" {
+				http.Error(w, "unexpected account issue search", http.StatusBadRequest)
+				return
+			}
+			accountIssueSearches.Add(1)
+			_, _ = io.WriteString(w, `{"total_count":1,"incomplete_results":false,"items":[{"number":2,"state":"open","title":"Export retry","html_url":"`+issueURL+`","repository_url":"https://api.github.com/repos/lain42-acceptance/export-workbench"}]}`)
 		case "/repos/lain42-acceptance/export-workbench/issues/2":
-			_, _ = io.WriteString(w, `{"number":2,"state":"closed","title":"Export retry","body":"A reconnect creates duplicate exports. Diagnostic marker: ORBIT_EXPORT_731.","comments":1,"html_url":"`+issueURL+`"}`)
+			_, _ = io.WriteString(w, `{"number":2,"state":"`+issueState+`","title":"Export retry","body":"A reconnect creates duplicate exports. Diagnostic marker: ORBIT_EXPORT_731.","comments":1,"html_url":"`+issueURL+`"}`)
 		case "/repos/lain42-acceptance/export-workbench/issues/2/comments":
 			_, _ = io.WriteString(w, `[{"body":"Persist the request identifier before starting export; reconnect still reproduces after a lost response. Discussion marker: DISCUSSION_927.","user":{"login":"maintainer"}}]`)
 		default:
@@ -358,6 +379,9 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	require.Len(t, session.Data.SessionID, 64)
 	turn := dto.AgentDSHTurnRequest{SessionID: session.Data.SessionID, Model: prototypeModel,
 		RequestID: "99999999-9999-4999-8999-999999999991", ToolScope: "account-read", Text: "Read " + issueURL + " and its discussion. Summarize the current state, quote both diagnostic markers exactly, propose the discussed fix, and cite the Issue URL. Do not just report OAuth status."}
+	if accountIssues {
+		turn.Text = "Read the most recent open Issue from my projects and its discussion using my connected website GitHub account. Summarize its current state, quote the diagnostic markers you find, propose the discussed fix and cite the Issue URL. Do not just report OAuth status or ask me for a repository or Issue number. Do not use a local CLI or device."
+	}
 	answerFor := func(request dto.AgentDSHTurnRequest) string {
 		status, body := post("/api/agent/dsh/turns", request)
 		require.Equal(t, http.StatusOK, status, "hosted turn failed; upstream HTTP denial=%d, transport failure=%t", max(denial.Load(), 0), denial.Load() == -1)
@@ -392,12 +416,15 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		require.Contains(t, answer, "ORBIT_EXPORT_731")
 		require.Contains(t, answer, "DISCUSSION_927")
 		require.Contains(t, answer, issueURL)
-		require.Contains(t, strings.ToLower(answer), "closed")
+		require.Contains(t, strings.ToLower(answer), issueState)
+		if accountIssues {
+			require.EqualValues(t, 1, accountIssueSearches.Load(), "discover the owner's Issue before reading it; no prefilled repository or URL")
+		}
 		require.Regexp(t, `(?i)duplicat`, answer)
 		require.Regexp(t, `(?i)reconnect|lost response`, answer)
 		require.Regexp(t, `(?i)request.{0,40}(?:identifier|\bid\b)|idempotenc`, answer)
 		require.Regexp(t, `(?i)persist|stor(?:e|ing)|sav(?:e|ing)`, answer)
-		require.EqualValues(t, 2, githubCalls.Load(), "read actual Issue tool and discussion with the owner's OAuth credential")
+		require.EqualValues(t, expectedGitHubReads, githubCalls.Load(), "read the authorized Issue and discussion, with account discovery when requested")
 		require.GreaterOrEqual(t, providerCalls.Load(), int32(2), "the real model must continue after the real tool")
 		require.True(t, accountReadToolsObserved.Load(), "the account-read request must expose its authorized read tools to the model")
 		followup := turn
@@ -414,7 +441,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		require.NotContains(t, ordinaryAnswer, "ORBIT_EXPORT_731")
 		require.NotContains(t, ordinaryAnswer, "DeepWalker")
 		require.NotContains(t, ordinaryAnswer, "OpenAlex")
-		require.EqualValues(t, 2, githubCalls.Load(), "ordinary chat must not depend on another Issue read")
+		require.EqualValues(t, expectedGitHubReads, githubCalls.Load(), "ordinary chat must not depend on another Issue read")
 	}
 	if !hostedOnly {
 		// Browser scenarios use the built mobile UI and the six-request ceiling,
@@ -469,7 +496,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 		} else {
 			require.Equal(t, beforeBrowser+1, providerCalls.Load(), "the mobile file answer adds exactly one real inference")
 			require.EqualValues(t, 3, toolFreeFollowupCalls.Load(), "follow-up, ordinary chat and the actual mobile upload expose no tools to the real model")
-			require.EqualValues(t, 2, githubCalls.Load(), "file questions must not read unrelated GitHub data")
+			require.EqualValues(t, expectedGitHubReads, githubCalls.Load(), "file questions must not read unrelated GitHub data")
 		}
 	} else {
 		require.GreaterOrEqual(t, providerCalls.Load(), int32(2), "hosted search requires genuine tool continuation")
