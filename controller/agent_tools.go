@@ -498,7 +498,8 @@ func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader,
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	request.Header.Set("User-Agent", "Lain42-Agent/1.0 (+https://lain42.top/agent)")
-	if _, token, tokenErr := model.GetAgentGitHubCredential(c.GetInt("id")); tokenErr == nil && token != "" {
+	credential, token, tokenErr := model.GetAgentGitHubCredential(c.GetInt("id"))
+	if tokenErr == nil && token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
 	response, err := (&http.Client{Timeout: 12 * time.Second}).Do(request)
@@ -506,6 +507,9 @@ func agentGitHubRequest(c *gin.Context, method, endpoint string, body io.Reader,
 		return err
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized && credential != nil {
+		return errors.Join(&agentGitHubHTTPError{StatusCode: response.StatusCode}, model.InvalidateAgentGitHubCredential(credential))
+	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return &agentGitHubHTTPError{StatusCode: response.StatusCode}
 	}

@@ -407,7 +407,7 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		query.Set("per_page", strconv.Itoa(limit))
 		var items []agentGitHubRepository
 		if err := agentGitHubRequest(c, http.MethodGet, "https://api.github.com/user/repos?"+query.Encode(), nil, &items); err != nil {
-			return nil, "github_request_failed", "GitHub repository list failed."
+			return agentDSHGitHubReadFailure(err, "GitHub repository list failed.")
 		}
 		return gin.H{"items": items}, "", ""
 	case "github_repositories_search":
@@ -426,7 +426,7 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		var result agentGitHubSearchResponse
 		endpoint := "https://api.github.com/search/repositories?q=" + url.QueryEscape(query) + "&per_page=" + strconv.Itoa(limit)
 		if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &result); err != nil {
-			return nil, "github_request_failed", "GitHub repository search failed."
+			return agentDSHGitHubReadFailure(err, "GitHub repository search failed.")
 		}
 		return gin.H{"items": result.Items, "query": query}, "", ""
 	case "github_content":
@@ -441,12 +441,17 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		if !decodeAgentDSHToolArgs(arguments, &args) || !service.ValidAgentRepositoryContentTarget(args.Repo, args.Path, args.Ref) {
 			return nil, "invalid_arguments", "Provide owner/name, a repository-relative path, and an optional ref."
 		}
-		_, token, err := model.GetAgentGitHubCredential(c.GetInt("id"))
+		credential, token, err := model.GetAgentGitHubCredential(c.GetInt("id"))
 		if err != nil || token == "" {
 			return nil, "github_not_connected", "GitHub authorization is unavailable for this account."
 		}
 		result, err := service.ReadAgentRepositoryContent(c.Request.Context(), args.Repo, args.Path, args.Ref, token)
 		if err != nil {
+			var upstream *service.AgentRepositoryHTTPError
+			if errors.As(err, &upstream) && upstream.StatusCode == http.StatusUnauthorized {
+				failure := errors.Join(&agentGitHubHTTPError{StatusCode: upstream.StatusCode}, model.InvalidateAgentGitHubCredential(credential))
+				return agentDSHGitHubReadFailure(failure, "GitHub repository content could not be verified.")
+			}
 			return nil, "github_content_unavailable", "The repository content could not be verified. No file content was confirmed."
 		}
 		return result, "", ""
@@ -464,7 +469,7 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		}
 		result, err := readAgentGitHubIssue(c, args.Repo, args.Number)
 		if err != nil {
-			return nil, "github_request_failed", "GitHub issue read failed; no issue content was confirmed."
+			return agentDSHGitHubReadFailure(err, "GitHub issue read failed; no issue content was confirmed.")
 		}
 		return result, "", ""
 	case "github_issues_search":
@@ -492,7 +497,7 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 			Items             []map[string]any `json:"items"`
 		}
 		if err := agentGitHubRequest(c, http.MethodGet, "https://api.github.com/search/issues?"+query.Encode(), nil, &result); err != nil {
-			return nil, "github_request_failed", "GitHub issue search failed; no issue content was confirmed."
+			return agentDSHGitHubReadFailure(err, "GitHub issue search failed; no issue content was confirmed.")
 		}
 		return gin.H{
 			"login": login, "query": "user:" + login + " is:issue is:open",
@@ -520,13 +525,21 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 		endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s?state=%s&per_page=%d&sort=updated&direction=desc", args.Repo, resource, url.QueryEscape(state), limit)
 		var raw []map[string]any
 		if err := agentGitHubRequest(c, http.MethodGet, endpoint, nil, &raw); err != nil {
-			return nil, "github_request_failed", "GitHub activity request failed."
+			return agentDSHGitHubReadFailure(err, "GitHub activity request failed.")
 		}
 		items := normalizeAgentGitHubActivity(raw, tool == "github_pull_requests")
 		return gin.H{"repo": args.Repo, "items": items}, "", ""
 	default:
 		return nil, "tool_not_available", "This read-only tool is not available in this Lain42 runtime."
 	}
+}
+
+func agentDSHGitHubReadFailure(err error, message string) (any, string, string) {
+	var upstream *agentGitHubHTTPError
+	if errors.As(err, &upstream) && upstream.StatusCode == http.StatusUnauthorized {
+		return nil, "github_not_connected", "GitHub rejected the authorization used by this request. Check or reconnect GitHub in this website; local gh login is not required. No new source data was confirmed."
+	}
+	return nil, "github_request_failed", message
 }
 
 func decodeAgentDSHToolArgs(arguments map[string]any, target any) bool {

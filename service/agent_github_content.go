@@ -60,6 +60,12 @@ func ValidAgentRepositoryContentTarget(repo, filePath, ref string) bool {
 			filePath != ".." && !strings.HasPrefix(filePath, "../")))
 }
 
+type AgentRepositoryHTTPError struct{ StatusCode int }
+
+func (err *AgentRepositoryHTTPError) Error() string {
+	return fmt.Sprintf("GitHub repository read returned HTTP %d", err.StatusCode)
+}
+
 // ReadAgentRepositoryContent resolves a ref before reading at its immutable commit.
 // It never follows redirects or repository-provided download URLs. Only bounded
 // UTF-8 files and at most 40 directory entries are returned; credentials stay local.
@@ -88,7 +94,7 @@ func ReadAgentRepositoryContent(ctx context.Context, repo, filePath, ref, token 
 		}
 		defer response.Body.Close()
 		if response.StatusCode != http.StatusOK {
-			return fmt.Errorf("GitHub repository read returned HTTP %d", response.StatusCode)
+			return &AgentRepositoryHTTPError{StatusCode: response.StatusCode}
 		}
 		body, err := io.ReadAll(io.LimitReader(response.Body, 512*1024+1))
 		if err != nil || len(body) > 512*1024 {

@@ -138,6 +138,8 @@ jobs:
           src/features/agent/__tests__/web-agent-tool-provider.test.ts
           src/features/agent/__tests__/conversation-preflight.test.ts
           src/features/agent/__tests__/github-read-receipt.test.ts
+          src/features/agent/components/github-cli-card.tsx
+          src/features/agent/components/github-cli-card.test.tsx
           src/features/playground/lib/streaming/payload-builder.ts
           src/features/playground/lib/streaming/__tests__/payload-builder.test.ts
           src/features/playground/lib/message/response-execution-context.ts

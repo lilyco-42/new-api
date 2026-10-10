@@ -14,6 +14,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // AgentGitHubCredential stores the GitHub token granted specifically to the
@@ -101,21 +102,39 @@ func SaveAgentGitHubCredential(userID int, providerUserID, login, scope, token s
 		"encrypted_token":  encrypted,
 		"updated_at":       time.Now(),
 	}
-	var existing AgentGitHubCredential
-	err = DB.Where("user_id = ?", userID).First(&existing).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return DB.Create(&AgentGitHubCredential{
-			UserId:         userID,
-			ProviderUserId: values["provider_user_id"].(string),
-			Login:          values["login"].(string),
-			Scope:          values["scope"].(string),
-			EncryptedToken: encrypted,
-		}).Error
+	// A reconnect must also succeed if invalidation deleted the previous row.
+	return DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.Assignments(values),
+	}).Create(&AgentGitHubCredential{
+		UserId:         userID,
+		ProviderUserId: values["provider_user_id"].(string),
+		Login:          values["login"].(string),
+		Scope:          values["scope"].(string),
+		EncryptedToken: encrypted,
+	}).Error
+}
+
+// InvalidateAgentGitHubCredential removes only the grant actually rejected by
+// GitHub. A delayed response cannot revoke a newer authorization or login binding.
+func InvalidateAgentGitHubCredential(rejected *AgentGitHubCredential) error {
+	if rejected == nil || rejected.UserId <= 0 || rejected.EncryptedToken == "" {
+		return gorm.ErrRecordNotFound
 	}
-	if err != nil {
-		return err
-	}
-	return DB.Model(&existing).Updates(values).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var current AgentGitHubCredential
+		err := lockForUpdate(tx).Where("user_id = ?", rejected.UserId).First(&current).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if current.Id != rejected.Id || current.EncryptedToken != rejected.EncryptedToken {
+			return nil
+		}
+		return tx.Where("id = ? AND user_id = ?", current.Id, rejected.UserId).Delete(&AgentGitHubCredential{}).Error
+	})
 }
 
 // GetAgentGitHubCredential returns metadata and the decrypted token for an
