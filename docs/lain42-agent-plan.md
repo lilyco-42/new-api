@@ -21,7 +21,7 @@ DSH 对已完成回答的响应等待 SessionStore 持久化检查点；网站�
 
 - `feat/agent-dsh-control-plane` 正在补 New API 后端一侧：登录用户创建随机不透明 DSH session；New API 校验 session 所有权后才把文本轮次转发到管理员配置的私有 DSH；DSH 的模型调用和只读工具调用分别走独立 HMAC、短时间窗与数据库一次性 nonce。
 - DSH 的模型请求根据 session 反查 New API 账号，并复用 `Playground`、`Distribute` 和现有额度结算路径；GitHub 工具只使用同一账号加密保存的 Agent OAuth 凭据。网页聊天本身不要求配对桌面或 A7A。
-- DSH/New API 两端须独立配置至少 32 字节随机密钥：`LAIN42_DSH_BRIDGE_SECRET` 用于文本轮次与工具中继，`LAIN42_AGENT_MODEL_RELAY_SECRET` 用于模型中继；New API 管理配置 `LAIN42_DSH_BASE_URL`，仅允许 HTTPS（本机回环开发地址例外）。状态接口只回报配置是否完整，不返回地址或密钥。搜索可继续使用 `AGENT_WEB_SEARCH_URL`；未配置时沿用 New API 的现有 Bing RSS 搜索。
+- DSH/New API 两端须独立配置至少 32 字节随机密钥：`LAIN42_DSH_BRIDGE_SECRET` 用于文本轮次与工具中继，`LAIN42_AGENT_MODEL_RELAY_SECRET` 用于模型中继；New API 管理配置 `LAIN42_DSH_BASE_URL`，仅允许 HTTPS（本机回环开发地址例外）。状态接口只回报配置是否完整，不返回地址或密钥。搜索可继续使用 `AGENT_WEB_SEARCH_URL`；未配置时显式 GitHub 查询使用匿名公共仓库索引，其他查询沿用 Bing RSS。
 - 当前后端工具中继仅实现公开网页搜索、公开 URL 读取、GitHub 仓库列表/搜索、Issue 与 PR 只读。DSH 侧另外声明的 GitHub Actions 工具仍返回明确的 `tool_not_available`，不伪装成功。
 - `/agent` 普通文本和本地解析的 Office/PDF 文本已进入 DSH。当前 PR 还扩展了图片 v2 契约：最多 4 张 PNG/JPEG/WebP/GIF、解码合计 8 MiB，并把模型中继上限同步到 12 MiB；图片经 DSH 附件服务验证、规范化后才到模型。桥接仍返回完整答案而不流式传输。GitHub Actions、跨数据库迁移、生产 DSH 连通、实际模型计费和双账号端到端仍待验收；待审 PR 不代表线上已配置、已部署或已完成闭环。
 - 按项目约束，Go 构建与测试只由 GitHub Actions 执行；不在开发机本地编译或运行测试。CI 通过前不合并、不部署，也不宣称交付完成。
@@ -129,7 +129,7 @@ DSH 对已完成回答的响应等待 SessionStore 持久化检查点；网站�
 
 ## 0.2 本轮增量（2026-09-23）
 
-- 网页搜索返回普通网页标题、摘要和链接，默认从 Bing RSS 获取；查询词不会写入应用日志。管理员可设置 `AGENT_WEB_SEARCH_URL` 指向 SearXNG `/search` JSON 接口。聊天工具和输入框搜索共用这个后端接口，搜索失败时仍提供 Bing 结果页链接。
+- 网页搜索返回实际来源的标题、摘要和链接；查询词不会写入应用日志。管理员可设置 `AGENT_WEB_SEARCH_URL` 指向 SearXNG `/search` JSON 接口，该配置优先。未配置时，含独立 GitHub 或 `site:github.com` 标识的查询从匿名公共仓库索引取证，其余用 Bing RSS。两条后端入口共用选择逻辑，返回实际 provider 与搜索链接；公共索引不会读取 OAuth，不重试或改用用户令牌突破限流。失败和空结果不能当作已读取资料，匿名共享 IP 限流仍是供应风险；一般网页搜索的真实相关性须独立验收。
 - 工作区附件已上线：图片作为图片内容传给模型，文本/代码作为文本内容传递；文件留在浏览器，不先上传到 Lain42 文件存储。限制为单文件 8 MiB、单条消息最多 5 个附件；移动端可在 Tools、Files 和 Preview 间切换。
 - GitHub 网页 OAuth、仓库搜索、Issue 和 PR 只读查询已接入 Agent；本地 `gh` CLI 仍由配对桌面/Radxa 执行，网页不读取本机或浏览器 Cookie。2026-09-24 当前登录账号的浏览器绑定往返显示 `OAuth connected · lilyco-42`，没有暴露 token；这只证明该账号当前连接，不代表其他账号已连接。OAuth `repo` scope 仍比当前只读 API 所需权限宽，迁移到只读 GitHub App 仍是后续安全项。
 - 429 错误现在显示可操作提示并提供切换模型入口；它不能消除上游免费模型限流，模型是否可用仍取决于已配置渠道。

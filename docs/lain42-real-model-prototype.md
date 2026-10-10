@@ -66,8 +66,10 @@ Choose `evaluation_kind=dsh-research` to run a separate research prototype under
 the same six-request ceiling, provider pin, credential isolation and wallet
 assertions. It does not append requests to the Issue/file scenario.
 
-The actual DSH `web_search` tool must reach public Bing RSS, receive the official
-ast-grep repository source and produce a sourced final answer. Then an actual
+The actual DSH `web_search` tool must reach a real public search source, receive
+the official ast-grep repository source and produce a sourced final answer.
+Explicit GitHub queries now use the anonymous repository index when no search
+provider is configured; broad queries retain Bing RSS. Then an actual
 mobile browser signs in, obtains anonymous GitHub public search results, sends
 those results in the current turn and displays the real answer. Neither path
 may read the connected account's synthetic GitHub data or use a paired device.
@@ -97,14 +99,14 @@ it does not guarantee that a model will obey, or prove why a live search failed.
 Choose `evaluation_kind=dsh-client-research` for independent browser search and
 URL/WASM acceptance. It uses the same actual signed-in mobile interface, three
 genuine model answers, source checks, reload, restart replay and wallet checks,
-without the preceding hosted Bing search. A private temporary file carries the
+without the preceding hosted repository search. A private temporary file carries the
 first synthetic/public browser turn for immutable restart replay; it is excluded
 from exported artifacts and contains no authentication headers or credentials.
 The artifact marks `client_research_only=true`; a pass cannot clear the separate
 hosted public-search gate. Both lanes keep the original six-request ceiling.
 
 Choose `evaluation_kind=dsh-hosted-research` for independent hosted-search
-acceptance. It requires actual public Bing evidence, a sourced final answer,
+repository-search acceptance. It requires actual public repository evidence, a sourced final answer,
 zero connected-account GitHub reads, restart replay without more inference,
 and account ledger reconciliation, under the unchanged six-request ceiling.
 It performs no browser search or URL/WASM phase. Its artifact explicitly marks
@@ -112,6 +114,16 @@ It performs no browser search or URL/WASM phase. Its artifact explicitly marks
 lanes must pass at the candidate revision; one cannot clear the other. The
 original combined lane remains available as a separate, stricter scenario;
 previous failures are not reclassified as successes.
+
+RSS-only run 38025202252 failed after six valid nonempty responses did not
+retrieve the official repository. The repair shares source selection with the
+HTTP search endpoint and reuses GitHub's public index; it neither increases the
+six-inference ceiling nor proves general Bing relevance. The observer bypasses
+only the synthetic account fixture for anonymous `/search/repositories` calls,
+checks no Authorization/Cookie, and observes the unmodified real JSON. Counts
+distinguish repository requests from Bing requests; empty/invalid response
+diagnostics now cover either format. Missing or malformed sources still fail.
+No OAuth/account source, fixed project answer or provider response is injected.
 
 The hosted search observer exports only counts for empty RSS, invalid RSS,
 non-200 responses and repeated normalized queries at the same origin. Query

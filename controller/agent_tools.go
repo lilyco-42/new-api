@@ -48,9 +48,8 @@ type bingSearchRSS struct {
 
 var agentSearchHTMLTag = regexp.MustCompile(`<[^>]*>`)
 
-// AgentWebSearch provides a bounded web search for the Agent. Bing's RSS
-// response is used because it returns ordinary result links without requiring
-// an API key; the client-facing contract remains provider-independent.
+// AgentWebSearch provides bounded public search without account credentials.
+// The result contract is shared with DSH and remains provider-independent.
 func AgentWebSearch(c *gin.Context) {
 	query := strings.TrimSpace(c.Query("q"))
 	if query == "" {
@@ -61,27 +60,90 @@ func AgentWebSearch(c *gin.Context) {
 		return
 	}
 	limit := parseBoundedAgentInt(c.Query("limit"), 5, 1, maxAgentSearchItems)
-	provider := "bing"
-	var items []agentWebSearchItem
-	var err error
-	searchEndpoint := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_URL"))
-	if searchEndpoint == "" {
-		items, err = searchBingRSS(c.Request.Context(), query, limit)
-	} else {
-		provider = "searxng"
-		items, err = searchSearXNG(c.Request.Context(), searchEndpoint, query, limit)
-	}
+	provider, items, searchURL, err := searchAgentPublicSources(c.Request.Context(), query, limit)
 	if err != nil {
 		writeAgentError(c, http.StatusBadGateway, "AGENT_SEARCH_UNAVAILABLE", "web search provider is unavailable or returned an invalid response")
 		return
 	}
-	searchURL := "https://www.bing.com/search?q=" + url.QueryEscape(query)
 	common.ApiSuccess(c, gin.H{
 		"query":      query,
 		"provider":   provider,
 		"items":      items,
 		"search_url": searchURL,
 	})
+}
+
+// The browser endpoint and hosted tool share public-only provider selection.
+// A configured search provider takes precedence. Otherwise explicit GitHub
+// queries use its public repository index, without reading account credentials.
+func searchAgentPublicSources(ctx context.Context, query string, limit int) (string, []agentWebSearchItem, string, error) {
+	searchURL := "https://www.bing.com/search?q=" + url.QueryEscape(query)
+	if endpoint := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_URL")); endpoint != "" {
+		items, err := searchSearXNG(ctx, endpoint, query, limit)
+		return "searxng", items, searchURL, err
+	}
+	if indexQuery := agentPublicGitHubQuery(query); indexQuery != "" {
+		searchURL = "https://github.com/search?type=repositories&q=" + url.QueryEscape(indexQuery)
+		values := url.Values{"q": {indexQuery}, "per_page": {strconv.Itoa(limit)}}
+		body, err := fetchAgentSearchResponse(ctx, "https://api.github.com/search/repositories?"+values.Encode(), "application/vnd.github+json")
+		if err != nil {
+			return "github-public", nil, searchURL, err
+		}
+		items, err := parseAgentPublicGitHubSearch(body, limit)
+		return "github-public", items, searchURL, err
+	}
+	items, err := searchBingRSS(ctx, query, limit)
+	return "bing", items, searchURL, err
+}
+
+var agentPublicGitHubMarker = regexp.MustCompile(`(?i)(^|\s)(github|site:github\.com)(\s|$)`)
+
+func agentPublicGitHubQuery(query string) string {
+	if !agentPublicGitHubMarker.MatchString(query) {
+		return ""
+	}
+	// Match the browser's removal of search boilerplate, while retaining GitHub
+	// qualifiers, quoted terms, punctuation and repository owner/name tokens.
+	terms := make([]string, 0)
+	for _, term := range strings.Fields(query) {
+		switch strings.ToLower(term) {
+		case "a", "an", "and", "about", "find", "for", "github", "site:github.com", "how", "in", "official", "on", "project", "projects", "repo", "repos", "repositories", "repository", "search", "the", "to", "use", "官方", "仓库", "项目", "搜索", "查找":
+			continue
+		}
+		terms = append(terms, term)
+	}
+	return strings.Join(terms, " ")
+}
+
+func parseAgentPublicGitHubSearch(body []byte, limit int) ([]agentWebSearchItem, error) {
+	var payload struct {
+		Incomplete bool `json:"incomplete_results"`
+		Items      []struct {
+			FullName    string `json:"full_name"`
+			HTMLURL     string `json:"html_url"`
+			Description string `json:"description"`
+			Private     *bool  `json:"private"`
+		} `json:"items"`
+	}
+	if err := common.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Incomplete || payload.Items == nil {
+		return nil, errors.New("public repository index returned incomplete or invalid results")
+	}
+	items := make([]agentWebSearchItem, 0, min(limit, len(payload.Items)))
+	for _, repo := range payload.Items {
+		if len(items) >= limit {
+			break
+		}
+		if repo.Private == nil || *repo.Private || !agentGitHubRepoPattern.MatchString(repo.FullName) || repo.HTMLURL != "https://github.com/"+repo.FullName {
+			continue
+		}
+		if item, ok := normalizeAgentSearchItem(repo.FullName, repo.HTMLURL, repo.Description); ok {
+			items = append(items, item)
+		}
+	}
+	return items, nil
 }
 
 func searchBingRSS(ctx context.Context, query string, limit int) ([]agentWebSearchItem, error) {
@@ -139,9 +201,12 @@ func fetchAgentSearchResponse(ctx context.Context, endpoint, accept string, allo
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("web search provider returned status %d", response.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > 1<<20 {
+		return nil, errors.New("web search response exceeds size limit")
 	}
 	return body, nil
 }

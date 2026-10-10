@@ -129,7 +129,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			scope = "Independent mobile Chromium public GitHub search/client WASM page read + actual New API/DSH/trial inference; synthetic accounts/document; does not test hosted Bing search, physical Android or production OAuth"
 		}
 		if hostedOnly {
-			scope = "Independent hosted public Bing search/tool continuation + actual New API/DSH/trial inference, restart replay and wallet; synthetic accounts; does not test browser search, WASM, mobile or production OAuth"
+			scope = "Independent hosted public repository-index search/tool continuation + actual New API/DSH/trial inference, restart replay and wallet; synthetic accounts; does not certify general Bing relevance, browser search, WASM, mobile or production OAuth"
 		}
 		result := map[string]any{"passed": passed && !t.Failed(), "model": prototypeModel,
 			"mobile_browser_emulation":      mobileBrowser,
@@ -138,8 +138,10 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 			"client_research_only":                  clientOnly,
 			"hosted_research_only":                  hostedOnly,
 			"official_search_source_returned":       officialSearchSource.Load(),
-			"public_search_empty_rss_responses":     searchObservation.empty.Load(),
-			"public_search_invalid_rss_responses":   searchObservation.invalid.Load(),
+			"public_repository_search_requests":     searchObservation.repositories.Load(),
+			"public_bing_search_requests":           searchObservation.bing.Load(),
+			"public_search_empty_responses":         searchObservation.empty.Load(),
+			"public_search_invalid_responses":       searchObservation.invalid.Load(),
 			"public_search_non_200_responses":       searchObservation.nonOK.Load(),
 			"public_search_repeated_origin_queries": searchObservation.repeated.Load(),
 			"external_attempts":                     providerCalls.Load(), "github_reads": githubCalls.Load(),
@@ -223,7 +225,7 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 	http.DefaultTransport = compositionGitHubTransport{delegate: originalTransport, origin: github.URL}
 	if research {
 		t.Setenv("AGENT_WEB_SEARCH_URL", "")
-		http.DefaultTransport = prototypeResearchTransport{delegate: http.DefaultTransport, calls: &searchCalls, official: &officialSearchSource, observation: searchObservation}
+		http.DefaultTransport = prototypeResearchTransport{delegate: http.DefaultTransport, publicDelegate: originalTransport, calls: &searchCalls, official: &officialSearchSource, observation: searchObservation}
 	}
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 	// Keep the actual key only at this external test boundary. The application's
@@ -529,28 +531,36 @@ func runLiveDSHNewAPIPrototype(t *testing.T, scenario string) {
 
 // Observe real search responses without substituting data or exposing bodies.
 type prototypeResearchTransport struct {
-	delegate    http.RoundTripper
-	calls       *atomic.Int32
-	official    *atomic.Bool
-	observation *prototypeSearchObservation
+	delegate       http.RoundTripper
+	publicDelegate http.RoundTripper
+	calls          *atomic.Int32
+	official       *atomic.Bool
+	observation    *prototypeSearchObservation
 }
 
 // Only counts leave the test process. Query identities remain in memory, scoped
 // to the search origin so an ordinary cross-origin redirect is not a repeat.
 type prototypeSearchObservation struct {
 	empty, invalid, nonOK, repeated atomic.Int32
+	repositories, bing              atomic.Int32
 	mu                              sync.Mutex
 	queries                         map[string]struct{}
 }
 
 func (observer prototypeResearchTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if request.URL.Hostname() != "www.bing.com" && request.URL.Hostname() != "cn.bing.com" {
+	repositorySearch := request.URL.Hostname() == "api.github.com" && request.URL.Path == "/search/repositories"
+	if !repositorySearch && request.URL.Hostname() != "www.bing.com" && request.URL.Hostname() != "cn.bing.com" {
 		return observer.delegate.RoundTrip(request)
 	}
 	if request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
 		return nil, fmt.Errorf("public search must not receive account credentials")
 	}
 	observer.calls.Add(1)
+	if repositorySearch {
+		observer.observation.repositories.Add(1)
+	} else {
+		observer.observation.bing.Add(1)
+	}
 	queryIdentity := request.URL.Hostname() + "\x00" + strings.ToLower(strings.Join(strings.Fields(request.URL.Query().Get("q")), " "))
 	observer.observation.mu.Lock()
 	if _, exists := observer.observation.queries[queryIdentity]; exists {
@@ -558,7 +568,13 @@ func (observer prototypeResearchTransport) RoundTrip(request *http.Request) (*ht
 	}
 	observer.observation.queries[queryIdentity] = struct{}{}
 	observer.observation.mu.Unlock()
-	response, err := observer.delegate.RoundTrip(request)
+	transport := observer.delegate
+	if repositorySearch {
+		// Public index requests must reach GitHub, not the synthetic account
+		// server which only accepts declared Issue reads with an OAuth token.
+		transport = observer.publicDelegate
+	}
+	response, err := transport.RoundTrip(request)
 	if err != nil {
 		return response, err
 	}
@@ -570,6 +586,28 @@ func (observer prototypeResearchTransport) RoundTrip(request *http.Request) (*ht
 	response.Body = io.NopCloser(bytes.NewReader(body))
 	if response.StatusCode != http.StatusOK {
 		observer.observation.nonOK.Add(1)
+		return response, nil
+	}
+	if repositorySearch {
+		var payload struct {
+			Incomplete bool `json:"incomplete_results"`
+			Items      []struct {
+				URL     string `json:"html_url"`
+				Private *bool  `json:"private"`
+			} `json:"items"`
+		}
+		if json.Unmarshal(body, &payload) != nil || payload.Incomplete || payload.Items == nil {
+			observer.observation.invalid.Add(1)
+			return response, nil
+		}
+		if len(payload.Items) == 0 {
+			observer.observation.empty.Add(1)
+		}
+		for _, item := range payload.Items {
+			if item.Private != nil && !*item.Private && item.URL == "https://github.com/ast-grep/ast-grep" {
+				observer.official.Store(true)
+			}
+		}
 		return response, nil
 	}
 	var feed struct {

@@ -382,23 +382,14 @@ func executeAgentDSHTool(c *gin.Context, tool string, arguments map[string]any) 
 			return nil, "invalid_arguments", "Search query must contain 1–200 characters."
 		}
 		limit := boundAgentDSHToolLimit(args.Limit, 5, agentDSHToolSearchMaxItems)
-		provider := "bing"
-		var items []agentWebSearchItem
-		var err error
-		searchEndpoint := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_URL"))
-		if searchEndpoint == "" {
-			items, err = searchBingRSS(c.Request.Context(), query, limit)
-		} else {
-			provider = "searxng"
-			items, err = searchSearXNG(c.Request.Context(), searchEndpoint, query, limit)
-		}
+		provider, items, searchURL, err := searchAgentPublicSources(c.Request.Context(), query, limit)
 		if err != nil {
 			return nil, "search_unavailable", "Web search is temporarily unavailable."
 		}
 		if len(items) == 0 {
 			return nil, "search_no_results", "No search results were retrieved. Do not repeat the same query. Explain the missing evidence or use a different relevant public source; do not invent sources."
 		}
-		return gin.H{"query": query, "provider": provider, "items": items, "search_url": "https://www.bing.com/search?q=" + url.QueryEscape(query)}, "", ""
+		return gin.H{"query": query, "provider": provider, "items": items, "search_url": searchURL}, "", ""
 	case "web_fetch":
 		return nil, "client_fetch_required", "Public page reading must run in the user's browser; this server does not fetch page contents."
 	case "github_repositories":
