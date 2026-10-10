@@ -306,7 +306,7 @@ func TestBuiltDSHNewAPIReadAnswerAndReplay(t *testing.T) {
 					delta = map[string]any{"role": "assistant", "content": unlinkedIssueAnswer}
 					break
 				}
-				if !strings.Contains(toolResults[0], "BROWSER_ISSUE_FACT_17") || !strings.Contains(toolResults[0], accountIssueURL) || !strings.Contains(toolResults[0], `"repo":"owner/project"`) {
+				if !strings.Contains(toolResults[0], "BROWSER_ISSUE_FACT_17") || !strings.Contains(toolResults[0], accountIssueURL) || !strings.Contains(toolResults[0], `"repository":"owner/project"`) {
 					http.Error(w, "account search did not return a selectable Issue and source", http.StatusBadRequest)
 					return
 				}
